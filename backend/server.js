@@ -49,7 +49,7 @@ app.get('/api/bookings', async (req, res) => {
 
 // 📥 POST NEW BOOKING
 app.post('/api/bookings', async (req, res) => {
-  const { villa_ids, guest_id, check_in_date, check_out_date, total_guests, total_price, notes } = req.body;
+  const { villa_ids, guest_id, check_in_date, check_out_date, total_guests, total_price, notes, selected_addons } = req.body;
 
   try {
     // Check for conflicts
@@ -91,6 +91,17 @@ app.post('/api/bookings', async (req, res) => {
 
     if (bridgeError) throw bridgeError;
 
+    // Insert add-ons if any were selected
+    if (selected_addons && selected_addons.length > 0) {
+      const addonRows = selected_addons.map(a => ({
+        booking_id: bookingData.id,
+        addon_id: a.addon_id,
+        quantity: a.quantity
+      }));
+      const { error: addonError } = await supabase.from('booking_addons').insert(addonRows);
+      if (addonError) throw addonError;
+    }
+    
     res.status(201).json(bookingData);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -145,6 +156,17 @@ app.post('/api/guests', async (req, res) => {
 app.get('/api/villas', async (req, res) => {
   try {
     const { data, error } = await supabase.from('villas').select('*').order('name');
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET ALL ADDONS
+app.get('/api/addons', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('addons').select('*').order('name');
     if (error) throw error;
     res.json(data);
   } catch (error) {

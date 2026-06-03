@@ -9,6 +9,8 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
   const [selectedVillaIds, setSelectedVillaIds] = useState([]);
   const [occupiedVillaIds, setOccupiedVillaIds] = useState([]); // 🔒 Tracks disabled units
   const [dateError, setDateError] = useState('');
+  const [addons, setAddons] = useState([]);
+  const [selectedAddons, setSelectedAddons] = useState({});
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -37,8 +39,9 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
     });
     setSelectedVillaIds([]);
     setOccupiedVillaIds([]);
+    setSelectedAddons({});
     setDateError('');
-    
+
       const fetchVillas = async () => {
         setLoadingVillas(true);
         try {
@@ -85,30 +88,50 @@ useEffect(() => {
   }
 }, [formData.checkInDate, formData.checkOutDate, dateError, isOpen]);
 
+const fetchAddons = async () => {
+  try {
+    const response = await fetch('http://localhost:5000/api/addons');
+    if (response.ok) {
+      const data = await response.json();
+      setAddons(data);
+    }
+  } catch (err) {
+    console.error("Failed to fetch addons:", err);
+  }
+};
+fetchAddons();
+
   // Date Validation & Automatic Pricing Engine
   useEffect(() => {
-    if (formData.checkInDate && formData.checkOutDate) {
-      const checkIn = new Date(formData.checkInDate);
-      const checkOut = new Date(formData.checkOutDate);
-      
-      if (checkOut <= checkIn) {
-        setDateError('⚠️ Checkout date must occur after the check-in timeline.');
-        setFormData(prev => ({ ...prev, totalPrice: 0 }));
-        return;
-      } else {
-        setDateError('');
-      }
+  if (formData.checkInDate && formData.checkOutDate) {
+    const checkIn = new Date(formData.checkInDate);
+    const checkOut = new Date(formData.checkOutDate);
 
-      const timeDiff = checkOut.getTime() - checkIn.getTime();
-      const totalNights = Math.ceil(timeDiff / (1000 * 3600 * 24));
-
-      const combinedRatePerNight = villas
-        .filter(v => selectedVillaIds.includes(v.id))
-        .reduce((sum, v) => sum + (v.base_rate_per_night || 0), 0);
-
-      setFormData(prev => ({ ...prev, totalPrice: totalNights * combinedRatePerNight }));
+    if (checkOut <= checkIn) {
+      setDateError('⚠️ Checkout date must occur after the check-in timeline.');
+      setFormData(prev => ({ ...prev, totalPrice: 0 }));
+      return;
+    } else {
+      setDateError('');
     }
-  }, [formData.checkInDate, formData.checkOutDate, selectedVillaIds, villas]);
+
+    const totalNights = Math.ceil((checkOut - checkIn) / (1000 * 3600 * 24));
+
+    const villaRate = villas
+      .filter(v => selectedVillaIds.includes(v.id))
+      .reduce((sum, v) => sum + (v.base_rate_per_night || 0), 0);
+
+    const addonRate = addons.reduce((sum, addon) => {
+      const qty = selectedAddons[addon.id] || 0;
+      return sum + addon.price_per_night * qty;
+    }, 0);
+
+    setFormData(prev => ({
+      ...prev,
+      totalPrice: totalNights * (villaRate + addonRate)
+    }));
+  }
+}, [formData.checkInDate, formData.checkOutDate, selectedVillaIds, selectedAddons, villas, addons]);
 
   if (!isOpen) return null;
 
@@ -118,6 +141,8 @@ useEffect(() => {
       prev.includes(villaId) ? prev.filter(id => id !== villaId) : [...prev, villaId]
     );
   };
+
+  
 
   const handleSubmit = async (e) => {
   e.preventDefault();
@@ -138,7 +163,10 @@ useEffect(() => {
 
     if (!guestResponse.ok) throw new Error('Failed to create guest record.');
     const newGuest = await guestResponse.json();
-
+    
+    const selected_addons = Object.entries(selectedAddons)
+  .filter(([_, qty]) => qty > 0)
+  .map(([addon_id, quantity]) => ({ addon_id, quantity }));
     // 2. Create Booking (THIS WAS THE MISSING PART)
     const bookingResponse = await fetch('http://localhost:5000/api/bookings', {
       method: 'POST', // <--- THIS IS THE KEY FIX
@@ -150,7 +178,8 @@ useEffect(() => {
         check_out_date: formData.checkOutDate,
         total_guests: parseInt(formData.totalGuests),
         total_price: formData.totalPrice,
-        notes: formData.notes
+        notes: formData.notes,
+        selected_addons
       })
     });
 
@@ -250,6 +279,55 @@ useEffect(() => {
                 )}
               </div>
             </div>
+
+            <div className="form-group">
+  <label style={{ marginBottom: '6px' }}>Add-ons (per night)</label>
+  <div className="checkbox-grid">
+    {addons.length === 0 ? (
+      <span style={{ fontSize: '0.9rem', color: '#64748b' }}>No add-ons available</span>
+    ) : (
+      addons.map(addon => (
+        <div key={addon.id} className="checkbox-row" style={{ justifyContent: 'space-between' }}>
+          <label className="checkbox-text" style={{ flex: 1 }}>
+            <span>{addon.name}</span>
+            <span className="villa-rate">Rp {addon.price_per_night?.toLocaleString()}/night</span>
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+            <button
+              type="button"
+              onClick={() => setSelectedAddons(prev => ({
+                ...prev,
+                [addon.id]: Math.max(0, (prev[addon.id] || 0) - 1)
+              }))}
+              style={{
+                width: '28px', height: '28px', borderRadius: '50%',
+                border: '1px solid #cbd5e1', background: '#f8fafc',
+                cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >−</button>
+            <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 500 }}>
+              {selectedAddons[addon.id] || 0}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedAddons(prev => ({
+                ...prev,
+                [addon.id]: (prev[addon.id] || 0) + 1
+              }))}
+              style={{
+                width: '28px', height: '28px', borderRadius: '50%',
+                border: '1px solid #cbd5e1', background: '#f8fafc',
+                cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >+</button>
+          </div>
+        </div>
+      ))
+    )}
+  </div>
+</div>
 
             <div className="form-row">
               <div className="form-group">

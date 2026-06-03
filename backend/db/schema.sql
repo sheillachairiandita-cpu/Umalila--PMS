@@ -66,6 +66,25 @@ CREATE TABLE booking_villas (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+CREATE TABLE addons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    price_per_night NUMERIC(10, 2) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+CREATE TABLE booking_addons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    booking_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
+    addon_id UUID REFERENCES addons(id) ON DELETE RESTRICT,
+    quantity INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+INSERT INTO addons (name, price_per_night) VALUES
+('Extra Bed', 250000.00),
+('Extra Breakfast', 50000.00);
+
 -- Seed Data: Insert Umalila's 3 distinct structural buildings automatically
 INSERT INTO villas (name, capacity, base_rate_per_night, description) VALUES
 ('Villa Ricefield View', 4, 1200000.00, 'Premium 2-bedroom villa overlooking the scenic highlands.'),
