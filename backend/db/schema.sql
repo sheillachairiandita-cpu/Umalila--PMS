@@ -18,6 +18,7 @@ CREATE TABLE villas (
     name TEXT UNIQUE NOT NULL,
     capacity INT NOT NULL,
     base_rate_per_night NUMERIC(10, 2) NOT NULL,
+    base_breakfast INT NOT NULL DEFAULT 0
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
