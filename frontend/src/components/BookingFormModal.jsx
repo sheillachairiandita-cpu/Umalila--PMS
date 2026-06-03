@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, User, Home, Info } from 'lucide-react';
 import SubmittingOverlay from './SubmittingOverlay';
 
-const [isSubmitting, setIsSubmitting] = useState(false);
-
 function BookingFormModal({ isOpen, onClose, onSuccess }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [villas, setVillas] = useState([]);
   const [loadingVillas, setLoadingVillas] = useState(false);
   const [selectedVillaIds, setSelectedVillaIds] = useState([]);
@@ -15,8 +14,8 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
     fullName: '',
     email: '',
     phoneNumber: '',
-    checkInDate: '2026-06-10',
-    checkOutDate: '2026-06-15',
+    checkInDate: '',
+    checkOutDate: '',
     totalGuests: '2',
     totalPrice: 0,
     notes: ''
@@ -25,6 +24,21 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
   // Fetch all villas when modal opens
   useEffect(() => {
     if (isOpen) {
+       // Reset form state every time modal opens
+    setFormData({
+      fullName: '',
+      email: '',
+      phoneNumber: '',
+      checkInDate: '',
+      checkOutDate: '',
+      totalGuests: '2',
+      totalPrice: 0,
+      notes: ''
+    });
+    setSelectedVillaIds([]);
+    setOccupiedVillaIds([]);
+    setDateError('');
+    
       const fetchVillas = async () => {
         setLoadingVillas(true);
         try {
