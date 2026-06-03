@@ -59,6 +59,13 @@ CREATE TABLE finances (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+CREATE TABLE booking_villas (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    booking_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
+    villa_id UUID REFERENCES villas(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
 -- Seed Data: Insert Umalila's 3 distinct structural buildings automatically
 INSERT INTO villas (name, capacity, base_rate_per_night, description) VALUES
 ('Villa Ricefield View', 4, 1200000.00, 'Premium 2-bedroom villa overlooking the scenic highlands.'),
