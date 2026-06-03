@@ -7,8 +7,7 @@ html, body {
   width: 100% !important;
   height: 100vh !important;
   overflow: hidden;
-  /* 👈 Shrinks baseline typography across the entire system */
-  font-size: 13px; 
+  font-size: 14px;
 }
 
 #root {
@@ -18,7 +17,6 @@ html, body {
   height: 100%;
 }
 
-/* Ensure the app layout container fills the window completely */
 .app-layout {
   display: flex;
   height: 100vh;
@@ -46,57 +44,57 @@ body {
 
 .dashboard-container {
   width: 100%;
-  max-width: 100%; 
-  margin: 0;        
-  padding: 24px 32px;    
+  max-width: 100%;
+  margin: 0;
+  padding: 28px 36px;
   box-sizing: border-box;
 }
 
 .header-panel {
   margin-bottom: 24px;
   border-bottom: 1px solid var(--border-light);
-  padding-bottom: 14px;
+  padding-bottom: 16px;
 }
 
 .header-panel h1 {
   margin: 0 0 2px 0;
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   font-weight: 700;
   color: var(--accent-navy);
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 16px;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .stat-card {
   background: #ffffff;
-  padding: 16px 20px;
-  border-radius: 8px;
+  padding: 18px 20px;
+  border-radius: 10px;
   border: 1px solid var(--border-light);
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .stat-card h3 {
   margin: 0 0 6px 0;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
 
 .stat-number {
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-main);
 }
 
 .data-section {
   background: #ffffff;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border-light);
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   overflow: hidden;
@@ -110,6 +108,9 @@ body {
   background: #fafafa;
 }
 
+/* ==========================================================================
+   TABLE — roomier, easier to scan
+   ========================================================================== */
 .pms-table {
   width: 100%;
   border-collapse: collapse;
@@ -117,24 +118,37 @@ body {
 }
 
 .pms-table th {
-  padding: 10px 18px;
+  padding: 11px 20px;
   background: #f8fafc;
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
   border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
 }
 
+/* More vertical padding per row so rows breathe */
 .pms-table td {
-  padding: 10px 18px;
+  padding: 13px 20px;
   border-bottom: 1px solid var(--border-light);
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.pms-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.pms-table tbody tr:hover {
+  background-color: #f8fafc;
 }
 
 .status-badge {
   display: inline-block;
-  padding:3px 8px;
+  padding: 3px 9px;
   border-radius: 12px;
   font-size: 0.7rem;
   font-weight: 600;
@@ -149,9 +163,10 @@ body {
 }
 
 .empty-state {
-  padding: 48px;
+  padding: 56px;
   text-align: center;
   color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 .form-row {
@@ -160,7 +175,9 @@ body {
   gap: 12px;
 }
 
-/* Darkened backdrop with premium frosted-glass blur */
+/* ==========================================================================
+   MODAL
+   ========================================================================== */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -176,7 +193,6 @@ body {
   padding: 24px;
 }
 
-/* Elegant, wide container with clean curves and floating shadow */
 .modal-card {
   background: #ffffff;
   width: 100%;
@@ -187,10 +203,9 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  max-height: 90vh; /* Keeps the modal scrollable if screen size is small */
+  max-height: 90vh;
 }
 
-/* Header section with structured spacing */
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -207,7 +222,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* Modern minimalist close button */
 .close-btn {
   background: transparent;
   border: none;
@@ -226,7 +240,6 @@ body {
   color: #0f172a;
 }
 
-/* Form Container Scroll Mechanics */
 .modal-form {
   padding: 32px;
   overflow-y: auto;
@@ -235,7 +248,6 @@ body {
   gap: 28px;
 }
 
-/* Distinct visual sections */
 .form-section {
   display: flex;
   flex-direction: column;
@@ -251,12 +263,11 @@ body {
   text-transform: uppercase;
   text-align: left;
   letter-spacing: 0.05em;
-  color: #1e3a8a; /* Deep navy anchor accent */
+  color: #1e3a8a;
   margin: 0 0 4px 0;
   justify-content: flex-start;
 }
 
-/* Flexible Layout Infrastructure */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -266,19 +277,17 @@ body {
 
 .form-row {
   display: grid;
-  grid-template-columns: repeat(2, 1fr); /* Splits row perfectly in half */
+  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
   width: 100%;
 }
 
-/* Global alignment safety net for form labels and grid groups */
 .form-group,
 .form-group label,
 .checkbox-grid {
   text-align: left;
 }
 
-/* Minimalist Editorial Input Field Treatment */
 .modal-form label {
   font-size: 0.85rem;
   font-weight: 500;
@@ -302,7 +311,6 @@ body {
   font-family: inherit;
 }
 
-/* Soft focusing effect when entering a field */
 .modal-form input:focus,
 .modal-form textarea:focus {
   outline: none;
@@ -310,7 +318,6 @@ body {
   box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
 }
 
-/* Read-only total price layout anchor */
 .modal-form input[readonly] {
   background-color: #f8fafc !important;
   border-color: #cbd5e1;
@@ -318,7 +325,6 @@ body {
   font-weight: 600;
 }
 
-/* Balanced Multi-Villa Checkbox Frame */
 .checkbox-grid {
   display: flex;
   flex-direction: column;
@@ -350,7 +356,7 @@ body {
   height: 16px !important;
   margin: 0;
   cursor: pointer;
-  accent-color: #1e3a8a; /* Deep navy checks */
+  accent-color: #1e3a8a;
 }
 
 .checkbox-text {
@@ -364,7 +370,6 @@ body {
   margin: 0 !important;
 }
 
-/* Styling for unavailable, booked villa rows */
 .checkbox-row.disabled-row {
   background-color: #f8fafc;
   cursor: not-allowed;
@@ -372,7 +377,7 @@ body {
 }
 
 .checkbox-row.disabled-row:hover {
-  background-color: #f8fafc; /* Prevent the normal hover gray shift */
+  background-color: #f8fafc;
 }
 
 .checkbox-row input[type="checkbox"]:disabled {
@@ -386,7 +391,6 @@ body {
   font-weight: 500;
 }
 
-/* Warning block if timestamps are inverted */
 .date-error-banner {
   background-color: #fef2f2;
   border: 1px solid #fee2e2;
@@ -397,11 +401,10 @@ body {
   font-weight: 500;
 }
 
-/* Flat, Premium operational action bar button */
 .submit-form-btn {
   width: 100%;
   padding: 12px 24px;
-  background-color: #0f172a; /* Slate black button */
+  background-color: #0f172a;
   color: #ffffff;
   border: none;
   border-radius: 8px;
@@ -422,26 +425,17 @@ body {
 }
 
 /* ==========================================================================
-   8. MASTER VIEW CONTAINER & SUB-PAGE STRUCTURAL FRAMEWORKS
+   LAYOUT
    ========================================================================== */
-.app-layout {
-  display: flex;
-  height: 100vh;
-  width: 100%;
-  background-color: var(--bg-primary);
-  overflow: hidden;
-}
-
 .main-content {
   flex-grow: 1;
-  min-width: 0; 
+  min-width: 0;
   height: 100vh;
-  overflow-y: auto; 
-  overflow-x: hidden; 
+  overflow-y: auto;
+  overflow-x: hidden;
   background-color: var(--bg-primary);
 }
 
-/* Fallback Screens Layout Settings */
 .placeholder-page {
   padding: 48px;
   text-align: left;
@@ -460,7 +454,9 @@ body {
   font-size: 0.95rem;
 }
 
-/* 2. Add the missing Sidebar UI container rules */
+/* ==========================================================================
+   SIDEBAR
+   ========================================================================== */
 .sidebar {
   width: 215px;
   background-color: #ffffff;
@@ -524,7 +520,7 @@ body {
   align-items: center;
   gap: 0.65rem;
   width: 100%;
-  padding: 0.55rem 0.85rem; 
+  padding: 0.55rem 0.85rem;
   border: none;
   background: transparent;
   color: #475569;

@@ -1,0 +1,19 @@
+BREAKFAST LOGIC:
+// - Breakfast TODAY   = guests who are already IN HOUSE (checked in BEFORE today, checking out AFTER today)
+//                       Arrivals today do NOT eat breakfast today — they arrive and sleep, breakfast is the next morning.
+// - Breakfast TOMORROW = in-house guests who are still there tomorrow
+//                        + today's arrivals (they'll eat breakfast tomorrow morning)
+//                        — NOT guests checking out tomorrow (they eat, but that's the morning of departure)
+//                           Actually: guests checking out tomorrow DO eat breakfast tomorrow (last morning).
+//                           So tomorrow breakfast = all bookings where check_in < tomorrow AND check_out >= tomorrow
+//                           i.e. they are still in house on the morning of tomorrow.
+//
+// Rule of thumb: breakfast is served on mornings AFTER arrival and ON the morning of departure.
+// So a guest staying June 3–4 (1 night) gets breakfast on June 4 morning (departure day).
+// A guest staying June 3–5 gets breakfast June 4 and June 5.
+//
+// Therefore:
+//   Breakfast today (June 3) = bookings where check_in < today AND check_out >= today
+//                              (already here, eating this morning — they arrived before today)
+//   Breakfast tomorrow (June 4) = bookings where check_in <= today AND check_out >= tomorrow
+//                                 (includes today's arrivals who eat tomorrow + in-house eating tomorrow)
