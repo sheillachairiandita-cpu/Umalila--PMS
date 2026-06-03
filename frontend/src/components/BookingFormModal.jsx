@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Home, Info } from 'lucide-react';
+import SubmittingOverlay from './SubmittingOverlay';
+
+const [isSubmitting, setIsSubmitting] = useState(false);
 
 function BookingFormModal({ isOpen, onClose, onSuccess }) {
   const [villas, setVillas] = useState([]);
@@ -105,6 +108,7 @@ useEffect(() => {
   const handleSubmit = async (e) => {
   e.preventDefault();
   if (dateError) return;
+  setIsSubmitting(true);
 
   try {
     // 1. Create Guest
@@ -150,12 +154,15 @@ useEffect(() => {
   } catch (err) {
     console.error("Booking error:", err.message);
     alert("Communication error: " + err.message);
+  } finally {
+    setIsSubmitting(false); // ← add
   }
 };
 
   return (
     <div className="modal-overlay">
-      <div className="modal-card">
+      <div className="modal-card" style={{ position: 'relative' }}>
+        {isSubmitting && <SubmittingOverlay />}
         <div className="modal-header">
           <h2>Book New Reservation</h2>
           <button className="close-btn" onClick={onClose}><X size={20} /></button>

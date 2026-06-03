@@ -16,29 +16,32 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 app.use(cors());
 app.use(express.json());
 
-// 🔍 GET OCCUPIED VILLAS FOR A DATE RANGE
-app.get('/api/villas/availability', async (req, res) => {
-  const { check_in, check_out } = req.query;
-
-  if (!check_in || !check_out) {
-    return res.status(400).json({ error: 'Missing check_in or check_out parameters.' });
-  }
-
+// 📋 GET ALL BOOKINGS with guest + villa info
+app.get('/api/bookings', async (req, res) => {
   try {
-    const { data: conflicts, error } = await supabase
-      .from('booking_villas')
+    const { data, error } = await supabase
+      .from('bookings')
       .select(`
-        villa_id,
-        bookings!inner (status, check_in_date, check_out_date)
+        *,
+        guests (full_name, phone_number),
+        booking_villas (
+          villas (name)
+        )
       `)
-      .not('bookings.status', 'eq', 'cancelled') // Stable filter
-      .lt('bookings.check_in_date', check_out)
-      .gt('bookings.check_out_date', check_in);
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    const occupiedVillaIds = conflicts ? conflicts.map(c => c.villa_id) : [];
-    res.json({ occupiedVillaIds });
+    // Flatten villa names into a comma-separated string
+    const formatted = data.map(b => ({
+      ...b,
+      villa_names: b.booking_villas
+        ?.map(bv => bv.villas?.name)
+        .filter(Boolean)
+        .join(', ') || 'No Units Assigned'
+    }));
+
+    res.json(formatted);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -91,6 +94,34 @@ app.post('/api/bookings', async (req, res) => {
     res.status(201).json(bookingData);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// 🔍 GET OCCUPIED VILLAS FOR A DATE RANGE
+app.get('/api/villas/availability', async (req, res) => {
+  const { check_in, check_out } = req.query;
+
+  if (!check_in || !check_out) {
+    return res.status(400).json({ error: 'Missing check_in or check_out parameters.' });
+  }
+
+  try {
+    const { data: conflicts, error } = await supabase
+      .from('booking_villas')
+      .select(`
+        villa_id,
+        bookings!inner (status, check_in_date, check_out_date)
+      `)
+      .not('bookings.status', 'eq', 'cancelled') // Stable filter
+      .lt('bookings.check_in_date', check_out)
+      .gt('bookings.check_out_date', check_in);
+
+    if (error) throw error;
+
+    const occupiedVillaIds = conflicts ? conflicts.map(c => c.villa_id) : [];
+    res.json({ occupiedVillaIds });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
