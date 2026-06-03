@@ -7,7 +7,7 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
   const [villas, setVillas] = useState([]);
   const [loadingVillas, setLoadingVillas] = useState(false);
   const [selectedVillaIds, setSelectedVillaIds] = useState([]);
-  const [occupiedVillaIds, setOccupiedVillaIds] = useState([]); // 🔒 Tracks disabled units
+  const [occupiedVillaIds, setOccupiedVillaIds] = useState([]);
   const [dateError, setDateError] = useState('');
   const [addons, setAddons] = useState([]);
   const [selectedAddons, setSelectedAddons] = useState({});
@@ -23,10 +23,11 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
     notes: ''
   });
 
-  // Fetch all villas when modal opens
+  // Fetch villas AND addons when modal opens — both in one useEffect
   useEffect(() => {
-    if (isOpen) {
-       // Reset form state every time modal opens
+    if (!isOpen) return;
+
+    // Reset form state every time modal opens
     setFormData({
       fullName: '',
       email: '',
@@ -42,68 +43,50 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
     setSelectedAddons({});
     setDateError('');
 
-      const fetchVillas = async () => {
-        setLoadingVillas(true);
-        try {
-          const response = await fetch('http://localhost:5000/api/villas');
-          if (response.ok) {
-            const data = await response.json();
-            setVillas(data);
-            setSelectedVillaIds([]);
-          }
-        } catch (err) {
-          console.error("Failed to fetch available villas:", err);
-        } finally {
-          setLoadingVillas(false);
-        }
-      };
-      fetchVillas();
-    }
-  }, [isOpen]);
+    const fetchInitialData = async () => {
+      setLoadingVillas(true);
+      try {
+        const [villasRes, addonsRes] = await Promise.all([
+          fetch('http://localhost:5000/api/villas'),
+          fetch('http://localhost:5000/api/addons'),
+        ]);
+        if (villasRes.ok) setVillas(await villasRes.json());
+        if (addonsRes.ok) setAddons(await addonsRes.json());
+      } catch (err) {
+        console.error('Failed to fetch initial modal data:', err);
+      } finally {
+        setLoadingVillas(false);
+      }
+    };
 
-  // 🔄 Fetch booked villas whenever the date range changes
-useEffect(() => {
-  if (isOpen && formData.checkInDate && formData.checkOutDate && !dateError) {
+    fetchInitialData();
+  }, [isOpen]); // ← only re-runs when modal opens/closes, NOT on every render
+
+  // Fetch availability whenever date range changes
+  useEffect(() => {
+    if (!isOpen || !formData.checkInDate || !formData.checkOutDate || dateError) return;
+
     const checkLiveAvailability = async () => {
       try {
         const response = await fetch(
           `http://localhost:5000/api/villas/availability?check_in=${formData.checkInDate}&check_out=${formData.checkOutDate}`
         );
-        
-        if (!response.ok) {
-          console.warn("Availability check returned an error. Defaulting to show all.");
-          return; // Simply stop here; don't crash
-        }
-        
+        if (!response.ok) return;
         const data = await response.json();
         setOccupiedVillaIds(data.occupiedVillaIds || []);
-        
-        // Auto-deselect any villa that just became disabled
         setSelectedVillaIds(prev => prev.filter(id => !(data.occupiedVillaIds || []).includes(id)));
       } catch (err) {
-        console.error("Communication error, but UI remains stable:", err);
+        console.error('Availability check error:', err);
       }
     };
+
     checkLiveAvailability();
-  }
-}, [formData.checkInDate, formData.checkOutDate, dateError, isOpen]);
+  }, [formData.checkInDate, formData.checkOutDate, dateError, isOpen]);
 
-const fetchAddons = async () => {
-  try {
-    const response = await fetch('http://localhost:5000/api/addons');
-    if (response.ok) {
-      const data = await response.json();
-      setAddons(data);
-    }
-  } catch (err) {
-    console.error("Failed to fetch addons:", err);
-  }
-};
-fetchAddons();
-
-  // Date Validation & Automatic Pricing Engine
+  // Date validation & automatic pricing
   useEffect(() => {
-  if (formData.checkInDate && formData.checkOutDate) {
+    if (!formData.checkInDate || !formData.checkOutDate) return;
+
     const checkIn = new Date(formData.checkInDate);
     const checkOut = new Date(formData.checkOutDate);
 
@@ -111,10 +94,9 @@ fetchAddons();
       setDateError('⚠️ Checkout date must occur after the check-in timeline.');
       setFormData(prev => ({ ...prev, totalPrice: 0 }));
       return;
-    } else {
-      setDateError('');
     }
 
+    setDateError('');
     const totalNights = Math.ceil((checkOut - checkIn) / (1000 * 3600 * 24));
 
     const villaRate = villas
@@ -130,77 +112,73 @@ fetchAddons();
       ...prev,
       totalPrice: totalNights * (villaRate + addonRate)
     }));
-  }
-}, [formData.checkInDate, formData.checkOutDate, selectedVillaIds, selectedAddons, villas, addons]);
+  }, [formData.checkInDate, formData.checkOutDate, selectedVillaIds, selectedAddons, villas, addons]);
 
   if (!isOpen) return null;
 
   const handleVillaCheckboxChange = (villaId) => {
-    if (occupiedVillaIds.includes(villaId)) return; // Prevent clicking disabled units
-    setSelectedVillaIds(prev => 
+    if (occupiedVillaIds.includes(villaId)) return;
+    setSelectedVillaIds(prev =>
       prev.includes(villaId) ? prev.filter(id => id !== villaId) : [...prev, villaId]
     );
   };
 
-  
-
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  if (dateError) return;
-  setIsSubmitting(true);
+    e.preventDefault();
+    if (dateError) return;
+    setIsSubmitting(true);
 
-  try {
-    // 1. Create Guest
-    const guestResponse = await fetch('http://localhost:5000/api/guests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        full_name: formData.fullName,
-        email: formData.email,
-        phone_number: formData.phoneNumber
-      })
-    });
+    try {
+      const guestResponse = await fetch('http://localhost:5000/api/guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: formData.fullName,
+          email: formData.email,
+          phone_number: formData.phoneNumber
+        })
+      });
 
-    if (!guestResponse.ok) throw new Error('Failed to create guest record.');
-    const newGuest = await guestResponse.json();
-    
-    const selected_addons = Object.entries(selectedAddons)
-  .filter(([_, qty]) => qty > 0)
-  .map(([addon_id, quantity]) => ({ addon_id, quantity }));
-    // 2. Create Booking (THIS WAS THE MISSING PART)
-    const bookingResponse = await fetch('http://localhost:5000/api/bookings', {
-      method: 'POST', // <--- THIS IS THE KEY FIX
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        villa_ids: selectedVillaIds,
-        guest_id: newGuest.id,
-        check_in_date: formData.checkInDate,
-        check_out_date: formData.checkOutDate,
-        total_guests: parseInt(formData.totalGuests),
-        total_price: formData.totalPrice,
-        notes: formData.notes,
-        selected_addons
-      })
-    });
+      if (!guestResponse.ok) throw new Error('Failed to create guest record.');
+      const newGuest = await guestResponse.json();
 
-    const data = await bookingResponse.json();
+      const selected_addons = Object.entries(selectedAddons)
+        .filter(([_, qty]) => qty > 0)
+        .map(([addon_id, quantity]) => ({ addon_id, quantity }));
 
-    if (bookingResponse.status === 409) {
-      alert(`Booking Denied: ${data.error}`);
-      return;
+      const bookingResponse = await fetch('http://localhost:5000/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          villa_ids: selectedVillaIds,
+          guest_id: newGuest.id,
+          check_in_date: formData.checkInDate,
+          check_out_date: formData.checkOutDate,
+          total_guests: parseInt(formData.totalGuests),
+          total_price: formData.totalPrice,
+          notes: formData.notes,
+          selected_addons
+        })
+      });
+
+      const data = await bookingResponse.json();
+
+      if (bookingResponse.status === 409) {
+        alert(`Booking Denied: ${data.error}`);
+        return;
+      }
+
+      if (!bookingResponse.ok) throw new Error(data.error || 'Failed to save booking.');
+
+      setSelectedVillaIds([]);
+      onSuccess();
+    } catch (err) {
+      console.error('Booking error:', err.message);
+      alert('Communication error: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    if (!bookingResponse.ok) throw new Error(data.error || 'Failed to capture active booking ledger.');
-
-    setSelectedVillaIds([]);
-    onSuccess();
-  } catch (err) {
-    console.error("Booking error:", err.message);
-    alert("Communication error: " + err.message);
-  } finally {
-    setIsSubmitting(false); // ← add
-  }
-};
+  };
 
   return (
     <div className="modal-overlay">
@@ -211,39 +189,39 @@ fetchAddons();
           <button className="close-btn" onClick={onClose}><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="modal-form">
-          
+
           <div className="form-section">
             <h4><User size={14} /> Guest Profile Details</h4>
             <div className="form-group">
               <label>Guest Full Name</label>
-              <input type="text" placeholder="John Doe" required value={formData.fullName} onChange={(e) => setFormData({...formData, fullName: e.target.value})} />
+              <input type="text" placeholder="John Doe" required value={formData.fullName} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} />
             </div>
             <div className="form-row">
               <div className="form-group">
                 <label>Email Address</label>
-                <input type="email" placeholder="john@example.com" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
+                <input type="email" placeholder="john@example.com" required value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
               </div>
               <div className="form-group">
                 <label>Phone Number</label>
-                <input type="text" placeholder="+62..." required value={formData.phoneNumber} onChange={(e) => setFormData({...formData, phoneNumber: e.target.value})} />
+                <input type="text" placeholder="+62..." required value={formData.phoneNumber} onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })} />
               </div>
             </div>
           </div>
 
           <div className="form-section">
             <h4><Home size={14} /> Room Selection & Pricing</h4>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label>Check In</label>
-                <input type="date" required value={formData.checkInDate} onChange={(e) => setFormData({...formData, checkInDate: e.target.value})} />
+                <input type="date" required value={formData.checkInDate} onChange={(e) => setFormData({ ...formData, checkInDate: e.target.value })} />
               </div>
               <div className="form-group">
                 <label>Check Out</label>
-                <input type="date" required value={formData.checkOutDate} onChange={(e) => setFormData({...formData, checkOutDate: e.target.value})} />
+                <input type="date" required value={formData.checkOutDate} onChange={(e) => setFormData({ ...formData, checkOutDate: e.target.value })} />
               </div>
             </div>
-            
+
             {dateError && <div className="date-error-banner">{dateError}</div>}
 
             <div className="form-group">
@@ -258,10 +236,10 @@ fetchAddons();
                     const isBooked = occupiedVillaIds.includes(villa.id);
                     return (
                       <div key={villa.id} className={`checkbox-row ${isBooked ? 'disabled-row' : ''}`}>
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           id={`villa-${villa.id}`}
-                          checked={selectedVillaIds.includes(villa.id)} 
+                          checked={selectedVillaIds.includes(villa.id)}
                           disabled={isBooked}
                           onChange={() => handleVillaCheckboxChange(villa.id)}
                         />
@@ -281,65 +259,65 @@ fetchAddons();
             </div>
 
             <div className="form-group">
-  <label style={{ marginBottom: '6px' }}>Add-ons (per night)</label>
-  <div className="checkbox-grid">
-    {addons.length === 0 ? (
-      <span style={{ fontSize: '0.9rem', color: '#64748b' }}>No add-ons available</span>
-    ) : (
-      addons.map(addon => (
-        <div key={addon.id} className="checkbox-row" style={{ justifyContent: 'space-between' }}>
-          <label className="checkbox-text" style={{ flex: 1 }}>
-            <span>{addon.name}</span>
-            <span className="villa-rate">Rp {addon.price_per_night?.toLocaleString()}/night</span>
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedAddons(prev => ({
-                ...prev,
-                [addon.id]: Math.max(0, (prev[addon.id] || 0) - 1)
-              }))}
-              style={{
-                width: '28px', height: '28px', borderRadius: '50%',
-                border: '1px solid #cbd5e1', background: '#f8fafc',
-                cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}
-            >−</button>
-            <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 500 }}>
-              {selectedAddons[addon.id] || 0}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedAddons(prev => ({
-                ...prev,
-                [addon.id]: (prev[addon.id] || 0) + 1
-              }))}
-              style={{
-                width: '28px', height: '28px', borderRadius: '50%',
-                border: '1px solid #cbd5e1', background: '#f8fafc',
-                cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}
-            >+</button>
-          </div>
-        </div>
-      ))
-    )}
-  </div>
-</div>
+              <label style={{ marginBottom: '6px' }}>Add-ons (per night)</label>
+              <div className="checkbox-grid">
+                {addons.length === 0 ? (
+                  <span style={{ fontSize: '0.9rem', color: '#64748b' }}>No add-ons available</span>
+                ) : (
+                  addons.map(addon => (
+                    <div key={addon.id} className="checkbox-row" style={{ justifyContent: 'space-between' }}>
+                      <label className="checkbox-text" style={{ flex: 1 }}>
+                        <span>{addon.name}</span>
+                        <span className="villa-rate">Rp {addon.price_per_night?.toLocaleString()}/night</span>
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAddons(prev => ({
+                            ...prev,
+                            [addon.id]: Math.max(0, (prev[addon.id] || 0) - 1)
+                          }))}
+                          style={{
+                            width: '28px', height: '28px', borderRadius: '50%',
+                            border: '1px solid #cbd5e1', background: '#f8fafc',
+                            cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}
+                        >−</button>
+                        <span style={{ minWidth: '20px', textAlign: 'center', fontWeight: 500 }}>
+                          {selectedAddons[addon.id] || 0}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAddons(prev => ({
+                            ...prev,
+                            [addon.id]: (prev[addon.id] || 0) + 1
+                          }))}
+                          style={{
+                            width: '28px', height: '28px', borderRadius: '50%',
+                            border: '1px solid #cbd5e1', background: '#f8fafc',
+                            cursor: 'pointer', fontSize: '1rem', lineHeight: 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center'
+                          }}
+                        >+</button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
             <div className="form-row">
               <div className="form-group">
                 <label>Total Guests</label>
-                <input type="number" placeholder="2" required value={formData.totalGuests} onChange={(e) => setFormData({...formData, totalGuests: e.target.value})} />
+                <input type="number" placeholder="2" required value={formData.totalGuests} onChange={(e) => setFormData({ ...formData, totalGuests: e.target.value })} />
               </div>
               <div className="form-group">
                 <label>Calculated Price (IDR)</label>
-                <input 
-                  type="text" 
-                  readOnly 
-                  value={`Rp ${formData.totalPrice.toLocaleString()}`} 
+                <input
+                  type="text"
+                  readOnly
+                  value={`Rp ${formData.totalPrice.toLocaleString()}`}
                   style={{ backgroundColor: '#f8fafc', fontWeight: 'bold', color: '#0f172a' }}
                 />
               </div>
@@ -349,7 +327,7 @@ fetchAddons();
           <div className="form-section">
             <h4><Info size={14} /> Internal System Notes</h4>
             <div className="form-group">
-              <textarea placeholder="Special catering requests, early arrival accommodations..." rows="2" value={formData.notes} onChange={(e) => setFormData({...formData, notes: e.target.value})}></textarea>
+              <textarea placeholder="Special catering requests, early arrival accommodations..." rows="2" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })}></textarea>
             </div>
           </div>
 

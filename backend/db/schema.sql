@@ -82,12 +82,3 @@ CREATE TABLE booking_addons (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
-INSERT INTO addons (name, price_per_night) VALUES
-('Extra Bed', 250000.00),
-('Extra Breakfast', 50000.00);
-
--- Seed Data: Insert Umalila's 3 distinct structural buildings automatically
-INSERT INTO villas (name, capacity, base_rate_per_night, description) VALUES
-('Villa Ricefield View', 4, 1200000.00, 'Premium 2-bedroom villa overlooking the scenic highlands.'),
-('Villa Sunrise Garden', 2, 850000.00, 'Cozy 1-bedroom suite with direct private garden access.'),
-('Family Panoramic Suite', 6, 1950000.00, 'Large multi-family structural building with a wrap-around balcony.');

@@ -25,21 +25,41 @@ app.get('/api/bookings', async (req, res) => {
         *,
         guests (full_name, phone_number),
         booking_villas (
-          villas (name)
+          villas (name, base_breakfast)
+        ),
+        booking_addons (
+          quantity,
+          addons (id, name, base_breakfast)
         )
       `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Flatten villa names into a comma-separated string
-    const formatted = data.map(b => ({
-      ...b,
-      villa_names: b.booking_villas
-        ?.map(bv => bv.villas?.name)
-        .filter(Boolean)
-        .join(', ') || 'No Units Assigned'
-    }));
+    const today = new Date().toISOString().split('T')[0];
+
+    const formatted = data.map(b => {
+      const villaBreakfast = b.booking_villas?.reduce((sum, bv) => sum + (bv.villas?.base_breakfast || 0), 0) || 0;
+      const addonBreakfast = b.booking_addons?.reduce((sum, ba) => sum + ((ba.addons?.base_breakfast || 0) * (ba.quantity || 1)), 0) || 0;
+      const totalBreakfast = villaBreakfast + addonBreakfast;
+
+      const extraBedAddon = b.booking_addons?.find(ba => ba.addons?.name === 'Extra Bed');
+      const extraBedQty = extraBedAddon?.quantity || 0;
+
+      // Determine stay phase
+      let stayPhase = 'in-house';
+      if (b.check_in_date === today) stayPhase = 'arrival';
+      else if (b.check_out_date === today) stayPhase = 'departure';
+      else if (b.check_in_date > today) stayPhase = 'upcoming';
+
+      return {
+        ...b,
+        villa_names: b.booking_villas?.map(bv => bv.villas?.name).filter(Boolean).join(', ') || 'No Units Assigned',
+        total_breakfast: totalBreakfast,
+        extra_bed_qty: extraBedQty,
+        stay_phase: stayPhase
+      };
+    });
 
     res.json(formatted);
   } catch (error) {
@@ -192,6 +212,88 @@ app.patch('/api/bookings/:id/status', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.get('/api/dashboard', async (req, res) => {
+  const todayDate = new Date();
+  const today = todayDate.toISOString().split('T')[0];
+
+  const tomorrowDate = new Date(todayDate);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = tomorrowDate.toISOString().split('T')[0];
+
+  const calcBreakfast = (bookings) =>
+    (bookings || []).reduce((total, b) => {
+      const villaBreakfast = b.booking_villas?.reduce((s, bv) => s + (bv.villas?.base_breakfast || 0), 0) || 0;
+      const addonBreakfast = b.booking_addons?.reduce((s, ba) => s + ((ba.addons?.base_breakfast || 0) * (ba.quantity || 1)), 0) || 0;
+      return total + villaBreakfast + addonBreakfast;
+    }, 0);
+
+  const fullSelect = `
+    *,
+    guests (full_name, phone_number),
+    booking_villas (villas (name, base_breakfast)),
+    booking_addons (quantity, addons (name, base_breakfast))
+  `;
+
+  try {
+    // Arrivals today: check_in_date = today
+    const { data: arrivalsToday, error: e1 } = await supabase
+      .from('bookings').select(fullSelect)
+      .not('status', 'eq', 'cancelled')
+      .eq('check_in_date', today);
+    if (e1) throw e1;
+
+    // Departures today: check_out_date = today
+    const { data: departuresToday, error: e2 } = await supabase
+      .from('bookings').select(fullSelect)
+      .not('status', 'eq', 'cancelled')
+      .eq('check_out_date', today);
+    if (e2) throw e2;
+
+    // In house: arrived before today, leaving after today
+    const { data: inHouse, error: e3 } = await supabase
+      .from('bookings').select(fullSelect)
+      .not('status', 'eq', 'cancelled')
+      .lt('check_in_date', today)
+      .gt('check_out_date', today);
+    if (e3) throw e3;
+
+    // Breakfast TODAY: guests who arrived BEFORE today and are still here
+    // (check_in < today AND check_out >= today)
+    // = in-house + departures today (they eat this morning before leaving)
+    const { data: breakfastTodayBookings, error: e4 } = await supabase
+      .from('bookings')
+      .select(`*, booking_villas (villas (base_breakfast)), booking_addons (quantity, addons (base_breakfast))`)
+      .not('status', 'eq', 'cancelled')
+      .lt('check_in_date', today)   // arrived BEFORE today
+      .gte('check_out_date', today); // still here today (including departing today)
+    if (e4) throw e4;
+
+    // Breakfast TOMORROW: check_in <= today AND check_out >= tomorrow
+    // Includes: today's arrivals (eating tomorrow morning) + in-house guests still there tomorrow
+    // Excludes: guests checking out today (already gone)
+    const { data: breakfastTomorrowBookings, error: e5 } = await supabase
+      .from('bookings')
+      .select(`*, booking_villas (villas (base_breakfast)), booking_addons (quantity, addons (base_breakfast))`)
+      .not('status', 'eq', 'cancelled')
+      .lte('check_in_date', today)    // arrived today or earlier
+      .gte('check_out_date', tomorrow); // still here tomorrow morning
+    if (e5) throw e5;
+
+    res.json({
+      arrivalsToday: arrivalsToday?.length || 0,
+      departuresToday: departuresToday?.length || 0,
+      inHouseCount: inHouse?.length || 0,
+      breakfastToday: calcBreakfast(breakfastTodayBookings),
+      breakfastTomorrow: calcBreakfast(breakfastTomorrowBookings),
+      today,
+      tomorrow,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 // System diagnostic check route
 app.get('/status', (req, res) => res.json({ status: 'Umalila Engine Running Smoothly' }));
