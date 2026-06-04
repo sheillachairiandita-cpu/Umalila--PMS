@@ -4,6 +4,7 @@ import DashboardStats from './components/DashboardStats';
 import OperationsTable from './components/OperationsTable';
 import BookingFormModal from './components/BookingFormModal';
 import Sidebar from './components/SideBar';
+import CalendarPage from './components/CalendarPage';
 import './App.css';
 
 function App() {
@@ -71,10 +72,6 @@ function App() {
         {activePage === 'dashboard' && (
           <div className="dashboard-container">
             <header className="header-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h1>Umalila PMS</h1>
-                <p style={{ color: '#64748b', margin: 0 }}>Operational Control & Property Overview</p>
-              </div>
               <button
                 className="add-booking-btn"
                 style={{
@@ -108,6 +105,8 @@ function App() {
           </div>
         )}
 
+        {activePage === 'calendar' && <CalendarPage />}
+
         {activePage === 'frontdesk' && (
           <div className="placeholder-page">
             <h1 className="placeholder-page-title">Front Desk</h1>
@@ -122,7 +121,7 @@ function App() {
           </div>
         )}
 
-        {!['dashboard', 'frontdesk', 'villas'].includes(activePage) && (
+        {!['dashboard', 'frontdesk', 'villas', 'calendar'].includes(activePage) && (
           <div className="placeholder-page">
             <h1 className="placeholder-page-title">
               {activePage.charAt(0).toUpperCase() + activePage.slice(1)}

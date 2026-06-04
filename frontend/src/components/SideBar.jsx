@@ -6,7 +6,8 @@ import {
   BedDouble, 
   Users, 
   Sliders, 
-  LogOut 
+  LogOut,
+  Calendar
 } from 'lucide-react';
 
 const Sidebar = ({ activePage, setActivePage }) => {
@@ -26,6 +27,14 @@ const Sidebar = ({ activePage, setActivePage }) => {
         >
           <LayoutDashboard size={18} />
           <span>Dashboard</span>
+        </button>
+
+        <button 
+          className={`nav-item ${activePage === 'calendar' ? 'active' : ''}`}  
+          onClick={() => setActivePage('calendar')}                              
+        >
+          <Calendar size={18} />  
+          <span>Calendar</span>    
         </button>
 
         <button 
