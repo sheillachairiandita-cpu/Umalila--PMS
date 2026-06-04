@@ -618,248 +618,294 @@ body {
 }
 
 /* ==========================================================================
-   CALENDAR PAGE
+   FIXED GANTT CHART SYSTEMS LAYOUT
    ========================================================================== */
 .calendar-page {
   padding: 28px 36px;
-  height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  width: 100%;
 }
 
-.calendar-header {
+.gantt-control-panel {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-light);
+  background: #ffffff;
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
 }
 
-.calendar-header h1 {
-  margin: 0 0 2px 0;
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: var(--accent-navy);
-}
-
-.calendar-nav {
+.filter-group-left, 
+.filter-group-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
-.cal-nav-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+/* Control buttons style alignment */
+.today-btn {
+  padding: 6px 14px;
+  background: #ffffff;
   border: 1px solid var(--border-light);
-  background: #fff;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cal-nav-btn {
+  background: transparent;
+  border: 1px solid var(--border-light);
+  padding: 4px;
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #475569;
-  transition: all 0.15s;
 }
-
-.cal-nav-btn:hover {
-  background: #1e3a8a;
-  color: #fff;
-  border-color: #1e3a8a;
-}
-
 .cal-month-label {
-  font-size: 1rem;
   font-weight: 600;
-  color: #0f172a;
-  min-width: 160px;
+  min-width: 100px;
   text-align: center;
 }
+.filter-select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background-color: #fff;
+  font-weight: 500;
+}
 
+/* Legend items style configuration */
 .calendar-legend {
   display: flex;
   gap: 16px;
-  flex-wrap: wrap;
+  padding: 4px;
 }
-
 .legend-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   font-weight: 500;
-  color: #475569;
+  color: var(--text-muted);
 }
-
 .legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
 }
 
-.calendar-grid-wrapper {
-  background: #fff;
+/* Scroll Window Frame Layout setup */
+.gantt-chart-outer-wrapper {
+  width: 100%;
+  overflow-x: auto; /* Enables standard scroll window track */
+  overflow-y: hidden;
+  background: #ffffff;
   border: 1px solid var(--border-light);
   border-radius: 12px;
-  overflow: hidden;
-  flex: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.gantt-chart-container {
   display: flex;
   flex-direction: column;
+  width: max-content; /* Ensures columns preserve full dimension space horizontally */
 }
 
-.calendar-dow-row {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
+.gantt-header-row {
+  display: flex;
   background: #f8fafc;
   border-bottom: 1px solid var(--border-light);
+  position: relative;
+  z-index: 20;
 }
 
-.calendar-dow {
-  padding: 10px 0;
-  text-align: center;
-  font-size: 0.7rem;
+/* FREEZE COLUMN ENGINE FUNCTIONALITY */
+.gantt-sidebar-cell.sticky-column {
+  position: sticky !important;
+  left: 0;
+  z-index: 30;
+  background: #f8fafc; /* Matches header backgrounds */
+  box-shadow: 4px 0 8px rgba(15, 23, 42, 0.05); /* Soft split shade guide line */
+}
+
+.gantt-row .gantt-sidebar-cell.sticky-column {
+  background: #ffffff; /* Body rows keep clean background */
+}
+
+.gantt-sidebar-cell {
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  padding: 14px 16px;
+  font-size: 0.72rem;
   font-weight: 700;
+  color: #475569;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #94a3b8;
-}
-
-.calendar-days-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  flex: 1;
-}
-
-.cal-day-cell {
-  min-height: 100px;
+  letter-spacing: 0.05em;
   border-right: 1px solid var(--border-light);
-  border-bottom: 1px solid var(--border-light);
-  padding: 6px 8px;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  cursor: default;
+  align-items: center;
 }
 
-.cal-day-cell:nth-child(7n) {
-  border-right: none;
+.gantt-sidebar-cell.label-bold {
+  font-weight: 600;
+  text-transform: none;
+  color: var(--text-main);
+  letter-spacing: normal;
 }
 
-.cal-day-cell.other-month {
-  background: #fafafa;
+.gantt-timeline-grid-header {
+  display: grid !important;
+  flex-grow: 1;
 }
 
-.cal-day-cell.today {
-  background: #eff6ff;
-}
-
-.cal-day-number {
+.day-header-number {
+  padding: 14px 0;
+  text-align: center;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  flex-shrink: 0;
+  color: #64748b;
+  border-right: 1px solid #f1f5f9;
+  box-sizing: border-box;
 }
 
-.cal-day-cell.today .cal-day-number {
-  background: #1e3a8a;
-  color: #fff;
+.day-header-number.current-day {
+  background-color: var(--accent-navy);
+  color: #ffffff;
+  font-weight: 700;
 }
 
-.cal-day-cell.other-month .cal-day-number {
-  color: #cbd5e1;
-}
-
-.cal-booking-pill {
-  font-size: 0.67rem;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  line-height: 1.5;
-}
-
-.cal-booking-pill:hover {
-  opacity: 0.8;
-}
-
-.cal-more {
-  font-size: 0.65rem;
-  color: #94a3b8;
-  font-weight: 500;
-  padding-left: 2px;
-}
-
-/* Status panel below calendar */
-.property-timeline {
-  background: #fff;
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.property-timeline-header {
-  padding: 14px 20px;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--border-light);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #0f172a;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.property-row {
+/* Linear Alignment Layout Setup */
+.gantt-row {
   display: flex;
   border-bottom: 1px solid var(--border-light);
+  height: 64px; /* Unified strict sizing for inline rows */
+  box-sizing: border-box;
 }
 
-.property-row:last-child {
+.gantt-row:last-child {
   border-bottom: none;
 }
 
-.property-label {
-  width: 140px;
-  flex-shrink: 0;
-  padding: 12px 16px;
+.gantt-timeline-row-wrapper {
+  position: relative;
+  flex-grow: 1;
+  height: 100%;
+}
+
+.gantt-background-grid {
+  display: grid !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  pointer-events: none;
+}
+
+.grid-column-guide {
+  border-right: 1px solid #f1f5f9;
+  height: 100%;
+}
+
+.gantt-bookings-overlay {
+  display: grid !important;
+  position: absolute; /* Changed to absolute to prevent height shifting */
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  box-sizing: border-box;
+  align-items: center; /* Vertically centers bars inside row tracks */
+  z-index: 5;
+  grid-template-rows: 1fr; /* Forces a single horizontal row track layout */
+}
+
+/* Flat Horizon Booking Bars */
+.gantt-booking-bar {
+  height: 36px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  box-sizing: border-box;
+  color: #ffffff !important;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #0f172a;
-  border-right: 1px solid var(--border-light);
-  background: #fafafa;
-  display: flex;
-  align-items: center;
+  margin: 0 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
 }
 
-.property-bookings-track {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 8px 12px;
-  align-items: center;
+.booking-bar-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.track-booking-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.72rem;
+/* Matching UI Color Status Badges */
+.status-pending { background-color: #eab308 !important; }
+.status-confirmed { background-color: #10b981 !important; }
+.status-checkedin { background-color: #2563eb !important; }
+.status-checkedout { background-color: #64748b !important; }
+
+.legend-dot.status-pending { background-color: #eab308; }
+.legend-dot.status-confirmed { background-color: #10b981; }
+.legend-dot.status-checkedin { background-color: #2563eb; }
+
+/* Update header blocks to stretch down for dual text stacking rows */
+.day-header-number {
+  padding: 8px 0;
+  text-align: center;
+  font-size: 0.8rem;
   font-weight: 600;
+  color: #64748b;
+  border-right: 1px solid #f1f5f9;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column; /* Stacks text vertically */
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+/* Day text label decoration */
+.day-name-label {
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.day-num-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* Style variants when a track lands on today's date */
+.day-header-number.current-day {
+  background-color: var(--accent-navy);
+  color: #ffffff;
+}
+
+.day-header-number.current-day .day-name-label {
+  color: #93c5fd; /* Light blue contrast accent tint for active day names */
+}
+
+/* Optional visual indicator: subtly tint weekends for easier tracking */
+.day-header-number.weekend-day {
+  background-color: #f8fafc;
+}
+
+.weekend-column {
+  background-color: #fdfdfd; /* Soft contrast tint behind rows under weekend blocks */
 }

@@ -26,7 +26,7 @@ const Sidebar = ({ activePage, setActivePage }) => {
           onClick={() => setActivePage('dashboard')}
         >
           <LayoutDashboard size={18} />
-          <span>Dashboard</span>
+          <span>Overview</span>
         </button>
 
         <button 

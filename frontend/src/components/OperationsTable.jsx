@@ -108,8 +108,8 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
                 <th>Check In</th>
                 <th>Check Out</th>
                 <th style={{ textAlign: 'center' }}>Pax</th>
-                <th style={{ textAlign: 'center' }}>🍳 Bfast</th>
-                <th style={{ textAlign: 'center' }}>🛏 Extra Bed</th>
+                <th style={{ textAlign: 'center' }}>Bfast</th>
+                <th style={{ textAlign: 'center' }}>Extra Bed</th>
                 <th>Status</th>
                 <th>Phase</th>
                 <th style={{ textAlign: 'center' }}>Action</th>
