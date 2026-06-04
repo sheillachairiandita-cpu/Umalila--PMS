@@ -128,6 +128,58 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
+// 🗓️ GET VILLAS WITH THEIR BOOKINGS FOR GANTT CHART
+app.get('/api/villas/gantt', async (req, res) => {
+  try {
+    // 1. Fetch all villas from database
+    const { data: villas, error: villaError } = await supabase
+      .from('villas')
+      .select('*')
+      .order('name');
+      
+    if (villaError) throw villaError;
+
+    // 2. Fetch all active bookings with guest profiles linked
+    const { data: bookings, error: bookingError } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        status,
+        check_in_date,
+        check_out_date,
+        guests (full_name),
+        booking_villas (villa_id)
+      `)
+      .not('status', 'eq', 'cancelled'); // Disregard cancelled bookings
+
+    if (bookingError) throw bookingError;
+
+    // 3. Map bookings into an array grouped inside each matching villa object
+    const ganttData = villas.map(villa => {
+      // Find bookings associated with this specific villa
+      const villaBookings = bookings
+        .filter(b => b.booking_villas?.some(bv => bv.villa_id === villa.id))
+        .map(b => ({
+          id: b.id,
+          guest: b.guests?.full_name || 'Unknown Guest',
+          checkIn: b.check_in_date,
+          checkOut: b.check_out_date,
+          status: b.status
+        }));
+
+      return {
+        id: villa.id,
+        name: villa.name,
+        bookings: villaBookings
+      };
+    });
+
+    res.json(ganttData);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 🔍 GET OCCUPIED VILLAS FOR A DATE RANGE
 app.get('/api/villas/availability', async (req, res) => {
   const { check_in, check_out } = req.query;

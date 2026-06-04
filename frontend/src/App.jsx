@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import DashboardStats from './components/DashboardStats';
 import OperationsTable from './components/OperationsTable';
 import BookingFormModal from './components/BookingFormModal';
 import Sidebar from './components/SideBar';
 import CalendarPage from './components/CalendarPage';
+import PublicReservationForm from './components/PublicReservationForm'; 
+import PublicSuccessMessage from './components/PublicSuccessMessage';
 import './App.css';
 
-function App() {
+// ==========================================
+// 🛡️ SUB-COMPONENT: FULL INTERNAL ADMIN PANEL
+// ==========================================
+function AdminPortal() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -68,7 +74,6 @@ function App() {
       <Sidebar activePage={activePage} setActivePage={setActivePage} />
 
       <main className="main-content">
-
         {activePage === 'dashboard' && (
           <div className="dashboard-container">
             <header className="header-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -92,10 +97,8 @@ function App() {
               </button>
             </header>
 
-            {/* New operational stats cards */}
             <DashboardStats stats={stats} loading={statsLoading} />
 
-            {/* Enhanced reservations table */}
             <OperationsTable
               bookings={bookings}
               loading={loading}
@@ -137,6 +140,31 @@ function App() {
         onSuccess={handleBookingSuccess}
       />
     </div>
+  );
+}
+
+// ==========================================
+// 🚀 THE CORE ROUTER CONTROL HUB
+// ==========================================
+function App() {
+  return (
+    <Router>
+      <Routes>
+        {/* Path The Public Facing Guest Universe */}
+        {/* Pass down a route redirection behavior prop to the form execution block */}
+        <Route path="/" element={<PublicReservationForm />} />
+        <Route path="/book" element={<Navigate to="/" replace />} />
+        
+        {/* New Explicit Success Route Node */}
+        <Route path="/success" element={<PublicSuccessMessage />} />
+
+        {/* PATH B: The Internal Private Staff Universe */}
+        <Route path="/admin" element={<AdminPortal />} />
+
+        {/* SAFETY VALVE: Catch any spelling typos and return to guest homepage */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
   );
 }
 
