@@ -675,6 +675,21 @@ body {
   border: 1px solid var(--border-light);
   background-color: #fff;
   font-weight: 500;
+  font-size: 0.85rem;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-select:hover {
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--accent-navy);
+  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
 }
 
 /* Legend items style configuration */

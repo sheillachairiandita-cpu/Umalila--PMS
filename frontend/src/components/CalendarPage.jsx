@@ -1,13 +1,13 @@
 // CalendarPage.jsx
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Filter, Plus } from 'lucide-react';
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June", 
   "July", "August", "September", "October", "November", "December"
 ];
 
-const CalendarPage = () => {
+const CalendarPage = ({ onOpenBookingModal }) => {
   const today = new Date("2026-06-04"); // System context baseline date
   
   const [villasData, setVillasData] = useState([]);
@@ -105,29 +105,119 @@ const CalendarPage = () => {
 
   return (
     <div className="calendar-page">
-      {/* Top Filter and Navigation Header Panel */}
-      <div className="gantt-control-panel">
-        <div className="filter-group-left">
-          <button className="today-btn" onClick={handleGoToToday}>Today</button>
-          <div className="navigation-controls">
-            <button className="cal-nav-btn" onClick={handlePrevMonth}><ChevronLeft size={16} /></button>
+      {/* Top Control Panel with Header and Actions */}
+      <div className="gantt-control-panel" style={{ justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button 
+            className="today-btn" 
+            onClick={handleGoToToday}
+            style={{ fontWeight: 600 }}
+          >
+            Today
+          </button>
+          
+          {/* Month/Year Navigation */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button className="cal-nav-btn" onClick={handlePrevMonth} title="Previous month">
+              <ChevronLeft size={16} />
+            </button>
             <span className="cal-month-label">{MONTHS[currentMonth]} {currentYear}</span>
-            <button className="cal-nav-btn" onClick={handleNextMonth}><ChevronRight size={16} /></button>
+            <button className="cal-nav-btn" onClick={handleNextMonth} title="Next month">
+              <ChevronRight size={16} />
+            </button>
           </div>
+
+          {/* Month Selector */}
+          <select 
+            value={currentMonth} 
+            onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #e2e8f0',
+              background: '#fff',
+              fontWeight: 500,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              color: '#475569'
+            }}
+          >
+            {MONTHS.map((m, idx) => <option key={idx} value={idx}>{m}</option>)}
+          </select>
+
+          {/* Year Selector */}
+          <select 
+            value={currentYear} 
+            onChange={(e) => setCurrentYear(parseInt(e.target.value))}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '6px',
+              border: '1px solid #e2e8f0',
+              background: '#fff',
+              fontWeight: 500,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              color: '#475569',
+              minWidth: '70px'
+            }}
+          >
+            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
         </div>
 
-        <div className="filter-group-right">
-          <div className="select-wrapper">
-            <Filter size={14} className="filter-icon" />
+        {/* Right-side Filters and Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Accommodation Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Filter size={14} color="#64748b" />
             <select 
               value={selectedVillaFilter} 
               onChange={(e) => setSelectedVillaFilter(e.target.value)}
-              className="filter-select"
+              style={{
+                padding: '6px 10px',
+                borderRadius: '6px',
+                border: '1px solid #e2e8f0',
+                background: '#fff',
+                fontWeight: 500,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                color: '#475569'
+              }}
             >
               <option value="All">All Accommodations</option>
               {villasData.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
             </select>
           </div>
+
+          {/* New Reservation Button */}
+          <button
+            onClick={onOpenBookingModal}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              backgroundColor: '#0f172a',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#1e293b';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#0f172a';
+              e.currentTarget.style.transform = 'translateY(0)';
+            }}
+          >
+            <Plus size={16} /> New Booking
+          </button>
         </div>
       </div>
 

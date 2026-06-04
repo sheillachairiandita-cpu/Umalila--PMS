@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { RefreshCw, ClipboardList, ArrowUpRight } from 'lucide-react';
 
 const PHASE_CONFIG = {
@@ -32,21 +32,26 @@ const STATUS_CONFIG = {
   cancelled: { label: 'Cancelled', color: '#991b1b', bg: '#fee2e2' },
 };
 
-function PhaseFilter({ active, onChange }) {
-  const phases = ['all', 'arrival', 'in-house', 'departure', 'upcoming'];
+function SmartFilter({ active, onChange }) {
+  const filterOptions = [
+    { key: 'today', label: 'Today' },
+    { key: 'upcoming-7', label: 'Next 7 Days' },
+    { key: 'all-phases', label: 'All' },
+  ];
+
   return (
     <div style={{ display: 'flex', gap: 6 }}>
-      {phases.map(p => (
+      {filterOptions.map(({ key, label }) => (
         <button
-          key={p}
-          onClick={() => onChange(p)}
+          key={key}
+          onClick={() => onChange(key)}
           style={{
             padding: '4px 10px',
             borderRadius: 20,
             border: '1px solid',
-            borderColor: active === p ? '#1e3a8a' : '#e2e8f0',
-            background: active === p ? '#1e3a8a' : 'transparent',
-            color: active === p ? '#fff' : '#64748b',
+            borderColor: active === key ? '#1e3a8a' : '#e2e8f0',
+            background: active === key ? '#1e3a8a' : 'transparent',
+            color: active === key ? '#fff' : '#64748b',
             fontSize: '0.72rem',
             fontWeight: 600,
             cursor: 'pointer',
@@ -54,7 +59,7 @@ function PhaseFilter({ active, onChange }) {
             transition: 'all 0.15s',
           }}
         >
-          {p === 'all' ? 'All' : PHASE_CONFIG[p]?.label || p}
+          {label}
         </button>
       ))}
     </div>
@@ -62,13 +67,42 @@ function PhaseFilter({ active, onChange }) {
 }
 
 function OperationsTable({ bookings, loading, error, onRefresh }) {
-  const [phaseFilter, setPhaseFilter] = useState('all');
+  const [smartFilter, setSmartFilter] = useState('today');
 
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const todayISO = new Date().toISOString().split('T')[0];
 
-  const filtered = phaseFilter === 'all'
-    ? bookings
-    : bookings.filter(b => b.stay_phase === phaseFilter);
+  // Smart filter logic
+  const filtered = useMemo(() => {
+    const now = new Date(todayISO);
+    const sevenDaysLater = new Date(now);
+    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
+    const sevenDaysLaterISO = sevenDaysLater.toISOString().split('T')[0];
+
+    if (smartFilter === 'today') {
+      // Daily checklist: only show arrivals, in-house, and departures for TODAY
+      return bookings.filter(b => {
+        const isArrival = b.check_in_date === todayISO;
+        const isDeparture = b.check_out_date === todayISO;
+        const isInHouse = b.check_in_date <= todayISO && b.check_out_date > todayISO;
+        return isArrival || isDeparture || isInHouse;
+      });
+    }
+
+    if (smartFilter === 'upcoming-7') {
+      // Forward planning: next 7 days (arrivals only in the future)
+      return bookings.filter(b => {
+        return (
+          b.check_in_date > todayISO && 
+          b.check_in_date <= sevenDaysLaterISO &&
+          !['checked_out', 'cancelled'].includes(b.status)
+        );
+      });
+    }
+
+    // 'all-phases': return everything not cancelled
+    return bookings.filter(b => b.status !== 'cancelled');
+  }, [bookings, todayISO, smartFilter]);
 
   return (
     <main className="data-section">
@@ -76,11 +110,16 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClipboardList size={16} color="#1e3a8a" />
-            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Reservation Ledger</span>
+            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+              Reservation
+              {smartFilter === 'today' && ' — Today'}
+              {smartFilter === 'upcoming-7' && ' — Next Week'}
+              {smartFilter === 'all-phases' && ' — All Reservations'}
+            </span>
             <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 4 }}>{today}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <PhaseFilter active={phaseFilter} onChange={setPhaseFilter} />
+            <SmartFilter active={smartFilter} onChange={setSmartFilter} />
             <button
               onClick={onRefresh}
               title="Refresh"
@@ -131,11 +170,6 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
                       <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>
                         {booking.guests?.full_name || 'Walk-in Guest'}
                       </div>
-                      {booking.guests?.phone_number && (
-                        <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                          {booking.guests.phone_number}
-                        </div>
-                      )}
                     </td>
                     <td style={{ fontSize: '0.85rem' }}>{booking.villa_names || '—'}</td>
                     <td style={{ fontSize: '0.82rem', color: '#475569' }}>{booking.check_in_date}</td>

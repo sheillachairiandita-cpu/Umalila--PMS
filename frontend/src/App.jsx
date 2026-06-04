@@ -105,7 +105,7 @@ function App() {
           </div>
         )}
 
-        {activePage === 'calendar' && <CalendarPage />}
+        {activePage === 'calendar' && <CalendarPage onOpenBookingModal={() => setIsModalOpen(true)} />}
 
         {activePage === 'frontdesk' && (
           <div className="placeholder-page">
