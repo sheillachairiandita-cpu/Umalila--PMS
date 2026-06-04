@@ -467,12 +467,27 @@ body {
   flex-shrink: 0;
   height: 100vh;
   box-sizing: border-box;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+  width: 64x;
 }
 
 .sidebar-header {
   padding: 1.5rem 1.15rem;
   border-bottom: 1px solid #f1f5f9;
   text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 73px; 
+  box-sizing: border-box;
+}
+
+.sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding: 1.5rem 0;
 }
 
 .brand-title {
@@ -514,6 +529,10 @@ body {
 
 .sidebar-nav .nav-group-title:first-child {
   margin-top: 0;
+}
+
+.brand-info {
+  text-align: left;
 }
 
 .nav-item {
@@ -559,6 +578,43 @@ body {
 .logout-btn:hover {
   background-color: #fef2f2;
   color: #b91c1c;
+}
+
+/* Collapse Toggle Button Styling */
+.collapse-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.collapse-toggle-btn:hover {
+  background-color: #f1f5f9;
+  color: var(--text-main);
+}
+
+.sidebar.collapsed .nav-group-title {
+  text-align: center;
+  padding: 0;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 0.55rem 0;
+  width: 42px;
+  margin: 0 auto;
+}
+
+.sidebar.collapsed .nav-item.active {
+  box-shadow: none;
+  background-color: #1e3a8a;
+  color: #ffffff;
 }
 
 /* ==========================================================================
