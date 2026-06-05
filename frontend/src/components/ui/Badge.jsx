@@ -1,19 +1,17 @@
 import React from 'react';
-import { getStatusConfig } from '../utils/statusConfigs';
+import { getStatusConfig } from '../../utils/statusConfigs';
 
 /**
  * Badge Component
- * Displays colored status/phase indicators with customizable styling
- * 
- * @component
+ * Displays colored status/phase indicators.
+ *
  * @example
  * <Badge type="status" value="confirmed" />
  * <Badge type="phase" value="arrival" icon="→" />
- * <Badge type="custom" label="Custom" customColor="#3b82f6" />
  */
 function Badge({ type = 'status', value, label, icon, className = '', customColor, customBg }) {
   const config = getStatusConfig(value, type);
-  
+
   const style = {
     display: 'inline-flex',
     alignItems: 'center',

@@ -1,129 +1,86 @@
 import React, { useState, useMemo } from 'react';
 import { RefreshCw, ClipboardList, ArrowUpRight } from 'lucide-react';
 
-const PHASE_CONFIG = {
-  arrival: {
-    label: 'Arriving',
-    color: '#0369a1',
-    bg: '#e0f2fe',
-  },
-  'in-house': {
-    label: 'In House',
-    color: '#6d28d9',
-    bg: '#ede9fe',
-  },
-  departure: {
-    label: 'Departing',
-    color: '#b45309',
-    bg: '#fef3c7',
-  },
-  upcoming: {
-    label: 'Upcoming',
-    color: '#374151',
-    bg: '#f3f4f6',
-  },
-};
+// ── Reusable utilities & components ──────────────────────────────────────────
+import { filterByDateRange } from '../utils/filterFunction';
+import { PHASE_CONFIG, STATUS_CONFIG } from '../utils/statusConfigs';
+import Badge from './ui/Badge';
+import FilterButtonGroup from './ui/FilterButtonGroup';
 
-const STATUS_CONFIG = {
-  confirmed: { label: 'Confirmed', color: '#065f46', bg: '#d1fae5' },
-  pending: { label: 'Pending', color: '#92400e', bg: '#fef3c7' },
-  checked_in: { label: 'Checked In', color: '#1e40af', bg: '#dbeafe' },
-  checked_out: { label: 'Checked Out', color: '#374151', bg: '#f3f4f6' },
-  cancelled: { label: 'Cancelled', color: '#991b1b', bg: '#fee2e2' },
-};
+// ── Filter options config ─────────────────────────────────────────────────────
+const FILTER_OPTIONS = [
+  { key: 'today',       label: 'Today'       },
+  { key: 'upcoming-7', label: 'Next 7 Days'  },
+  { key: 'all-phases', label: 'All'          },
+];
 
-function SmartFilter({ active, onChange }) {
-  const filterOptions = [
-    { key: 'today', label: 'Today' },
-    { key: 'upcoming-7', label: 'Next 7 Days' },
-    { key: 'all-phases', label: 'All' },
-  ];
-
-  return (
-    <div style={{ display: 'flex', gap: 6 }}>
-      {filterOptions.map(({ key, label }) => (
-        <button
-          key={key}
-          onClick={() => onChange(key)}
-          style={{
-            padding: '4px 10px',
-            borderRadius: 20,
-            border: '1px solid',
-            borderColor: active === key ? '#1e3a8a' : '#e2e8f0',
-            background: active === key ? '#1e3a8a' : 'transparent',
-            color: active === key ? '#fff' : '#64748b',
-            fontSize: '0.72rem',
-            fontWeight: 600,
-            cursor: 'pointer',
-            textTransform: 'capitalize',
-            transition: 'all 0.15s',
-          }}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
+// ── Helper: human-readable filter label ──────────────────────────────────────
+function filterLabel(key) {
+  switch (key) {
+    case 'today':       return ' — Today';
+    case 'upcoming-7':  return ' — Next Week';
+    case 'all-phases':  return ' — All Reservations';
+    default:            return '';
+  }
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
 function OperationsTable({ bookings, loading, error, onRefresh }) {
   const [smartFilter, setSmartFilter] = useState('today');
 
-  const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  const todayISO = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'long', year: 'numeric',
+  });
 
-  // Smart filter logic
-  const filtered = useMemo(() => {
-    const now = new Date(todayISO);
-    const sevenDaysLater = new Date(now);
-    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
-    const sevenDaysLaterISO = sevenDaysLater.toISOString().split('T')[0];
-
-    if (smartFilter === 'today') {
-      // Daily checklist: only show arrivals, in-house, and departures for TODAY
-      return bookings.filter(b => {
-        const isArrival = b.check_in_date === todayISO;
-        const isDeparture = b.check_out_date === todayISO;
-        const isInHouse = b.check_in_date <= todayISO && b.check_out_date > todayISO;
-        return isArrival || isDeparture || isInHouse;
-      });
-    }
-
-    if (smartFilter === 'upcoming-7') {
-      // Forward planning: next 7 days (arrivals only in the future)
-      return bookings.filter(b => {
-        return (
-          b.check_in_date > todayISO && 
-          b.check_in_date <= sevenDaysLaterISO &&
-          !['checked_out', 'cancelled'].includes(b.status)
-        );
-      });
-    }
-
-    // 'all-phases': return everything not cancelled
-    return bookings.filter(b => b.status !== 'cancelled');
-  }, [bookings, todayISO, smartFilter]);
+  // Use the shared filterByDateRange utility from filterFunction.js
+  const filtered = useMemo(
+    () => filterByDateRange(bookings, smartFilter),
+    [bookings, smartFilter]
+  );
 
   return (
     <main className="data-section">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="section-title" style={{ padding: '12px 20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 10,
+        }}>
+          {/* Left: title */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClipboardList size={16} color="#1e3a8a" />
             <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-              Reservation
-              {smartFilter === 'today' && ' — Today'}
-              {smartFilter === 'upcoming-7' && ' — Next Week'}
-              {smartFilter === 'all-phases' && ' — All Reservations'}
+              Reservation{filterLabel(smartFilter)}
             </span>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 4 }}>{today}</span>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 4 }}>
+              {today}
+            </span>
           </div>
+
+          {/* Right: filters + refresh */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <SmartFilter active={smartFilter} onChange={setSmartFilter} />
+            {/* ↳ FilterButtonGroup replaces the old inline SmartFilter component */}
+            <FilterButtonGroup
+              options={FILTER_OPTIONS}
+              active={smartFilter}
+              onChange={setSmartFilter}
+              variant="pill"
+            />
+
             <button
               onClick={onRefresh}
               title="Refresh"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#94a3b8',
+                display: 'flex',
+                alignItems: 'center',
+              }}
             >
               <RefreshCw size={15} className={loading ? 'spin-animation' : ''} />
             </button>
@@ -131,8 +88,9 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
         </div>
       </div>
 
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
       {loading ? (
-        <div className="empty-state">Loading reservations...</div>
+        <div className="empty-state">Loading reservations…</div>
       ) : error ? (
         <div className="empty-state" style={{ color: '#ef4444' }}>⚠️ {error}</div>
       ) : filtered.length === 0 ? (
@@ -156,35 +114,54 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
             </thead>
             <tbody>
               {filtered.map((booking) => {
-                const phase = PHASE_CONFIG[booking.stay_phase] || PHASE_CONFIG['upcoming'];
-                const status = STATUS_CONFIG[booking.status] || STATUS_CONFIG['confirmed'];
+                // Derive phase arrow prefix
+                const phaseArrow =
+                  booking.stay_phase === 'arrival'   ? '→ ' :
+                  booking.stay_phase === 'departure'  ? '← ' : '';
+
+                // Row highlight tint (still driven by phase directly for bg)
+                const rowBg =
+                  booking.stay_phase === 'arrival'
+                    ? 'rgba(224, 242, 254, 0.3)'
+                    : booking.stay_phase === 'departure'
+                    ? 'rgba(254, 243, 199, 0.3)'
+                    : 'transparent';
+
                 return (
-                  <tr key={booking.id} style={{
-                    background: booking.stay_phase === 'arrival'
-                      ? 'rgba(224, 242, 254, 0.3)'
-                      : booking.stay_phase === 'departure'
-                      ? 'rgba(254, 243, 199, 0.3)'
-                      : 'transparent'
-                  }}>
+                  <tr key={booking.id} style={{ background: rowBg }}>
+                    {/* Guest */}
                     <td>
                       <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>
                         {booking.guests?.full_name || 'Walk-in Guest'}
                       </div>
                     </td>
-                    <td style={{ fontSize: '0.85rem' }}>{booking.villa_names || '—'}</td>
-                    <td style={{ fontSize: '0.82rem', color: '#475569' }}>{booking.check_in_date}</td>
-                    <td style={{ fontSize: '0.82rem', color: '#475569' }}>{booking.check_out_date}</td>
+
+                    {/* Unit */}
+                    <td style={{ fontSize: '0.85rem' }}>
+                      {booking.villa_names || '—'}
+                    </td>
+
+                    {/* Dates */}
+                    <td style={{ fontSize: '0.82rem', color: '#475569' }}>
+                      {booking.check_in_date}
+                    </td>
+                    <td style={{ fontSize: '0.82rem', color: '#475569' }}>
+                      {booking.check_out_date}
+                    </td>
+
+                    {/* Pax */}
                     <td style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem' }}>
                       {booking.total_guests ?? '—'}
                     </td>
+
+                    {/* Breakfast count */}
                     <td style={{ textAlign: 'center' }}>
                       {booking.total_breakfast > 0 ? (
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          width: 26,
-                          height: 26,
+                          width: 26, height: 26,
                           borderRadius: '50%',
                           background: '#d1fae5',
                           color: '#065f46',
@@ -197,14 +174,15 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
                         <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>—</span>
                       )}
                     </td>
+
+                    {/* Extra bed count */}
                     <td style={{ textAlign: 'center' }}>
                       {booking.extra_bed_qty > 0 ? (
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          width: 26,
-                          height: 26,
+                          width: 26, height: 26,
                           borderRadius: '50%',
                           background: '#e0e7ff',
                           color: '#3730a3',
@@ -217,38 +195,22 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
                         <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>—</span>
                       )}
                     </td>
+
+                    {/* Status badge — uses Badge + STATUS_CONFIG */}
                     <td>
-                      <span style={{
-                        display: 'inline-block',
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        background: status.bg,
-                        color: status.color,
-                      }}>
-                        {status.label}
-                      </span>
+                      <Badge type="status" value={booking.status} />
                     </td>
+
+                    {/* Phase badge — uses Badge + PHASE_CONFIG with arrow prefix */}
                     <td>
-                      <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        background: phase.bg,
-                        color: phase.color,
-                      }}>
-                        {booking.stay_phase === 'arrival' && '→ '}
-                        {booking.stay_phase === 'departure' && '← '}
-                        {phase.label}
-                      </span>
+                      <Badge
+                        type="phase"
+                        value={booking.stay_phase}
+                        icon={phaseArrow || undefined}
+                      />
                     </td>
+
+                    {/* Action */}
                     <td style={{ textAlign: 'center' }}>
                       <button
                         title="Open reservation"

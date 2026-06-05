@@ -1,37 +1,32 @@
 /**
  * Filter Functions for Bookings
  * Reusable, composable filter logic for any booking list
- * Can be combined for complex filtering
  */
 
 /**
- * Filter bookings by date range type
+ * Filter bookings by smart filter type (today / upcoming-7 / all-phases)
  * @param {array} bookings - Array of booking objects
  * @param {string} filterType - 'today' | 'upcoming-7' | 'all-phases'
  * @returns {array} Filtered bookings
  */
 export function filterByDateRange(bookings, filterType = 'all-phases') {
   const today = new Date().toISOString().split('T')[0];
-  
-  // Calculate 7 days from now
+
   const sevenDaysLater = new Date();
   sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
   const sevenDaysLaterISO = sevenDaysLater.toISOString().split('T')[0];
 
   const filters = {
     today: (b) => {
-      const isArrival = b.check_in_date === today;
+      const isArrival  = b.check_in_date === today;
       const isDeparture = b.check_out_date === today;
-      const isInHouse = b.check_in_date <= today && b.check_out_date > today;
+      const isInHouse  = b.check_in_date <= today && b.check_out_date > today;
       return isArrival || isDeparture || isInHouse;
     },
-    'upcoming-7': (b) => {
-      return (
-        b.check_in_date > today && 
-        b.check_in_date <= sevenDaysLaterISO &&
-        !['checked_out', 'cancelled'].includes(b.status)
-      );
-    },
+    'upcoming-7': (b) =>
+      b.check_in_date > today &&
+      b.check_in_date <= sevenDaysLaterISO &&
+      !['checked_out', 'cancelled'].includes(b.status),
     'all-phases': (b) => b.status !== 'cancelled',
   };
 
@@ -41,9 +36,9 @@ export function filterByDateRange(bookings, filterType = 'all-phases') {
 
 /**
  * Filter bookings by status
- * @param {array} bookings - Array of booking objects
+ * @param {array} bookings
  * @param {array|string} statuses - Single status or array of statuses to include
- * @returns {array} Filtered bookings
+ * @returns {array}
  */
 export function filterByStatus(bookings, statuses) {
   const statusArray = Array.isArray(statuses) ? statuses : [statuses];
@@ -52,9 +47,9 @@ export function filterByStatus(bookings, statuses) {
 
 /**
  * Filter bookings by stay phase
- * @param {array} bookings - Array of booking objects
- * @param {array|string} phases - Single phase or array of phases to include
- * @returns {array} Filtered bookings
+ * @param {array} bookings
+ * @param {array|string} phases
+ * @returns {array}
  */
 export function filterByPhase(bookings, phases) {
   const phaseArray = Array.isArray(phases) ? phases : [phases];
@@ -63,9 +58,9 @@ export function filterByPhase(bookings, phases) {
 
 /**
  * Filter bookings by villa/property
- * @param {array} bookings - Array of booking objects
- * @param {array|string} villaIds - Single villa ID or array of villa IDs
- * @returns {array} Filtered bookings
+ * @param {array} bookings
+ * @param {array|string} villaIds
+ * @returns {array}
  */
 export function filterByProperty(bookings, villaIds) {
   const villaArray = Array.isArray(villaIds) ? villaIds : [villaIds];
@@ -74,65 +69,58 @@ export function filterByProperty(bookings, villaIds) {
 
 /**
  * Filter bookings by guest name (partial match)
- * @param {array} bookings - Array of booking objects
- * @param {string} searchTerm - Search term for guest name
- * @returns {array} Filtered bookings
+ * @param {array} bookings
+ * @param {string} searchTerm
+ * @returns {array}
  */
 export function filterByGuestName(bookings, searchTerm) {
   const term = searchTerm.toLowerCase().trim();
   if (!term) return bookings;
-  return bookings.filter(b => 
+  return bookings.filter(b =>
     (b.guests?.full_name || 'Unknown').toLowerCase().includes(term)
   );
 }
 
 /**
- * Filter bookings by specific date (check-in or check-out)
- * @param {array} bookings - Array of booking objects
+ * Filter bookings by a specific date (check-in, check-out, or active stay)
+ * @param {array} bookings
  * @param {string} date - ISO date string (YYYY-MM-DD)
- * @param {string} type - 'check-in' | 'check-out' | 'active' (during stay)
- * @returns {array} Filtered bookings
+ * @param {string} type - 'check-in' | 'check-out' | 'active'
+ * @returns {array}
  */
 export function filterByDate(bookings, date, type = 'active') {
   const filters = {
-    'check-in': (b) => b.check_in_date === date,
+    'check-in':  (b) => b.check_in_date === date,
     'check-out': (b) => b.check_out_date === date,
-    'active': (b) => b.check_in_date <= date && b.check_out_date > date,
+    'active':    (b) => b.check_in_date <= date && b.check_out_date > date,
   };
-
   const filterFn = filters[type] || filters['active'];
   return bookings.filter(filterFn);
 }
 
 /**
- * Filter bookings within a date range
- * @param {array} bookings - Array of booking objects
+ * Filter bookings that overlap or fall completely within a date range.
+ * Renamed from the duplicate `filterByDateRange` to avoid export conflicts.
+ * @param {array} bookings
  * @param {string} startDate - ISO date string (YYYY-MM-DD)
- * @param {string} endDate - ISO date string (YYYY-MM-DD)
+ * @param {string} endDate   - ISO date string (YYYY-MM-DD)
  * @param {string} type - 'overlap' | 'completely-within'
- * @returns {array} Filtered bookings
+ * @returns {array}
  */
-export function filterByDateRange(bookings, startDate, endDate, type = 'overlap') {
+export function filterByDateRangeOverlap(bookings, startDate, endDate, type = 'overlap') {
   const filters = {
-    'overlap': (b) => {
-      // Any overlap with range
-      return b.check_in_date < endDate && b.check_out_date > startDate;
-    },
-    'completely-within': (b) => {
-      // Check-in and check-out both within range
-      return b.check_in_date >= startDate && b.check_out_date <= endDate;
-    },
+    'overlap':            (b) => b.check_in_date < endDate && b.check_out_date > startDate,
+    'completely-within':  (b) => b.check_in_date >= startDate && b.check_out_date <= endDate,
   };
-
   const filterFn = filters[type] || filters['overlap'];
   return bookings.filter(filterFn);
 }
 
 /**
  * Combine multiple filters with AND logic
- * @param {array} bookings - Array of booking objects
+ * @param {array} bookings
  * @param {array} filterFunctions - Array of filter functions
- * @returns {array} Filtered bookings
+ * @returns {array}
  */
 export function combineFilters(bookings, filterFunctions) {
   return filterFunctions.reduce((result, filterFn) => filterFn(result), bookings);
@@ -140,28 +128,22 @@ export function combineFilters(bookings, filterFunctions) {
 
 /**
  * Sort bookings by field
- * @param {array} bookings - Array of booking objects
- * @param {string} field - Field to sort by (e.g., 'check_in_date', 'guests.full_name')
- * @param {string} direction - 'asc' or 'desc'
- * @returns {array} Sorted bookings
+ * @param {array} bookings
+ * @param {string} field - Field to sort by (supports dot notation e.g. 'guests.full_name')
+ * @param {string} direction - 'asc' | 'desc'
+ * @returns {array}
  */
 export function sortBookings(bookings, field = 'check_in_date', direction = 'asc') {
-  const sorted = [...bookings].sort((a, b) => {
+  return [...bookings].sort((a, b) => {
     const aVal = getNestedValue(a, field);
     const bVal = getNestedValue(b, field);
-
     if (aVal < bVal) return direction === 'asc' ? -1 : 1;
     if (aVal > bVal) return direction === 'asc' ? 1 : -1;
     return 0;
   });
-
-  return sorted;
 }
 
-/**
- * Helper to get nested object values (e.g., 'guests.full_name')
- * @private
- */
+/** @private */
 function getNestedValue(obj, path) {
   return path.split('.').reduce((current, prop) => current?.[prop], obj);
 }
