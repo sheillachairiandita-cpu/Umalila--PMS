@@ -62,21 +62,28 @@ export const STATUS_CONFIG = {
 
 export const PAYMENT_STATUS_CONFIG = {
   pending: {
-    label: 'Pending',
+    label: 'No DP',
     color: '#92400e',
     bg: '#fef3c7'
   },
   partial: {
-    label: 'Partial',
+    label: 'DP Paid',
     color: '#d97706',
     bg: '#fed7aa'
   },
   complete: {
-    label: 'Complete',
+    label: 'All Paid',
     color: '#065f46',
     bg: '#d1fae5'
   }
 };
+
+export const PAYMENT_FILTER_OPTIONS = [
+  { key: 'all', label: 'All Payments' },
+  { key: 'pending', label: 'No DP' },
+  { key: 'partial', label: 'DP Paid' },
+  { key: 'complete', label: 'All Paid' },
+];
 
 /**
  * Get status configuration by key and type

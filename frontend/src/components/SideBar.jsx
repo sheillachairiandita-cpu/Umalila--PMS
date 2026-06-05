@@ -1,90 +1,132 @@
-// Sidebar.jsx
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  CalendarDays, 
-  BedDouble, 
-  Users, 
-  Sliders, 
+import {
+  LayoutDashboard,
+  CalendarDays,
+  BedDouble,
+  Users,
+  Sliders,
   LogOut,
   Calendar,
-  ClipboardList
+  ClipboardList,
+  ChevronLeft,
+  ChevronRight,
+  Wallet,
 } from 'lucide-react';
 
-const Sidebar = ({ activePage, setActivePage }) => {
+const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
-        <h2 className="brand-title">Umalila</h2>
-        <span className="brand-subtitle">Alahan Panjang</span>
+        <div className="sidebar-brand">
+          <h2 className="brand-title">Umalila</h2>
+          <span className="brand-subtitle">Alahan Panjang</span>
+        </div>
+        <button
+          type="button"
+          className="sidebar-toggle"
+          onClick={onToggle}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
       </div>
 
       <nav className="sidebar-nav">
         <div className="nav-group-title">Operations</div>
-        
-        <button 
+
+        <button
+          type="button"
           className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`}
           onClick={() => setActivePage('dashboard')}
+          title="Overview"
         >
-          <LayoutDashboard size={18} />
+          <LayoutDashboard size={15} />
           <span>Overview</span>
         </button>
 
-        <button 
-          className={`nav-item ${activePage === 'calendar' ? 'active' : ''}`}  
-          onClick={() => setActivePage('calendar')}                              
+        <button
+          type="button"
+          className={`nav-item ${activePage === 'calendar' ? 'active' : ''}`}
+          onClick={() => setActivePage('calendar')}
+          title="Calendar"
         >
-          <Calendar size={18} />  
-          <span>Calendar</span>    
+          <Calendar size={15} />
+          <span>Calendar</span>
         </button>
 
-        <button 
+        <button
+          type="button"
           className={`nav-item ${activePage === 'reservations' ? 'active' : ''}`}
           onClick={() => setActivePage('reservations')}
+          title="Reservations"
         >
-          <ClipboardList size={18} />
+          <ClipboardList size={15} />
           <span>Reservations</span>
         </button>
 
-        <button 
+        <button
+          type="button"
+          className={`nav-item ${activePage === 'financial' ? 'active' : ''}`}
+          onClick={() => setActivePage('financial')}
+          title="Financial"
+        >
+          <Wallet size={15} />
+          <span>Financial</span>
+        </button>
+
+        <button
+          type="button"
           className={`nav-item ${activePage === 'frontdesk' ? 'active' : ''}`}
           onClick={() => setActivePage('frontdesk')}
+          title="Front Desk"
         >
-          <CalendarDays size={18} />
+          <CalendarDays size={15} />
           <span>Front Desk</span>
         </button>
 
-        <button 
+        <button
+          type="button"
           className={`nav-item ${activePage === 'villas' ? 'active' : ''}`}
           onClick={() => setActivePage('villas')}
+          title="Villa Units"
         >
-          <BedDouble size={18} />
+          <BedDouble size={15} />
           <span>Villa Units</span>
         </button>
 
-        <button 
+        <button
+          type="button"
           className={`nav-item ${activePage === 'guests' ? 'active' : ''}`}
           onClick={() => setActivePage('guests')}
+          title="Guest Directory"
         >
-          <Users size={18} />
+          <Users size={15} />
           <span>Guest Directory</span>
         </button>
 
         <div className="sidebar-divider" />
         <div className="nav-group-title">System</div>
 
-        <button 
+        <button
+          type="button"
           className={`nav-item ${activePage === 'settings' ? 'active' : ''}`}
           onClick={() => setActivePage('settings')}
+          title="Settings"
         >
-          <Sliders size={18} />
+          <Sliders size={15} />
           <span>Settings</span>
         </button>
       </nav>
 
       <div className="sidebar-footer">
-        <button className="nav-item logout-btn" onClick={() => console.log('Logging out...')}>
-          <LogOut size={18} />
+        <button
+          type="button"
+          className="nav-item logout-btn"
+          onClick={() => console.log('Logging out...')}
+          title="Sign Out"
+        >
+          <LogOut size={15} />
           <span>Sign Out</span>
         </button>
       </div>

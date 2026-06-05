@@ -152,6 +152,83 @@ app.patch('/api/bookings/:id/status', async (req, res) => {
   }
 });
 
+// PATCH booking details
+app.patch('/api/bookings/:id', async (req, res) => {
+  const { id } = req.params;
+  const { check_in_date, check_out_date, total_guests, notes, total_price } = req.body;
+
+  try {
+    const updateData = {};
+    if (check_in_date !== undefined) updateData.check_in_date = check_in_date;
+    if (check_out_date !== undefined) updateData.check_out_date = check_out_date;
+    if (total_guests !== undefined) updateData.total_guests = total_guests;
+    if (notes !== undefined) updateData.notes = notes;
+    if (total_price !== undefined) updateData.total_price = total_price;
+
+    if (updateData.check_in_date && updateData.check_out_date) {
+      if (new Date(updateData.check_out_date) <= new Date(updateData.check_in_date)) {
+        return res.status(400).json({ error: 'Check-out must be after check-in.' });
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .update(updateData)
+      .eq('id', id)
+      .select(`
+        *,
+        guests (full_name, phone_number),
+        booking_villas (villas (name))
+      `)
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH cancel booking with mandatory reason
+app.patch('/api/bookings/:id/cancel', async (req, res) => {
+  const { id } = req.params;
+  const { cancellation_reason } = req.body;
+
+  if (!cancellation_reason || !String(cancellation_reason).trim()) {
+    return res.status(400).json({ error: 'Cancellation reason is required.' });
+  }
+
+  try {
+    const { data: existing, error: fetchError } = await supabase
+      .from('bookings')
+      .select('notes, status')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (existing.status === 'cancelled') {
+      return res.status(400).json({ error: 'Booking is already cancelled.' });
+    }
+
+    const reasonLine = `[CANCELLED ${new Date().toISOString().split('T')[0]}] ${String(cancellation_reason).trim()}`;
+    const updatedNotes = existing.notes
+      ? `${existing.notes}\n\n${reasonLine}`
+      : reasonLine;
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status: 'cancelled', notes: updatedNotes })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // 🍽️  MENU ITEMS
 // ─────────────────────────────────────────────────────────────
@@ -460,55 +537,289 @@ app.get('/api/addons', async (req, res) => {
 // 💳  PAYMENT MANAGEMENT
 // ─────────────────────────────────────────────────────────────
 
+function stayNights(checkIn, checkOut) {
+  return Math.max(
+    Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24)),
+    1
+  );
+}
+
+function buildInvoiceId(bookingId) {
+  return `UM-${String(bookingId).slice(0, 8).toUpperCase()}`;
+}
+
+async function buildFinancialSummary(bookingId) {
+  const { data: booking, error: bookingError } = await supabase
+    .from('bookings')
+    .select(`
+      *,
+      guests (full_name, phone_number),
+      booking_villas (villas (name, base_rate_per_night)),
+      booking_addons (
+        quantity,
+        addons (name, price_per_night, base_breakfast)
+      )
+    `)
+    .eq('id', bookingId)
+    .single();
+
+  if (bookingError) throw bookingError;
+
+  const { data: orders, error: orderError } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      total_amount,
+      created_at,
+      order_items (
+        quantity,
+        unit_price,
+        subtotal,
+        menu_items (name, category)
+      )
+    `)
+    .eq('booking_id', bookingId)
+    .not('status', 'eq', 'billed');
+
+  if (orderError) throw orderError;
+
+  const nights = stayNights(booking.check_in_date, booking.check_out_date);
+  const accommodationLines = [];
+  let calculatedAccommodation = 0;
+
+  (booking.booking_villas || []).forEach((bv) => {
+    const rate = Number(bv.villas?.base_rate_per_night) || 0;
+    const subtotal = rate > 0 ? rate * nights : 0;
+    if (rate > 0) {
+      calculatedAccommodation += subtotal;
+      accommodationLines.push({
+        type: 'accommodation',
+        name: bv.villas?.name || 'Villa',
+        description: `${bv.villas?.name || 'Villa'} — ${nights} night${nights !== 1 ? 's' : ''}`,
+        quantity: nights,
+        unitPrice: rate,
+        subtotal,
+      });
+    }
+  });
+
+  const accommodation = calculatedAccommodation > 0
+    ? calculatedAccommodation
+    : Number(booking.total_price) || 0;
+
+  if (accommodationLines.length === 0) {
+    accommodationLines.push({
+      type: 'accommodation',
+      name: 'Accommodation',
+      description: `Stay ${booking.check_in_date} → ${booking.check_out_date}`,
+      quantity: nights,
+      unitPrice: nights > 0 ? accommodation / nights : accommodation,
+      subtotal: accommodation,
+    });
+  }
+
+  const addonLines = (booking.booking_addons || []).map((ba) => {
+    const unitPrice = Number(ba.addons?.price_per_night) || 0;
+    const quantity = ba.quantity || 1;
+    const subtotal = unitPrice * quantity;
+    return {
+      type: 'addon',
+      name: ba.addons?.name || 'Add-on',
+      description: ba.addons?.name || 'Add-on',
+      quantity,
+      unitPrice,
+      subtotal,
+    };
+  });
+
+  let extraBeds = 0;
+  let extraBreakfast = 0;
+  let otherAddons = 0;
+  (booking.booking_addons || []).forEach((ba) => {
+    const lineTotal = (Number(ba.addons?.price_per_night) || 0) * (ba.quantity || 1);
+    const addonName = (ba.addons?.name || '').toLowerCase();
+    if (addonName.includes('extra bed')) extraBeds += lineTotal;
+    else if ((ba.addons?.base_breakfast || 0) > 0 || addonName.includes('breakfast')) extraBreakfast += lineTotal;
+    else otherAddons += lineTotal;
+  });
+
+  const totalAddons = addonLines.reduce((sum, line) => sum + line.subtotal, 0);
+
+  const menuLines = [];
+  let menuTotal = 0;
+  (orders || []).forEach((order) => {
+    if (order.order_items?.length) {
+      order.order_items.forEach((item) => {
+        const unitPrice = Number(item.unit_price) || 0;
+        const quantity = item.quantity || 1;
+        const subtotal = Number(item.subtotal) || unitPrice * quantity;
+        menuTotal += subtotal;
+        menuLines.push({
+          type: 'menu',
+          name: item.menu_items?.name || 'Menu Item',
+          description: item.menu_items?.name || 'Menu Item',
+          category: item.menu_items?.category || null,
+          quantity,
+          unitPrice,
+          subtotal,
+          orderDate: order.created_at,
+        });
+      });
+    } else if (Number(order.total_amount) > 0) {
+      menuTotal += Number(order.total_amount);
+      menuLines.push({
+        type: 'menu',
+        name: 'Order (unspecified items)',
+        description: 'Order total',
+        quantity: 1,
+        unitPrice: Number(order.total_amount),
+        subtotal: Number(order.total_amount),
+        orderDate: order.created_at,
+      });
+    }
+  });
+
+  const menuItems = menuLines.map(({ name, quantity, subtotal, unitPrice }) => ({
+    name, quantity, subtotal, unitPrice,
+  }));
+
+  const lineItems = [...accommodationLines, ...addonLines, ...menuLines];
+  const total = accommodation + totalAddons + menuTotal;
+  const amountPaid = Number(booking.amount_paid) || 0;
+  const balanceDue = Math.max(total - amountPaid, 0);
+
+  const { data: partialPayments } = await supabase
+    .from('finances')
+    .select('id')
+    .eq('booking_id', bookingId)
+    .eq('category', 'partial_payment')
+    .limit(1);
+
+  return {
+    booking,
+    invoiceId: buildInvoiceId(bookingId),
+    accommodation,
+    totalAccommodation: accommodation,
+    totalAddons,
+    totalMenuItems: menuTotal,
+    extraBeds,
+    extraBreakfast,
+    otherAddons,
+    accommodationLines,
+    addonLines,
+    menuLines,
+    lineItems,
+    menuItems,
+    menuTotal,
+    total,
+    amountPaid,
+    balanceDue,
+    balance: balanceDue,
+    reminder: balanceDue,
+    paymentStatus: booking.payment_status || 'pending',
+    hasPartialPayment: (partialPayments || []).length > 0 || booking.payment_status === 'partial' || booking.payment_status === 'complete',
+    villaNames: booking.booking_villas?.map((bv) => bv.villas?.name).filter(Boolean).join(', ') || '—',
+  };
+}
+
+app.get('/api/financial/income', async (req, res) => {
+  try {
+    const { data: bookings, error } = await supabase
+      .from('bookings')
+      .select('id, status, payment_status, created_at')
+      .not('status', 'eq', 'cancelled')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const rows = await Promise.all(
+      (bookings || []).map(async (b) => {
+        const summary = await buildFinancialSummary(b.id);
+        return {
+          bookingId: b.id,
+          invoiceId: summary.invoiceId,
+          guestName: summary.booking.guests?.full_name || 'Unknown Guest',
+          checkIn: summary.booking.check_in_date,
+          checkOut: summary.booking.check_out_date,
+          totalAccommodation: summary.totalAccommodation,
+          totalAddons: summary.totalAddons,
+          totalMenuItems: summary.totalMenuItems,
+          total: summary.total,
+          amountPaid: summary.amountPaid,
+          balanceDue: summary.balanceDue,
+          paymentStatus: summary.paymentStatus,
+          bookingStatus: summary.booking.status,
+        };
+      })
+    );
+
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/bookings/:bookingId/financial-summary', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        booking_villas (
-          villas (price_per_night)
-        ),
-        booking_addons (
-          quantity,
-          addons (name, price_per_night)
-        )
-      `)
-      .eq('id', bookingId)
-      .single();
+    const summary = await buildFinancialSummary(bookingId);
+    res.json({
+      invoiceId: summary.invoiceId,
+      guestName: summary.booking.guests?.full_name || 'Unknown Guest',
+      checkIn: summary.booking.check_in_date,
+      checkOut: summary.booking.check_out_date,
+      villaNames: summary.villaNames,
+      accommodation: summary.accommodation,
+      totalAccommodation: summary.totalAccommodation,
+      totalAddons: summary.totalAddons,
+      totalMenuItems: summary.totalMenuItems,
+      extraBeds: summary.extraBeds,
+      extraBreakfast: summary.extraBreakfast,
+      otherAddons: summary.otherAddons,
+      accommodationLines: summary.accommodationLines,
+      addonLines: summary.addonLines,
+      menuLines: summary.menuLines,
+      lineItems: summary.lineItems,
+      menuItems: summary.menuItems,
+      menuTotal: summary.menuTotal,
+      fb: summary.menuTotal,
+      addons: summary.totalAddons,
+      total: summary.total,
+      amountPaid: summary.amountPaid,
+      balanceDue: summary.balanceDue,
+      balance: summary.balance,
+      reminder: summary.reminder,
+      paymentStatus: summary.paymentStatus,
+      hasPartialPayment: summary.hasPartialPayment,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    if (bookingError) throw bookingError;
+app.get('/api/bookings/:bookingId/invoice', async (req, res) => {
+  const { bookingId } = req.params;
 
-    const { data: orders, error: orderError } = await supabase
-      .from('orders')
-      .select('total_amount')
-      .eq('booking_id', bookingId)
-      .not('status', 'eq', 'billed');
-
-    if (orderError) throw orderError;
-
-    const fbTotal = (orders || []).reduce((sum, o) => sum + Number(o.total_amount), 0);
-    const accommodation = Number(booking.total_price) || 0;
-    const addonsTotal = (booking.booking_addons || []).reduce((sum, ba) => {
-      return sum + (Number(ba.addons?.price_per_night) || 0) * (ba.quantity || 1);
-    }, 0);
-
-    const total = accommodation + fbTotal + addonsTotal;
-    const amountPaid = Number(booking.amount_paid) || 0;
-    const balance = total - amountPaid;
-    const reminder = balance > 0 ? balance : 0;
+  try {
+    const summary = await buildFinancialSummary(bookingId);
+    const shortId = String(bookingId).slice(0, 8).toUpperCase();
 
     res.json({
-      accommodation,
-      fb: fbTotal,
-      addons: addonsTotal,
-      total,
-      amountPaid,
-      balance,
-      reminder,
-      paymentStatus: booking.payment_status
+      invoiceNumber: `UM-${shortId}`,
+      guestName: summary.booking.guests?.full_name || 'Guest',
+      checkIn: summary.booking.check_in_date,
+      checkOut: summary.booking.check_out_date,
+      villaNames: summary.villaNames,
+      accommodation: summary.accommodation,
+      extraBeds: summary.extraBeds,
+      extraBreakfast: summary.extraBreakfast,
+      menuItems: summary.menuItems,
+      total: summary.total,
+      amountPaid: summary.amountPaid,
+      balanceDue: summary.balanceDue,
+      paymentStatus: summary.paymentStatus,
+      generatedAt: new Date().toLocaleString('en-GB'),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -517,32 +828,95 @@ app.get('/api/bookings/:bookingId/financial-summary', async (req, res) => {
 
 app.post('/api/bookings/:bookingId/payments', async (req, res) => {
   const { bookingId } = req.params;
-  const { amount, paymentMethod = 'cash', notes } = req.body;
+  const {
+    amount,
+    paymentMethod = 'transfer',
+    paymentType = 'general',
+    proofFileName,
+    proofData,
+    notes,
+  } = req.body;
 
   if (!amount || amount <= 0) {
     return res.status(400).json({ error: 'Invalid payment amount.' });
   }
+  if ((paymentType === 'partial' || paymentType === 'final') && !proofFileName) {
+    return res.status(400).json({ error: 'Proof of payment is required.' });
+  }
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('id', bookingId)
-      .single();
+    const summary = await buildFinancialSummary(bookingId);
+    const booking = summary.booking;
 
-    if (bookingError) throw bookingError;
+    if (paymentType === 'final' && !summary.hasPartialPayment) {
+      return res.status(400).json({ error: 'Record a partial payment before submitting the final payment.' });
+    }
+    if (paymentType === 'partial' && summary.paymentStatus !== 'pending') {
+      return res.status(400).json({ error: 'Partial payment has already been recorded.' });
+    }
+
+    if (paymentType === 'general') {
+      // Legacy single-step payment flow (e.g. Operations table)
+      const newAmountPaid = Number(booking.amount_paid) + Number(amount);
+      const grandTotal = summary.total;
+      let newPaymentStatus = 'pending';
+      if (newAmountPaid > 0 && newAmountPaid < grandTotal) newPaymentStatus = 'partial';
+      else if (newAmountPaid >= grandTotal) newPaymentStatus = 'complete';
+
+      const { data: updatedBooking, error: updateError } = await supabase
+        .from('bookings')
+        .update({ amount_paid: newAmountPaid, payment_status: newPaymentStatus })
+        .eq('id', bookingId)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      if (newPaymentStatus === 'complete' && updatedBooking.status === 'checked_out') {
+        await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId);
+      }
+
+      return res.json({
+        message: 'Payment recorded successfully',
+        amountPaid: newAmountPaid,
+        paymentStatus: newPaymentStatus,
+        balanceDue: Math.max(grandTotal - newAmountPaid, 0),
+      });
+    }
 
     const newAmountPaid = Number(booking.amount_paid) + Number(amount);
-    const total = Number(booking.total_price) || 0;
+    const grandTotal = summary.total;
 
     let newPaymentStatus = 'pending';
-    if (newAmountPaid > 0 && newAmountPaid < total) {
+    if (paymentType === 'partial') {
       newPaymentStatus = 'partial';
-    } else if (newAmountPaid >= total) {
+    } else if (paymentType === 'final') {
+      if (newAmountPaid >= grandTotal) {
+        newPaymentStatus = 'complete';
+      } else {
+        return res.status(400).json({
+          error: `Final payment insufficient. Balance remaining: Rp ${Math.max(grandTotal - newAmountPaid, 0).toLocaleString()}`,
+        });
+      }
+    } else if (newAmountPaid > 0 && newAmountPaid < grandTotal) {
+      newPaymentStatus = 'partial';
+    } else if (newAmountPaid >= grandTotal) {
       newPaymentStatus = 'complete';
     }
 
-    // Update booking payment info — no updated_at
+    const proofNote = proofFileName
+      ? (proofData ? `Proof: ${proofFileName}` : `Proof file: ${proofFileName}`)
+      : 'No proof uploaded';
+
+    await supabase.from('finances').insert([{
+      booking_id: bookingId,
+      type: 'income',
+      amount: Number(amount),
+      category: paymentType === 'final' ? 'final_payment' : 'partial_payment',
+      transaction_date: new Date().toISOString().split('T')[0],
+      description: `${paymentType === 'final' ? 'Final' : 'Partial'} payment via ${paymentMethod}. ${proofNote}${notes ? `. ${notes}` : ''}`,
+    }]);
+
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
       .update({
@@ -555,7 +929,6 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    // Auto-complete when payment done + checked out
     if (newPaymentStatus === 'complete' && updatedBooking.status === 'checked_out') {
       await supabase
         .from('bookings')
@@ -566,7 +939,8 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
     res.json({
       message: 'Payment recorded successfully',
       amountPaid: newAmountPaid,
-      paymentStatus: newPaymentStatus
+      paymentStatus: newPaymentStatus,
+      balanceDue: Math.max(grandTotal - newAmountPaid, 0),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

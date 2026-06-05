@@ -15,7 +15,9 @@
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.45;
   letter-spacing: 0.18px;
   color-scheme: light dark;
   color: var(--text);
@@ -54,12 +56,23 @@ body {
   margin: 0;
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
+/* Admin shell overrides live in App.css */
+#root:has(.app-layout),
+#root:has(.reservation-page) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  text-align: left;
+  border: none;
+}
+
+/* Public marketing layout only */
+#root:has(.public-reservation-page) {
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
+  text-align: left;
+  border: none;
   min-height: 100svh;
   display: flex;
   flex-direction: column;

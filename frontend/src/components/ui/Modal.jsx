@@ -27,6 +27,7 @@ function Modal({ isOpen, onClose, children, size = 'md', className = '' }) {
     md: { maxWidth: '500px' },
     lg: { maxWidth: '700px' },
     xl: { maxWidth: '900px' },
+    '2xl': { maxWidth: '1100px' },
   };
 
   return (

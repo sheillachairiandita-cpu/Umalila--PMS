@@ -7,6 +7,7 @@ import BookingFormModal from './components/BookingFormModal';
 import Sidebar from './components/SideBar';
 import CalendarPage from './components/CalendarPage';
 import ReservationPage from './components/ReservationPage';
+import FinancialDashboardPage from './components/FinancialDashboardPage';
 import PublicReservationForm from './components/PublicReservationForm'; 
 import PublicSuccessMessage from './components/PublicSuccessMessage';
 import './App.css';
@@ -20,6 +21,7 @@ function AdminPortal() {
   const [error, setError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Dashboard stats state
   const [stats, setStats] = useState(null);
@@ -72,7 +74,12 @@ function AdminPortal() {
 
   return (
     <div className="app-layout">
-      <Sidebar activePage={activePage} setActivePage={setActivePage} />
+      <Sidebar
+        activePage={activePage}
+        setActivePage={setActivePage}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((c) => !c)}
+      />
 
       <main className="main-content">
         {activePage === 'dashboard' && (
@@ -92,6 +99,8 @@ function AdminPortal() {
         {activePage === 'calendar' && <CalendarPage onOpenBookingModal={() => setIsModalOpen(true)} />}
 
         {activePage === 'reservations' && <ReservationPage />}
+
+        {activePage === 'financial' && <FinancialDashboardPage />}
 
          {activePage === 'reservationlist' && (
           <div className="dashboard-container">
@@ -139,7 +148,7 @@ function AdminPortal() {
           </div>
         )}
 
-        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'reservationlist'].includes(activePage) && (
+        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'financial', 'reservationlist'].includes(activePage) && (
           <div className="placeholder-page">
             <h1 className="placeholder-page-title">
               {activePage.charAt(0).toUpperCase() + activePage.slice(1)}

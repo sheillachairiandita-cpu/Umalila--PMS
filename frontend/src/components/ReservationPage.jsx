@@ -9,112 +9,40 @@ import {
   Calendar,
   Filter,
   X,
-  TrendingUp,
+  Pencil,
+  Download,
+  CreditCard,
 } from 'lucide-react';
 import Badge from './ui/Badge';
-import FilterButtonGroup from './ui/FilterButtonGroup';
+import TableActionButton from './TableActionButton';
+import EditReservationModal from './EditReservationModal';
+import ReservationPaymentModal from './ReservationPaymentModal';
+import { downloadReservationInvoice } from '../utils/invoiceUtils';
+import { PAYMENT_FILTER_OPTIONS } from '../utils/statusConfigs';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
 // =====================================================
 function DashboardMetrics({ stats, loading }) {
   const metrics = [
-    {
-      label: 'Total Bookings',
-      value: stats?.totalBookings || 0,
-      icon: Calendar,
-      color: '#1e3a8a',
-      bg: '#eff6ff',
-      border: '#bfdbfe',
-    },
-    {
-      label: 'Pending Approval',
-      value: stats?.pendingApproval || 0,
-      icon: Clock,
-      color: '#b45309',
-      bg: '#fffbeb',
-      border: '#fde68a',
-    },
-    {
-      label: 'Confirmed',
-      value: stats?.confirmedBookings || 0,
-      icon: CheckCircle,
-      color: '#059669',
-      bg: '#f0fdf4',
-      border: '#bbf7d0',
-    },
+    { label: 'Total Bookings', value: stats?.totalBookings || 0, icon: Calendar },
+    { label: 'Pending Approval', value: stats?.pendingApproval || 0, icon: Clock },
+    { label: 'Confirmed', value: stats?.confirmedBookings || 0, icon: CheckCircle },
   ];
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '28px',
-      }}
-    >
-      {metrics.map(({ label, value, icon: Icon, color, bg, border }) => (
-        <div
-          key={label}
-          style={{
-            background: bg,
-            border: `1px solid ${border}`,
-            padding: '20px 24px',
-            borderRadius: '12px',
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Background icon */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 12,
-              right: 14,
-              opacity: 0.12,
-            }}
-          >
-            <Icon size={44} color={color} />
+    <div className="stats-grid">
+      {metrics.map(({ label, value, icon: Icon }) => (
+        <div key={label} className="metric-card">
+          <div className="metric-card__icon-bg">
+            <Icon color="var(--navy)" />
           </div>
-
-          {/* Label row */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              marginBottom: '10px',
-            }}
-          >
-            <Icon size={13} color={color} />
-            <span
-              style={{
-                fontSize: '0.7rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.07em',
-                color,
-                fontWeight: 700,
-              }}
-            >
-              {label}
-            </span>
+          <div className="metric-card__label-row">
+            <Icon color="var(--text-muted)" />
+            <span className="metric-card__label">{label}</span>
           </div>
-
-          {/* Value */}
-          <div
-            style={{
-              fontSize: '2rem',
-              fontWeight: 700,
-              color: '#0f172a',
-              lineHeight: 1,
-            }}
-          >
-            {loading ? (
-              <span style={{ fontSize: '1.1rem', color: '#94a3b8' }}>—</span>
-            ) : (
-              value
-            )}
+          <div className={loading ? 'metric-card__value--loading' : 'metric-card__value'}>
+            {loading ? '—' : value}
           </div>
         </div>
       ))}
@@ -127,190 +55,54 @@ function DashboardMetrics({ stats, loading }) {
 // =====================================================
 function PendingRequestsTable({ requests, onApprove, loading }) {
   if (loading) {
-    return (
-      <div
-        style={{
-          padding: '48px',
-          textAlign: 'center',
-          color: '#94a3b8',
-          fontSize: '0.9rem',
-        }}
-      >
-        Loading pending requests…
-      </div>
-    );
+    return <div className="empty-state">Loading pending requests…</div>;
   }
 
   if (requests.length === 0) {
     return (
-      <div
-        style={{
-          padding: '48px 40px',
-          textAlign: 'center',
-          background: '#f8fafc',
-          borderRadius: '10px',
-          border: '1px dashed #e2e8f0',
-        }}
-      >
-        <CheckCircle
-          size={40}
-          color="#10b981"
-          style={{ marginBottom: '12px', opacity: 0.7 }}
-        />
-        <h3
-          style={{
-            margin: '0 0 6px 0',
-            fontSize: '0.95rem',
-            color: '#0f172a',
-            fontWeight: 600,
-          }}
-        >
-          All clear — no pending requests
-        </h3>
-        <p style={{ margin: 0, fontSize: '0.82rem', color: '#94a3b8' }}>
-          All reservation requests have been processed.
-        </p>
+      <div className="empty-state empty-state--dashed">
+        <CheckCircle size={32} color="var(--green)" style={{ marginBottom: 10, opacity: 0.7 }} />
+        <h3 className="section-card__title" style={{ marginBottom: 6 }}>All clear — no pending requests</h3>
+        <p className="text-muted" style={{ fontSize: '0.8rem' }}>All reservation requests have been processed.</p>
       </div>
     );
   }
 
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table
-        style={{
-          width: '100%',
-          borderCollapse: 'collapse',
-          fontSize: '0.85rem',
-        }}
-      >
+    <div className="table-scroll-wrap" style={{ border: 'none', borderRadius: 0 }}>
+      <table className="pms-table">
         <thead>
-          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-            {['Guest', 'Check-In', 'Check-Out', 'Adults / Children', 'Actions'].map(
-              (h) => (
-                <th
-                  key={h}
-                  style={{
-                    padding: '10px 16px',
-                    textAlign: h === 'Actions' ? 'center' : 'left',
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    color: '#64748b',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {h}
-                </th>
-              )
-            )}
+          <tr>
+            <th>Guest</th>
+            <th>Check-In</th>
+            <th>Check-Out</th>
+            <th className="text-center">Adults / Children</th>
+            <th className="text-center">Actions</th>
           </tr>
         </thead>
         <tbody>
           {requests.map((request) => (
-            <tr
-              key={request.id}
-              style={{ borderBottom: '1px solid #f1f5f9' }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = '#fafafa')
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = 'transparent')
-              }
-            >
-              <td
-                style={{
-                  padding: '13px 16px',
-                  fontWeight: 600,
-                  color: '#0f172a',
-                }}
-              >
-                {request.guest_full_name}
-              </td>
-              <td style={{ padding: '13px 16px', color: '#475569' }}>
-                {request.check_in_date}
-              </td>
-              <td style={{ padding: '13px 16px', color: '#475569' }}>
-                {request.check_out_date}
-              </td>
-              <td
-                style={{
-                  padding: '13px 16px',
-                  color: '#475569',
-                  textAlign: 'center',
-                }}
-              >
-                {request.adults} / {request.children}
-              </td>
-              <td style={{ padding: '13px 16px', textAlign: 'center' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '8px',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {/* View */}
-                  <button
-                    onClick={() =>
-                      alert(`Details for ${request.guest_full_name} — TBD`)
-                    }
-                    style={{
-                      background: '#f8fafc',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      padding: '5px 10px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontSize: '0.75rem',
-                      fontWeight: 500,
-                      color: '#475569',
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#1e3a8a';
-                      e.currentTarget.style.color = '#fff';
-                      e.currentTarget.style.borderColor = '#1e3a8a';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#f8fafc';
-                      e.currentTarget.style.color = '#475569';
-                      e.currentTarget.style.borderColor = '#e2e8f0';
-                    }}
+            <tr key={request.id}>
+              <td className="cell-guest">{request.guest_full_name}</td>
+              <td>{request.check_in_date}</td>
+              <td>{request.check_out_date}</td>
+              <td className="text-center">{request.adults} / {request.children}</td>
+              <td className="text-center">
+                <div className="table-action-group">
+                  <TableActionButton
+                    title="View details"
+                    variant="default"
+                    onClick={() => alert(`Details for ${request.guest_full_name} — TBD`)}
                   >
                     <Eye size={13} />
-                  </button>
-
-                  {/* Approve */}
-                  <button
+                  </TableActionButton>
+                  <TableActionButton
+                    title="Approve request"
+                    variant="success"
                     onClick={() => onApprove(request.id)}
-                    style={{
-                      background: '#10b981',
-                      border: 'none',
-                      borderRadius: '6px',
-                      padding: '5px 12px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      color: '#fff',
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#059669';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#10b981';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }}
                   >
-                    <CheckCircle size={13} /> Approve
-                  </button>
+                    <CheckCircle size={13} />
+                  </TableActionButton>
                 </div>
               </td>
             </tr>
@@ -324,13 +116,6 @@ function PendingRequestsTable({ requests, onApprove, loading }) {
 // =====================================================
 // 📅 SECTION 3: ALL RESERVATIONS LIST
 // =====================================================
-
-const PAYMENT_FILTER_OPTIONS = [
-  { key: 'all', label: 'All Payments' },
-  { key: 'pending', label: 'No DP' },
-  { key: 'confirmed', label: 'DP Paid' },
-  { key: 'completed', label: 'All Paid' },
-];
 
 const STATUS_FILTER_OPTIONS = [
   { key: 'all', label: 'All' },
@@ -348,13 +133,14 @@ const TIMEFRAME_FILTER_OPTIONS = [
   { key: 'year', label: 'This Year' },
 ];
 
-const PAYMENT_CONFIG = {
-  pending: { bg: '#fef3c7', color: '#b45309', label: 'No DP' },
-  confirmed: { bg: '#dbeafe', color: '#1e40af', label: 'DP Paid' },
-  completed: { bg: '#d1fae5', color: '#065f46', label: 'All Paid' },
-};
-
-function AllReservationsTable({ reservations, loading }) {
+function AllReservationsTable({
+  reservations,
+  loading,
+  onEdit,
+  onDownloadInvoice,
+  onPayment,
+  downloadingId,
+}) {
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentFilter, setPaymentFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -419,192 +205,84 @@ function AllReservationsTable({ reservations, loading }) {
     setCurrentPage(1);
   };
 
-  const inputBase = {
-    width: '100%',
-    padding: '8px 12px',
-    border: '1px solid #e2e8f0',
-    borderRadius: '8px',
-    fontSize: '0.85rem',
-    background: '#fff',
-    color: '#0f172a',
-    outline: 'none',
-    boxSizing: 'border-box',
-    transition: 'border-color 0.15s, box-shadow 0.15s',
-    fontFamily: 'inherit',
-  };
-
-  const focusHandlers = {
-    onFocus: (e) => {
-      e.currentTarget.style.borderColor = '#1e3a8a';
-      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(30,58,138,0.08)';
-    },
-    onBlur: (e) => {
-      e.currentTarget.style.borderColor = '#e2e8f0';
-      e.currentTarget.style.boxShadow = 'none';
-    },
-  };
-
-  const labelStyle = {
-    display: 'block',
-    fontSize: '0.68rem',
-    fontWeight: 700,
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: '0.07em',
-    marginBottom: '5px',
-  };
-
   return (
     <div>
-      {/* ── Filter Bar ──────────────────────────────────────── */}
-      <div
-        style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '10px',
-          padding: '16px 20px',
-          marginBottom: '16px',
-          display: 'grid',
-          gridTemplateColumns: '2fr 1fr 1fr 1fr auto',
-          gap: '12px',
-          alignItems: 'end',
-        }}
-      >
-        {/* Search */}
+      <div className="filter-bar">
         <div>
-          <label style={labelStyle}>Search</label>
-          <div style={{ position: 'relative' }}>
-            <Search
-              size={14}
-              style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#cbd5e1',
-                pointerEvents: 'none',
-              }}
-            />
+          <label className="filter-bar__label">Search</label>
+          <div className="filter-bar__search-wrap">
+            <Search size={13} className="filter-bar__search-icon" />
             <input
               type="text"
+              className="filter-bar__input filter-bar__input--search"
               placeholder="Guest name or villa…"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              style={{ ...inputBase, paddingLeft: '32px' }}
-              {...focusHandlers}
             />
           </div>
         </div>
 
-        {/* Payment Status */}
         <div>
-          <label style={labelStyle}>Payment</label>
+          <label className="filter-bar__label">Payment</label>
           <select
+            className="filter-bar__select"
             value={paymentFilter}
             onChange={(e) => {
               setPaymentFilter(e.target.value);
               setCurrentPage(1);
             }}
-            style={{ ...inputBase, cursor: 'pointer' }}
-            {...focusHandlers}
           >
             {PAYMENT_FILTER_OPTIONS.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
+              <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
         </div>
 
-        {/* Reservation Status */}
         <div>
-          <label style={labelStyle}>Status</label>
+          <label className="filter-bar__label">Status</label>
           <select
+            className="filter-bar__select"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setCurrentPage(1);
             }}
-            style={{ ...inputBase, cursor: 'pointer' }}
-            {...focusHandlers}
           >
             {STATUS_FILTER_OPTIONS.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
+              <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
         </div>
 
-        {/* Timeframe */}
         <div>
-          <label style={labelStyle}>Timeframe</label>
+          <label className="filter-bar__label">Timeframe</label>
           <select
+            className="filter-bar__select"
             value={timeframeFilter}
             onChange={(e) => {
               setTimeframeFilter(e.target.value);
               setCurrentPage(1);
             }}
-            style={{ ...inputBase, cursor: 'pointer' }}
-            {...focusHandlers}
           >
             {TIMEFRAME_FILTER_OPTIONS.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
+              <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
         </div>
 
-        {/* Clear */}
         {hasActiveFilters ? (
-          <button
-            onClick={clearFilters}
-            style={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              color: '#64748b',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              whiteSpace: 'nowrap',
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#fee2e2';
-              e.currentTarget.style.color = '#991b1b';
-              e.currentTarget.style.borderColor = '#fca5a5';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#fff';
-              e.currentTarget.style.color = '#64748b';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-          >
-            <X size={12} /> Clear
+          <button type="button" className="filter-bar__clear" onClick={clearFilters}>
+            <X size={11} /> Clear
           </button>
         ) : (
-          <div /> /* placeholder to keep grid columns */
+          <div />
         )}
       </div>
 
-      {/* Result count */}
-      <div
-        style={{
-          marginBottom: '10px',
-          fontSize: '0.78rem',
-          color: '#94a3b8',
-          paddingLeft: '2px',
-        }}
-      >
+      <div className="table-result-count">
         {filtered.length === 0
           ? 'No results'
           : `Showing ${startIdx + 1}–${Math.min(
@@ -615,215 +293,72 @@ function AllReservationsTable({ reservations, loading }) {
 
       {/* ── Table ───────────────────────────────────────────── */}
       {loading ? (
-        <div
-          style={{
-            padding: '48px',
-            textAlign: 'center',
-            color: '#94a3b8',
-            fontSize: '0.9rem',
-          }}
-        >
-          Loading reservations…
-        </div>
+        <div className="empty-state">Loading reservations…</div>
       ) : paginatedData.length === 0 ? (
-        <div
-          style={{
-            padding: '48px 40px',
-            textAlign: 'center',
-            background: '#f8fafc',
-            borderRadius: '10px',
-            border: '1px dashed #e2e8f0',
-          }}
-        >
-          <Filter
-            size={36}
-            color="#cbd5e1"
-            style={{ marginBottom: '12px' }}
-          />
-          <h3
-            style={{
-              margin: '0 0 6px 0',
-              fontSize: '0.95rem',
-              color: '#0f172a',
-              fontWeight: 600,
-            }}
-          >
-            No reservations found
-          </h3>
-          <p style={{ margin: 0, fontSize: '0.82rem', color: '#94a3b8' }}>
-            Try adjusting your filters or search term.
-          </p>
+        <div className="empty-state empty-state--dashed">
+          <Filter size={30} color="var(--text-light)" style={{ marginBottom: 10 }} />
+          <h3 className="section-card__title" style={{ marginBottom: 6 }}>No reservations found</h3>
+          <p className="text-muted" style={{ fontSize: '0.8rem' }}>Try adjusting your filters or search term.</p>
         </div>
       ) : (
-        <div
-          style={{
-            overflowX: 'auto',
-            background: '#fff',
-            borderRadius: '10px',
-            border: '1px solid #e2e8f0',
-          }}
-        >
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '0.85rem',
-            }}
-          >
+        <div className="table-scroll-wrap">
+          <table className="pms-table">
             <thead>
-              <tr
-                style={{
-                  background: '#f8fafc',
-                  borderBottom: '2px solid #e2e8f0',
-                }}
-              >
-                {[
-                  { label: 'Guest', align: 'left' },
-                  { label: 'Villas', align: 'left' },
-                  { label: 'Check-In', align: 'left' },
-                  { label: 'Check-Out', align: 'left' },
-                  { label: 'Amount', align: 'right' },
-                  { label: 'Payment', align: 'center' },
-                  { label: 'Status', align: 'center' },
-                  { label: 'Action', align: 'center' },
-                ].map(({ label, align }) => (
-                  <th
-                    key={label}
-                    style={{
-                      padding: '10px 16px',
-                      textAlign: align,
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      color: '#64748b',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {label}
-                  </th>
-                ))}
+              <tr>
+                <th>Guest</th>
+                <th>Villas</th>
+                <th>Check-In</th>
+                <th>Check-Out</th>
+                <th className="text-right">Amount</th>
+                <th className="text-center">Payment</th>
+                <th className="text-center">Status</th>
+                <th className="text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {paginatedData.map((res) => {
-                const pmtCfg =
-                  PAYMENT_CONFIG[res.payment_status] || PAYMENT_CONFIG.pending;
+                const isCancelled = res.status === 'cancelled';
                 return (
-                  <tr
-                    key={res.id}
-                    style={{ borderBottom: '1px solid #f1f5f9' }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background = '#fafafa')
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = 'transparent')
-                    }
-                  >
-                    <td
-                      style={{
-                        padding: '13px 16px',
-                        fontWeight: 600,
-                        color: '#0f172a',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {res.guest_full_name}
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 16px',
-                        color: '#475569',
-                        maxWidth: '160px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {res.villa_names || '—'}
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 16px',
-                        color: '#475569',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {res.check_in_date}
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 16px',
-                        color: '#475569',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {res.check_out_date}
-                    </td>
-                    <td
-                      style={{
-                        padding: '13px 16px',
-                        fontWeight: 600,
-                        color: '#0f172a',
-                        textAlign: 'right',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
+                  <tr key={res.id}>
+                    <td className="cell-guest">{res.guest_full_name}</td>
+                    <td className="cell-truncate">{res.villa_names || '—'}</td>
+                    <td>{res.check_in_date}</td>
+                    <td>{res.check_out_date}</td>
+                    <td className="text-right cell-amount">
                       Rp {res.total_price?.toLocaleString() || '0'}
                     </td>
-                    <td style={{ padding: '13px 16px', textAlign: 'center' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          padding: '3px 10px',
-                          borderRadius: '20px',
-                          fontSize: '0.68rem',
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                          background: pmtCfg.bg,
-                          color: pmtCfg.color,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {pmtCfg.label}
-                      </span>
+                    <td className="text-center">
+                      <Badge type="payment" value={res.payment_status || 'pending'} />
                     </td>
-                    <td style={{ padding: '13px 16px', textAlign: 'center' }}>
+                    <td className="text-center">
                       <Badge type="status" value={res.status} />
                     </td>
-                    <td style={{ padding: '13px 16px', textAlign: 'center' }}>
-                      <button
-                        onClick={() =>
-                          alert(`Actions for ${res.guest_full_name} — TBD`)
-                        }
-                        style={{
-                          background: '#f8fafc',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '6px',
-                          padding: '5px 10px',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontSize: '0.75rem',
-                          fontWeight: 500,
-                          color: '#475569',
-                          transition: 'all 0.15s',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#1e3a8a';
-                          e.currentTarget.style.color = '#fff';
-                          e.currentTarget.style.borderColor = '#1e3a8a';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = '#f8fafc';
-                          e.currentTarget.style.color = '#475569';
-                          e.currentTarget.style.borderColor = '#e2e8f0';
-                        }}
-                      >
-                        <Eye size={13} /> View
-                      </button>
+                    <td className="text-center">
+                      <div className="table-action-group">
+                        <TableActionButton
+                          title="Edit Reservation"
+                          variant="default"
+                          onClick={() => onEdit(res)}
+                        >
+                          <Pencil size={13} />
+                        </TableActionButton>
+                        <TableActionButton
+                          title="Download Invoice"
+                          variant="success"
+                          onClick={() => onDownloadInvoice(res)}
+                          loading={downloadingId === res.id}
+                        >
+                          <Download size={13} />
+                        </TableActionButton>
+                        <TableActionButton
+                          title="Payment"
+                          variant="warning"
+                          onClick={() => onPayment(res)}
+                          disabled={isCancelled}
+                        >
+                          <CreditCard size={13} />
+                        </TableActionButton>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -835,61 +370,27 @@ function AllReservationsTable({ reservations, loading }) {
 
       {/* ── Pagination ──────────────────────────────────────── */}
       {totalPages > 1 && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '6px',
-            marginTop: '20px',
-          }}
-        >
+        <div className="pagination">
           <button
+            type="button"
+            className="pagination__btn"
             onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
             disabled={currentPage === 1}
-            style={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              padding: '6px 8px',
-              cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-              opacity: currentPage === 1 ? 0.4 : 1,
-              display: 'flex',
-              alignItems: 'center',
-            }}
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft size={14} />
           </button>
 
           {Array.from({ length: totalPages }, (_, i) => i + 1)
-            .filter(
-              (p) =>
-                Math.abs(p - currentPage) <= 1 ||
-                p === 1 ||
-                p === totalPages
-            )
+            .filter((p) => Math.abs(p - currentPage) <= 1 || p === 1 || p === totalPages)
             .map((page, idx, arr) => {
               const showEllipsis = idx > 0 && arr[idx - 1] !== page - 1;
               return (
                 <React.Fragment key={page}>
-                  {showEllipsis && (
-                    <span style={{ color: '#cbd5e1', fontSize: '0.85rem', padding: '0 2px' }}>
-                      …
-                    </span>
-                  )}
+                  {showEllipsis && <span className="pagination__ellipsis">…</span>}
                   <button
+                    type="button"
+                    className={`pagination__btn pagination__btn--page ${currentPage === page ? 'pagination__btn--active' : ''}`}
                     onClick={() => setCurrentPage(page)}
-                    style={{
-                      background: currentPage === page ? '#1e3a8a' : '#fff',
-                      color: currentPage === page ? '#fff' : '#475569',
-                      border: `1px solid ${currentPage === page ? '#1e3a8a' : '#e2e8f0'}`,
-                      borderRadius: '6px',
-                      padding: '5px 10px',
-                      cursor: 'pointer',
-                      fontSize: '0.82rem',
-                      fontWeight: currentPage === page ? 700 : 500,
-                      minWidth: '32px',
-                    }}
                   >
                     {page}
                   </button>
@@ -898,33 +399,15 @@ function AllReservationsTable({ reservations, loading }) {
             })}
 
           <button
-            onClick={() =>
-              setCurrentPage(Math.min(totalPages, currentPage + 1))
-            }
+            type="button"
+            className="pagination__btn"
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
             disabled={currentPage === totalPages}
-            style={{
-              background: '#fff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              padding: '6px 8px',
-              cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-              opacity: currentPage === totalPages ? 0.4 : 1,
-              display: 'flex',
-              alignItems: 'center',
-            }}
           >
-            <ChevronRight size={15} />
+            <ChevronRight size={14} />
           </button>
 
-          <span
-            style={{
-              fontSize: '0.78rem',
-              color: '#94a3b8',
-              marginLeft: '8px',
-            }}
-          >
-            Page {currentPage} of {totalPages}
-          </span>
+          <span className="pagination__label">Page {currentPage} of {totalPages}</span>
         </div>
       )}
     </div>
@@ -940,58 +423,80 @@ function ReservationPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [editBooking, setEditBooking] = useState(null);
+  const [paymentBooking, setPaymentBooking] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const processBookings = (bookingsData) => {
+    const pending = bookingsData
+      .filter((b) => b.status === 'pending')
+      .map((b) => ({
+        ...b,
+        guest_full_name: b.guests?.full_name || 'Unknown Guest',
+        adults: parseInt(b.notes?.match(/Adults:\s*(\d+)/)?.[1] || '0'),
+        children: parseInt(b.notes?.match(/Children:\s*(\d+)/)?.[1] || '0'),
+      }));
+
+    const approved = bookingsData
+      .filter((b) => b.status !== 'pending')
+      .map((b) => ({
+        ...b,
+        guest_full_name: b.guests?.full_name || 'Unknown Guest',
+        payment_status: b.payment_status || 'pending',
+      }));
+
+    setPendingRequests(pending);
+    setAllReservations(approved);
+    setStats({
+      totalBookings: bookingsData.length,
+      pendingApproval: pending.length,
+      confirmedBookings: approved.filter((b) => b.status === 'confirmed').length,
+    });
+  };
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const bookingsRes = await fetch('/api/bookings');
+      if (!bookingsRes.ok) throw new Error('Failed to fetch bookings');
+      const bookingsData = await bookingsRes.json();
+      processBookings(bookingsData);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+    } finally {
+      setLoading(false);
+      setStatsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const bookingsRes = await fetch('http://localhost:5000/api/bookings');
-        if (!bookingsRes.ok) throw new Error('Failed to fetch bookings');
-        const bookingsData = await bookingsRes.json();
-
-        const pending = bookingsData
-          .filter((b) => b.status === 'pending')
-          .map((b) => ({
-            ...b,
-            guest_full_name: b.guests?.full_name || 'Unknown Guest',
-            adults: parseInt(
-              b.notes?.match(/Adults:\s*(\d+)/)?.[1] || '0'
-            ),
-            children: parseInt(
-              b.notes?.match(/Children:\s*(\d+)/)?.[1] || '0'
-            ),
-          }));
-
-        const approved = bookingsData
-          .filter((b) => b.status !== 'pending')
-          .map((b) => ({
-            ...b,
-            guest_full_name: b.guests?.full_name || 'Unknown Guest',
-            payment_status: b.payment_status || 'pending',
-          }));
-
-        setPendingRequests(pending);
-        setAllReservations(approved);
-        setStats({
-          totalBookings: bookingsData.length,
-          pendingApproval: pending.length,
-          confirmedBookings: approved.filter((b) => b.status === 'confirmed')
-            .length,
-        });
-      } catch (err) {
-        console.error('Error fetching data:', err);
-      } finally {
-        setLoading(false);
-        setStatsLoading(false);
-      }
-    };
     fetchData();
   }, []);
+
+  const handleDownloadInvoice = async (reservation) => {
+    try {
+      setDownloadingId(reservation.id);
+      await downloadReservationInvoice(reservation.id);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+      alert(err.message || 'Failed to download invoice');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handlePaymentRecorded = () => {
+    fetchData();
+  };
+
+  const handleReservationSaved = () => {
+    fetchData();
+  };
 
   const handleApproveRequest = async (requestId) => {
     try {
       const response = await fetch(
-        `http://localhost:5000/api/bookings/${requestId}/status`,
+        `/api/bookings/${requestId}/status`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -1023,71 +528,21 @@ function ReservationPage() {
     }
   };
 
-  const sectionCard = {
-    background: '#fff',
-    borderRadius: '12px',
-    border: '1px solid #e2e8f0',
-    overflow: 'hidden',
-  };
-
-  const sectionHeader = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '16px 20px',
-    borderBottom: '1px solid #f1f5f9',
-    background: '#fafafa',
-  };
-
-  const sectionTitle = {
-    margin: 0,
-    fontSize: '0.9rem',
-    fontWeight: 700,
-    color: '#0f172a',
-  };
-
-  const sectionCount = {
-    marginLeft: 'auto',
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    color: '#94a3b8',
-    background: '#f1f5f9',
-    padding: '2px 8px',
-    borderRadius: '20px',
-  };
-
   return (
-    <div
-      style={{
-        padding: '28px 32px',
-        boxSizing: 'border-box',
-        background: '#f8fafc',
-        minHeight: '100vh',
-      }}
-    >
-     
-
-      {/* Stats */}
+    <div className="reservation-page">
       <DashboardMetrics stats={stats} loading={statsLoading} />
 
-      {/* Pending Requests */}
-      <div style={{ ...sectionCard, marginBottom: '20px' }}>
-        <div style={sectionHeader}>
-          <Clock size={16} color="#b45309" />
-          <h3 style={sectionTitle}>Pending Requests</h3>
+      <div className="section-card section-card--spaced">
+        <div className="section-card__header">
+          <Clock size={15} color="var(--text-muted)" />
+          <h3 className="section-card__title">Pending Requests</h3>
           {pendingRequests.length > 0 && (
-            <span
-              style={{
-                ...sectionCount,
-                background: '#fef3c7',
-                color: '#b45309',
-              }}
-            >
+            <span className="section-card__count section-card__count--accent">
               {pendingRequests.length} awaiting
             </span>
           )}
         </div>
-        <div style={{ padding: '0' }}>
+        <div className="section-card__body--flush">
           <PendingRequestsTable
             requests={pendingRequests}
             onApprove={handleApproveRequest}
@@ -1096,20 +551,37 @@ function ReservationPage() {
         </div>
       </div>
 
-      {/* All Reservations */}
-      <div style={sectionCard}>
-        <div style={sectionHeader}>
-          <Calendar size={16} color="#1e3a8a" />
-          <h3 style={sectionTitle}>All Reservations</h3>
-          <span style={sectionCount}>{allReservations.length} total</span>
+      <div className="section-card">
+        <div className="section-card__header">
+          <Calendar size={15} color="var(--navy)" />
+          <h3 className="section-card__title">All Reservations</h3>
+          <span className="section-card__count">{allReservations.length} total</span>
         </div>
-        <div style={{ padding: '20px' }}>
+        <div className="section-card__body">
           <AllReservationsTable
             reservations={allReservations}
             loading={loading}
+            onEdit={setEditBooking}
+            onDownloadInvoice={handleDownloadInvoice}
+            onPayment={setPaymentBooking}
+            downloadingId={downloadingId}
           />
         </div>
       </div>
+
+      <EditReservationModal
+        isOpen={!!editBooking}
+        booking={editBooking}
+        onClose={() => setEditBooking(null)}
+        onSaved={handleReservationSaved}
+      />
+
+      <ReservationPaymentModal
+        isOpen={!!paymentBooking}
+        booking={paymentBooking}
+        onClose={() => setPaymentBooking(null)}
+        onPaymentRecorded={handlePaymentRecorded}
+      />
     </div>
   );
 }

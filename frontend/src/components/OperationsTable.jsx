@@ -1,17 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import {
-  RefreshCw, ClipboardList, DollarSign, LogIn, LogOut,
-  ShoppingCart, Eye
+  RefreshCw, ClipboardList, LogIn, LogOut, ShoppingCart,
 } from 'lucide-react';
-import { Badge, Button } from './ui';
+import { Badge } from './ui';
 import FilterButtonGroup from './ui/FilterButtonGroup';
-import { COLORS } from '../styles/theme';
+import TableActionButton from './TableActionButton';
 import OrderModal from './OrderModal';
-import FinancialSummaryModal from './FinancialSummaryModal';
-
-// ─────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────
 
 const FILTER_OPTIONS = [
   { key: 'today',      label: 'Today'       },
@@ -19,94 +13,66 @@ const FILTER_OPTIONS = [
   { key: 'all-phases', label: 'All'         },
 ];
 
-const BASE_URL = 'http://localhost:5000';
-
-// ─────────────────────────────────────────────────────────────
-// Sub-components
-// ─────────────────────────────────────────────────────────────
+const BASE_URL = '/api';
 
 function BreakfastCell({ count }) {
-  if (!count) return <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>—</span>;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 26, height: 26, borderRadius: '50%',
-      background: '#d1fae5', color: '#065f46', fontWeight: 700, fontSize: '0.8rem',
-    }}>
-      {count}
-    </span>
-  );
+  if (!count) return <span className="cell-empty">—</span>;
+  return <span className="cell-pill">{count}</span>;
 }
 
 function ExtraBedCell({ count }) {
-  if (!count) return <span style={{ color: '#cbd5e1', fontSize: '0.8rem' }}>—</span>;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 26, height: 26, borderRadius: '50%',
-      background: '#e0e7ff', color: '#3730a3', fontWeight: 700, fontSize: '0.8rem',
-    }}>
-      {count}
-    </span>
-  );
+  if (!count) return <span className="cell-empty">—</span>;
+  return <span className="cell-pill">{count}</span>;
 }
 
-function rowBackground(phase) {
-  if (phase === 'arrival')   return 'rgba(224,242,254,0.3)';
-  if (phase === 'departure') return 'rgba(254,243,199,0.3)';
-  return 'transparent';
+function rowClassName(phase) {
+  if (phase === 'arrival') return 'row-arrival';
+  if (phase === 'departure') return 'row-departure';
+  return '';
 }
 
 function BookingActions({
   booking, todayISO,
   checkingInId, checkingOutId,
-  onView, onPayment, onOrder, onCheckIn, onCheckOut,
+  onOrder, onCheckIn, onCheckOut,
 }) {
   const canCheckIn  = booking.status === 'confirmed' && booking.stay_phase !== 'upcoming';
   const canCheckOut = booking.status === 'checked_in' && booking.check_out_date <= todayISO;
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      gap: '6px', flexWrap: 'wrap',
-    }}>
-      <Button variant="secondary" size="sm" icon={Eye}
-        title="View financial summary" onClick={() => onView(booking)}>
-        View
-      </Button>
-
-      <Button variant="success" size="sm" icon={DollarSign}
-        title="Record payment" onClick={() => onPayment(booking)}>
-        Payment
-      </Button>
-
+    <div className="table-action-group">
       {booking.status === 'checked_in' && (
-        <Button variant="secondary" size="sm" icon={ShoppingCart}
-          title="Add food & beverage order" onClick={() => onOrder(booking)}
-          style={{ borderColor: COLORS.info, color: COLORS.info }}>
-          Order
-        </Button>
+        <TableActionButton
+          title="Add food & beverage order"
+          variant="default"
+          onClick={() => onOrder(booking)}
+        >
+          <ShoppingCart size={13} />
+        </TableActionButton>
       )}
 
       {canCheckIn && (
-        <Button variant="primary" size="sm" icon={LogIn}
+        <TableActionButton
           title="Check in guest"
+          variant="default"
           onClick={() => onCheckIn(booking.id)}
           disabled={checkingInId === booking.id}
-          loading={checkingInId === booking.id}>
-          Check In
-        </Button>
+          loading={checkingInId === booking.id}
+        >
+          <LogIn size={13} />
+        </TableActionButton>
       )}
 
       {canCheckOut && (
-        <Button variant="secondary" size="sm" icon={LogOut}
+        <TableActionButton
           title="Check out guest"
+          variant="warning"
           onClick={() => onCheckOut(booking.id)}
           disabled={checkingOutId === booking.id}
           loading={checkingOutId === booking.id}
-          style={{ borderColor: COLORS.warning, color: COLORS.warning }}>
-          Check Out
-        </Button>
+        >
+          <LogOut size={13} />
+        </TableActionButton>
       )}
     </div>
   );
@@ -120,35 +86,33 @@ function TableHead() {
         <th>Unit</th>
         <th>Check In</th>
         <th>Check Out</th>
-        <th style={{ textAlign: 'center' }}>Pax</th>
-        <th style={{ textAlign: 'center' }}>Bfast</th>
-        <th style={{ textAlign: 'center' }}>Extra Bed</th>
-        <th style={{ textAlign: 'center' }}>Payment</th>
+        <th className="text-center">Pax</th>
+        <th className="text-center">Bfast</th>
+        <th className="text-center">Extra Bed</th>
+        <th className="text-center">Payment</th>
         <th>Status</th>
         <th>Phase</th>
-        <th style={{ textAlign: 'center' }}>Actions</th>
+        <th className="text-center">Actions</th>
       </tr>
     </thead>
   );
 }
 
-function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onView, onPayment, onOrder, onCheckIn, onCheckOut }) {
+function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, onCheckIn, onCheckOut }) {
   return (
-    <tr style={{ background: rowBackground(booking.stay_phase) }}>
-      <td>
-        <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>
-          {booking.guests?.full_name || 'Walk-in Guest'}
-        </div>
+    <tr className={rowClassName(booking.stay_phase)}>
+      <td className="cell-guest">
+        {booking.guests?.full_name || 'Walk-in Guest'}
       </td>
-      <td style={{ fontSize: '0.85rem' }}>{booking.villa_names || '—'}</td>
-      <td style={{ fontSize: '0.82rem', color: '#475569' }}>{booking.check_in_date}</td>
-      <td style={{ fontSize: '0.82rem', color: '#475569' }}>{booking.check_out_date}</td>
-      <td style={{ textAlign: 'center', fontWeight: 600, fontSize: '0.85rem' }}>
-        {booking.total_guests ?? '—'}
+      <td className="cell-truncate">{booking.villa_names || '—'}</td>
+      <td>{booking.check_in_date}</td>
+      <td>{booking.check_out_date}</td>
+      <td className="text-center cell-amount">{booking.total_guests ?? '—'}</td>
+      <td className="text-center"><BreakfastCell count={booking.total_breakfast} /></td>
+      <td className="text-center"><ExtraBedCell count={booking.extra_bed_qty} /></td>
+      <td className="text-center">
+        <Badge type="payment" value={booking.payment_status || 'pending'} />
       </td>
-      <td style={{ textAlign: 'center' }}><BreakfastCell count={booking.total_breakfast} /></td>
-      <td style={{ textAlign: 'center' }}><ExtraBedCell count={booking.extra_bed_qty} /></td>
-      <td><Badge type="payment" value={booking.payment_status || 'pending'} /></td>
       <td><Badge type="status" value={booking.status} /></td>
       <td>
         <Badge
@@ -160,14 +124,12 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onView, on
           }
         />
       </td>
-      <td style={{ textAlign: 'center' }}>
+      <td className="text-center">
         <BookingActions
           booking={booking}
           todayISO={todayISO}
           checkingInId={checkingInId}
           checkingOutId={checkingOutId}
-          onView={onView}
-          onPayment={onPayment}
           onOrder={onOrder}
           onCheckIn={onCheckIn}
           onCheckOut={onCheckOut}
@@ -179,36 +141,33 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onView, on
 
 function SectionHeader({ smartFilter, setSmartFilter, loading, onRefresh, today }) {
   return (
-    <div className="section-title" style={{ padding: '12px 20px' }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', flexWrap: 'wrap', gap: 10,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ClipboardList size={16} color="#1e3a8a" />
-          <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+    <div className="section-title" style={{ padding: '10px 16px' }}>
+      <div className="section-header-row">
+        <div className="section-header-row__title">
+          <ClipboardList size={15} color="var(--navy)" />
+          <span>
             Reservation
             {smartFilter === 'today'      && ' — Today'}
             {smartFilter === 'upcoming-7' && ' — Next Week'}
             {smartFilter === 'all-phases' && ' — All Reservations'}
           </span>
-          <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 4 }}>{today}</span>
+          <span className="section-header-row__meta">{today}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="section-header-row__actions">
           <FilterButtonGroup options={FILTER_OPTIONS} active={smartFilter} onChange={setSmartFilter} />
-          <button onClick={onRefresh} title="Refresh"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
-            <RefreshCw size={15} className={loading ? 'spin-animation' : ''} />
+          <button
+            type="button"
+            onClick={onRefresh}
+            title="Refresh"
+            className="icon-btn-ghost"
+          >
+            <RefreshCw size={14} className={loading ? 'spin-animation' : ''} />
           </button>
         </div>
       </div>
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────
-// Custom hooks
-// ─────────────────────────────────────────────────────────────
 
 function useBookingActions(onRefresh) {
   const [checkingInId,  setCheckingInId]  = useState(null);
@@ -217,7 +176,7 @@ function useBookingActions(onRefresh) {
   const handleCheckIn = async (bookingId) => {
     setCheckingInId(bookingId);
     try {
-      const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/check-in`, {
+      const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-in`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -236,7 +195,7 @@ function useBookingActions(onRefresh) {
   const handleCheckOut = async (bookingId) => {
     setCheckingOutId(bookingId);
     try {
-      const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/check-out`, {
+      const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-out`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -280,13 +239,8 @@ function useFilteredBookings(bookings, smartFilter, todayISO) {
   }, [bookings, todayISO, smartFilter]);
 }
 
-// ─────────────────────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────────────────────
-
 function OperationsTable({ bookings, loading, error, onRefresh }) {
   const [smartFilter, setSmartFilter] = useState('today');
-  const [viewModalBooking,  setViewModalBooking]  = useState(null);
   const [orderModalBooking, setOrderModalBooking] = useState(null);
 
   const today    = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -307,13 +261,13 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
         />
 
         {loading && <div className="empty-state">Loading reservations...</div>}
-        {!loading && error && <div className="empty-state" style={{ color: '#ef4444' }}>⚠️ {error}</div>}
+        {!loading && error && <div className="empty-state text-error">⚠️ {error}</div>}
         {!loading && !error && filtered.length === 0 && (
           <div className="empty-state">No reservations match this filter.</div>
         )}
 
         {!loading && !error && filtered.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-scroll-wrap" style={{ border: 'none', borderRadius: 0 }}>
             <table className="pms-table">
               <TableHead />
               <tbody>
@@ -324,8 +278,6 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
                     todayISO={todayISO}
                     checkingInId={checkingInId}
                     checkingOutId={checkingOutId}
-                    onView={setViewModalBooking}
-                    onPayment={setViewModalBooking}
                     onOrder={setOrderModalBooking}
                     onCheckIn={handleCheckIn}
                     onCheckOut={handleCheckOut}
@@ -336,13 +288,6 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
           </div>
         )}
       </main>
-
-      <FinancialSummaryModal
-        isOpen={!!viewModalBooking}
-        booking={viewModalBooking}
-        onClose={() => setViewModalBooking(null)}
-        onPaymentRecorded={() => { onRefresh(); setViewModalBooking(null); }}
-      />
 
       <OrderModal
         isOpen={!!orderModalBooking}
