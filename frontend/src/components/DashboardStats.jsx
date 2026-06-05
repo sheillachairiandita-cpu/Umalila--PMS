@@ -1,5 +1,7 @@
 import React from 'react';
 import { Users, LogIn, LogOut, Coffee, CalendarCheck } from 'lucide-react';
+import { Card } from './ui';
+import { COLORS, SPACING } from '../styles/theme';
 
 function DashboardStats({ stats, loading }) {
   const cards = [
@@ -46,16 +48,17 @@ function DashboardStats({ stats, loading }) {
   ];
 
   return (
-    <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+    <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: SPACING.lg }}>
       {cards.map(({ key, label, icon: Icon, color, bg, border }) => (
-        <div
+        <Card
           key={key}
-          className="stat-card"
+          variant="flat"
           style={{
             background: bg,
             borderColor: border,
             position: 'relative',
             overflow: 'hidden',
+            cursor: 'default',
           }}
         >
           <div style={{
@@ -66,25 +69,27 @@ function DashboardStats({ stats, loading }) {
           }}>
             <Icon size={38} color={color} />
           </div>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            marginBottom: 6,
-          }}>
-            <Icon size={13} color={color} />
-            <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color, fontWeight: 600 }}>
-              {label}
-            </span>
-          </div>
-          <div className="stat-number" style={{ color: '#0f172a', fontSize: '1.75rem' }}>
-            {loading ? (
-              <span style={{ fontSize: '1rem', color: '#94a3b8' }}>—</span>
-            ) : (
-              stats?.[key] ?? 0
-            )}
-          </div>
-        </div>
+          <Card.Body padding="md">
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 6,
+            }}>
+              <Icon size={13} color={color} />
+              <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color, fontWeight: 600 }}>
+                {label}
+              </span>
+            </div>
+            <div className="stat-number" style={{ color: COLORS.textPrimary, fontSize: '1.75rem' }}>
+              {loading ? (
+                <span style={{ fontSize: '1rem', color: COLORS.textTertiary }}>—</span>
+              ) : (
+                stats?.[key] ?? 0
+              )}
+            </div>
+          </Card.Body>
+        </Card>
       ))}
     </section>
   );

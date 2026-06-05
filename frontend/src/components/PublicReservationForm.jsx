@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, Home, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { Input, Button, Card } from './ui';
+import { COLORS, SPACING } from '../styles/theme';
 import SubmittingOverlay from './SubmittingOverlay';
 import '../App.css';
 
@@ -475,18 +477,19 @@ function PublicReservationForm() {
               </div>
             </div>
 
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: '-4px 0 8px', lineHeight: 1.5 }}>
+            <p style={{ fontSize: '0.78rem', color: COLORS.textTertiary, margin: '-4px 0 8px', lineHeight: 1.5 }}>
               No payment required now. Our team will confirm availability and send an invoice within 24 hours.
             </p>
 
-            <button
+            <Button
               type="submit"
-              className="submit-form-btn"
+              variant="primary"
+              fullWidth
+              size="md"
               disabled={!!dateError}
-              style={{ opacity: dateError ? 0.5 : 1, cursor: dateError ? 'not-allowed' : 'pointer' }}
             >
               Submit Reservation Request
-            </button>
+            </Button>
 
           </form>
         </div>

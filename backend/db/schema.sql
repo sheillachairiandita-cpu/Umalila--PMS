@@ -1,6 +1,7 @@
 -- 1. Create Custom Enum for User Roles
 CREATE TYPE user_role AS ENUM ('owner', 'admin', 'staff');
-CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled');
+CREATE TYPE booking_status AS ENUM ('pending', 'confirmed', 'checked_in', 'checked_out', 'cancelled', 'completed');
+CREATE TYPE payment_status AS ENUM ('pending', 'partial', 'complete');
 
 -- 2. Users Table (Role-Based Access Control)
 CREATE TABLE users (
@@ -18,7 +19,7 @@ CREATE TABLE villas (
     name TEXT UNIQUE NOT NULL,
     capacity INT NOT NULL,
     base_rate_per_night NUMERIC(10, 2) NOT NULL,
-    base_breakfast INT NOT NULL DEFAULT 0
+    base_breakfast INT NOT NULL DEFAULT 0,
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -43,8 +44,11 @@ CREATE TABLE bookings (
     total_guests INT NOT NULL,
     total_price NUMERIC(10, 2) NOT NULL,
     status booking_status NOT NULL DEFAULT 'pending',
+    payment_status payment_status NOT NULL DEFAULT 'pending',
+    amount_paid NUMERIC(10, 2) NOT NULL DEFAULT 0,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     CONSTRAINT valid_dates CHECK (check_out_date > check_in_date)
 );
 
@@ -60,6 +64,7 @@ CREATE TABLE finances (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+-- 7. Booking Villas (Many-to-many: bookings to villas)
 CREATE TABLE booking_villas (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     booking_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
@@ -67,6 +72,7 @@ CREATE TABLE booking_villas (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- 8. Add-ons Table
 CREATE TABLE addons (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -74,6 +80,7 @@ CREATE TABLE addons (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+-- 9. Booking Add-ons (Many-to-many: bookings to add-ons)
 CREATE TABLE booking_addons (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     booking_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
@@ -82,3 +89,37 @@ CREATE TABLE booking_addons (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+-- ============================================================
+-- FOOD & BEVERAGE ORDER SYSTEM
+-- ============================================================
+
+-- 10. Menu Items Table
+CREATE TABLE menu_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('food', 'beverage', 'snack', 'dessert', 'other', 'partner kitchen')),
+    price NUMERIC(10, 2) NOT NULL,
+    is_available BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- 11. Orders Table (one order session per booking per request)
+CREATE TABLE orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    booking_id UUID REFERENCES bookings(id) ON DELETE CASCADE,
+    staff_note TEXT,
+    total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'served', 'billed')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- 12. Order Items (line items per order)
+CREATE TABLE order_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
+    menu_item_id UUID REFERENCES menu_items(id) ON DELETE RESTRICT,
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    unit_price NUMERIC(10, 2) NOT NULL,  -- snapshot of price at time of order
+    subtotal NUMERIC(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Home, Info } from 'lucide-react';
+import { User, Home, Info } from 'lucide-react';
+import { Modal, Input, Button } from './ui';
+import { COLORS, SPACING } from '../styles/theme';
 import SubmittingOverlay from './SubmittingOverlay';
 
 function BookingFormModal({ isOpen, onClose, onSuccess }) {
@@ -181,14 +183,14 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-card" style={{ position: 'relative' }}>
-        {isSubmitting && <SubmittingOverlay />}
-        <div className="modal-header">
-          <h2>Book New Reservation</h2>
-          <button className="close-btn" onClick={onClose}><X size={20} /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="modal-form">
+    <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      {isSubmitting && <SubmittingOverlay />}
+      <Modal.Header
+        title="Book New Reservation"
+        onClose={onClose}
+      />
+      <Modal.Body>
+        <form onSubmit={handleSubmit}>
 
           <div className="form-section">
             <h4><User size={14} /> Guest Profile Details</h4>
@@ -331,12 +333,18 @@ function BookingFormModal({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          <button type="submit" className="submit-form-btn" disabled={!!dateError} style={{ opacity: dateError ? 0.5 : 1, cursor: dateError ? 'not-allowed' : 'pointer' }}>
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            disabled={!!dateError}
+            size="md"
+          >
             Confirm & Save Reservation
-          </button>
+          </Button>
         </form>
-      </div>
-    </div>
+      </Modal.Body>
+    </Modal>
   );
 }
 

@@ -53,17 +53,44 @@ export const STATUS_CONFIG = {
     color: '#991b1b', 
     bg: '#fee2e2' 
   },
+  completed: {
+    label: 'Completed',
+    color: '#065f46',
+    bg: '#d1fae5'
+  }
+};
+
+export const PAYMENT_STATUS_CONFIG = {
+  pending: {
+    label: 'Pending',
+    color: '#92400e',
+    bg: '#fef3c7'
+  },
+  partial: {
+    label: 'Partial',
+    color: '#d97706',
+    bg: '#fed7aa'
+  },
+  complete: {
+    label: 'Complete',
+    color: '#065f46',
+    bg: '#d1fae5'
+  }
 };
 
 /**
  * Get status configuration by key and type
  * @param {string} key - The status or phase key (e.g., 'confirmed', 'arrival')
- * @param {string} type - Either 'status' or 'phase'
+ * @param {string} type - Either 'status', 'phase', or 'payment'
  * @returns {object} Configuration object with label, color, and bg
  */
 export function getStatusConfig(key, type = 'status') {
-  const config = type === 'phase' ? PHASE_CONFIG : STATUS_CONFIG;
-  return config[key] || config[Object.keys(config)[0]];
+  if (type === 'phase') {
+    return PHASE_CONFIG[key] || PHASE_CONFIG[Object.keys(PHASE_CONFIG)[0]];
+  } else if (type === 'payment') {
+    return PAYMENT_STATUS_CONFIG[key] || PAYMENT_STATUS_CONFIG['pending'];
+  }
+  return STATUS_CONFIG[key] || STATUS_CONFIG[Object.keys(STATUS_CONFIG)[0]];
 }
 
 /**
