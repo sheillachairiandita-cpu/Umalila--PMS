@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Home, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import SubmittingOverlay from './SubmittingOverlay';
-import './PublicReservationForm.css';
+import '../App.css';
 
 function PublicReservationForm() {
   const navigate = useNavigate();
