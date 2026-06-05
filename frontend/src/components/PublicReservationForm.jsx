@@ -218,9 +218,9 @@ function PublicReservationForm() {
           <ul className="public-feature-list">
             {[
               'Mountain-view private villas',
+              'English garden',
               'Daily breakfast included',
-              'Farm-to-table highland dining',
-              'Concierge & guided excursions',
+              
             ].map(f => (
               <li key={f} className="public-feature-item">
                 <span className="public-feature-dot" />

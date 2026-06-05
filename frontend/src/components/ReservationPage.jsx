@@ -116,7 +116,7 @@ function PendingRequestsTable({ requests, onApprove, loading }) {
         <thead>
           <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
             <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Guest Name
+              Guest
             </th>
             <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Check-In
@@ -127,9 +127,7 @@ function PendingRequestsTable({ requests, onApprove, loading }) {
             <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Adults / Children
             </th>
-            <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Amount
-            </th>
+
             <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Actions
             </th>
@@ -141,6 +139,9 @@ function PendingRequestsTable({ requests, onApprove, loading }) {
               <td style={{ padding: '14px 16px', fontSize: '0.9rem', fontWeight: 500, color: '#0f172a' }}>
                 {request.guest_full_name}
               </td>
+              <td style={{ padding: '14px 16px', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>
+                Rp {request.total_price?.toLocaleString() || '0'}
+              </td>
               <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: '#475569' }}>
                 {request.check_in_date}
               </td>
@@ -149,9 +150,6 @@ function PendingRequestsTable({ requests, onApprove, loading }) {
               </td>
               <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: '#475569', textAlign: 'center' }}>
                 {request.adults} / {request.children}
-              </td>
-              <td style={{ padding: '14px 16px', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>
-                Rp {request.total_price?.toLocaleString() || '0'}
               </td>
               <td style={{ padding: '14px 16px', textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
                 <button
@@ -571,9 +569,7 @@ function AllReservationsTable({ reservations, loading }) {
                 <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Check-Out
                 </th>
-                <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Guests
-                </th>
+                
                 <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Amount
                 </th>
@@ -602,9 +598,6 @@ function AllReservationsTable({ reservations, loading }) {
                   </td>
                   <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: '#475569' }}>
                     {res.check_out_date}
-                  </td>
-                  <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: '#475569', textAlign: 'center' }}>
-                    {res.total_guests}
                   </td>
                   <td style={{ padding: '14px 16px', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', textAlign: 'right' }}>
                     Rp {res.total_price?.toLocaleString() || '0'}

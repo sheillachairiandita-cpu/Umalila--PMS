@@ -924,3 +924,325 @@ body {
 .weekend-column {
   background-color: #fdfdfd; /* Soft contrast tint behind rows under weekend blocks */
 }
+
+/* ==========================================================================
+   BADGE SYSTEM - Status & Phase Indicators
+   ========================================================================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* STATUS BADGES */
+.badge.badge-status-confirmed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.badge.badge-status-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge.badge-status-checked-in {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.badge.badge-status-checked-out {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.badge.badge-status-cancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* PHASE BADGES */
+.badge.badge-phase-arrival {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.badge.badge-phase-in-house {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.badge.badge-phase-departure {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.badge.badge-phase-upcoming {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+/* ==========================================================================
+   BUTTON SYSTEM - Primary, Secondary, Icon buttons
+   ========================================================================== */
+.btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+/* PRIMARY BUTTON */
+.btn.primary {
+  background-color: var(--accent-navy);
+  color: #ffffff;
+}
+
+.btn.primary:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn.primary:active {
+  transform: translateY(0);
+}
+
+.btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* SECONDARY BUTTON */
+.btn.secondary {
+  background-color: #f8fafc;
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+}
+
+.btn.secondary:hover {
+  background-color: #f1f5f9;
+  border-color: var(--text-muted);
+}
+
+.btn.secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* SMALL BUTTON */
+.btn.sm {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  gap: 4px;
+}
+
+/* PILL BUTTON (for filters) */
+.btn.pill {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* ICON-ONLY BUTTON */
+.btn.icon-only {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.btn.icon-only:hover {
+  background-color: #f1f5f9;
+  color: var(--text-main);
+}
+
+/* ==========================================================================
+   FILTER BUTTONS - Radio group style
+   ========================================================================== */
+.filter-button-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-transform: capitalize;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.filter-btn:hover {
+  border-color: var(--accent-navy);
+  background-color: rgba(30, 58, 138, 0.05);
+}
+
+.filter-btn.active {
+  background-color: var(--accent-navy);
+  color: #ffffff;
+  border-color: var(--accent-navy);
+}
+
+/* ==========================================================================
+   FORM INPUT SYSTEM
+   ========================================================================== */
+.form-input,
+.form-textarea {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.form-input:focus,
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--accent-navy);
+  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.1);
+}
+
+.form-input:disabled {
+  background-color: #f8fafc;
+  color: var(--text-muted);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-input[readonly] {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+/* ==========================================================================
+   UTILITY CLASSES
+   ========================================================================== */
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-main {
+  color: var(--text-main);
+}
+
+.text-error {
+  color: #dc2626;
+}
+
+.text-success {
+  color: #16a34a;
+}
+
+.bg-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.bg-success {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.bg-warning {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.border-light {
+  border: 1px solid var(--border-light);
+}
+
+.rounded-md {
+  border-radius: 8px;
+}
+
+.rounded-lg {
+  border-radius: 12px;
+}
+
+.shadow-sm {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.shadow-md {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* ==========================================================================
+   ANIMATIONS
+   ========================================================================== */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-animation {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.2s ease-in;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.slide-in {
+  animation: slide-in 0.2s ease-out;
+}
