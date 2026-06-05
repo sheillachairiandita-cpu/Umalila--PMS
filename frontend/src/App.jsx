@@ -6,6 +6,7 @@ import OperationsTable from './components/OperationsTable';
 import BookingFormModal from './components/BookingFormModal';
 import Sidebar from './components/SideBar';
 import CalendarPage from './components/CalendarPage';
+import ReservationPage from './components/ReservationPage';
 import PublicReservationForm from './components/PublicReservationForm'; 
 import PublicSuccessMessage from './components/PublicSuccessMessage';
 import './App.css';
@@ -76,6 +77,24 @@ function AdminPortal() {
       <main className="main-content">
         {activePage === 'dashboard' && (
           <div className="dashboard-container">
+            
+            <DashboardStats stats={stats} loading={statsLoading} />
+
+            <OperationsTable
+              bookings={bookings}
+              loading={loading}
+              error={error}
+              onRefresh={handleRefresh}
+            />
+          </div>
+        )}
+
+        {activePage === 'calendar' && <CalendarPage onOpenBookingModal={() => setIsModalOpen(true)} />}
+
+        {activePage === 'reservations' && <ReservationPage />}
+
+         {activePage === 'reservationlist' && (
+          <div className="dashboard-container">
             <header className="header-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button
                 className="add-booking-btn"
@@ -97,8 +116,6 @@ function AdminPortal() {
               </button>
             </header>
 
-            <DashboardStats stats={stats} loading={statsLoading} />
-
             <OperationsTable
               bookings={bookings}
               loading={loading}
@@ -107,8 +124,6 @@ function AdminPortal() {
             />
           </div>
         )}
-
-        {activePage === 'calendar' && <CalendarPage onOpenBookingModal={() => setIsModalOpen(true)} />}
 
         {activePage === 'frontdesk' && (
           <div className="placeholder-page">
@@ -124,7 +139,7 @@ function AdminPortal() {
           </div>
         )}
 
-        {!['dashboard', 'frontdesk', 'villas', 'calendar'].includes(activePage) && (
+        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'reservationlist'].includes(activePage) && (
           <div className="placeholder-page">
             <h1 className="placeholder-page-title">
               {activePage.charAt(0).toUpperCase() + activePage.slice(1)}

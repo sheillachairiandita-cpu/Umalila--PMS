@@ -7,7 +7,8 @@ import {
   Users, 
   Sliders, 
   LogOut,
-  Calendar
+  Calendar,
+  ClipboardList
 } from 'lucide-react';
 
 const Sidebar = ({ activePage, setActivePage }) => {
@@ -35,6 +36,14 @@ const Sidebar = ({ activePage, setActivePage }) => {
         >
           <Calendar size={18} />  
           <span>Calendar</span>    
+        </button>
+
+        <button 
+          className={`nav-item ${activePage === 'reservations' ? 'active' : ''}`}
+          onClick={() => setActivePage('reservations')}
+        >
+          <ClipboardList size={18} />
+          <span>Reservations</span>
         </button>
 
         <button 
