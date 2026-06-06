@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import {
-  RefreshCw, ClipboardList, LogIn, LogOut, ShoppingCart,
+  RefreshCw, ClipboardList, LogIn, LogOut, ShoppingCart, Eye,
 } from 'lucide-react';
 import { Badge } from './ui';
 import FilterButtonGroup from './ui/FilterButtonGroup';
 import TableActionButton from './TableActionButton';
 import OrderModal from './OrderModal';
+import FinancialDetailsModal from './FinancialDetailsModal';
 
 const FILTER_OPTIONS = [
   { key: 'today',      label: 'Today'       },
@@ -26,21 +27,31 @@ function ExtraBedCell({ count }) {
 }
 
 function rowClassName(phase) {
-  if (phase === 'arrival') return 'row-arrival';
-  if (phase === 'departure') return 'row-departure';
+  const normalized = (phase || '').toLowerCase();
+  if (normalized === 'arrival' || normalized === 'upcoming') return 'row-arrival';
+  if (normalized === 'departure' || normalized === 'checked_out') return 'row-departure';
   return '';
 }
 
 function BookingActions({
   booking, todayISO,
   checkingInId, checkingOutId,
-  onOrder, onCheckIn, onCheckOut,
+  onOrder, onCheckIn, onCheckOut, onViewDetails,
 }) {
-  const canCheckIn  = booking.status === 'confirmed' && booking.stay_phase !== 'upcoming';
+  const canCheckIn  = booking.status === 'confirmed';
   const canCheckOut = booking.status === 'checked_in' && booking.check_out_date <= todayISO;
 
   return (
     <div className="table-action-group">
+      {/* View Details Ledger Folio Button */}
+      <TableActionButton
+        title="View Details"
+        variant="default"
+        onClick={onViewDetails}
+      >
+        <Eye size={13} />
+      </TableActionButton>
+
       {booking.status === 'checked_in' && (
         <TableActionButton
           title="Add food & beverage order"
@@ -98,9 +109,12 @@ function TableHead() {
   );
 }
 
-function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, onCheckIn, onCheckOut }) {
+function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, onCheckIn, onCheckOut, onViewDetails }) {
+  // Automation: If status is checked_in, force phase display to 'In House'
+  const computedPhase = booking.status === 'checked_in' ? 'In House' : booking.stay_phase;
+
   return (
-    <tr className={rowClassName(booking.stay_phase)}>
+    <tr className={rowClassName(computedPhase)}>
       <td className="cell-guest">
         {booking.guests?.full_name || 'Walk-in Guest'}
       </td>
@@ -117,10 +131,11 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
       <td>
         <Badge
           type="phase"
-          value={booking.stay_phase}
+          value={computedPhase}
           icon={
-            booking.stay_phase === 'arrival'   ? '→' :
-            booking.stay_phase === 'departure' ? '←' : undefined
+            computedPhase === 'arrival'   ? '→' :
+            computedPhase === 'departure' ? '←' : 
+            computedPhase === 'In House'  ? '✓' : undefined
           }
         />
       </td>
@@ -133,6 +148,7 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
           onOrder={onOrder}
           onCheckIn={onCheckIn}
           onCheckOut={onCheckOut}
+          onViewDetails={onViewDetails}
         />
       </td>
     </tr>
@@ -224,7 +240,7 @@ function useFilteredBookings(bookings, smartFilter, todayISO) {
       return bookings.filter(b => {
         const isArrival   = b.check_in_date  === todayISO;
         const isDeparture = b.check_out_date === todayISO;
-        const isInHouse   = b.check_in_date  <  todayISO && b.check_out_date > todayISO;
+        const isInHouse   = b.status === 'checked_in' || (b.check_in_date < todayISO && b.check_out_date > todayISO);
         return isArrival || isDeparture || isInHouse;
       });
     }
@@ -242,6 +258,7 @@ function useFilteredBookings(bookings, smartFilter, todayISO) {
 function OperationsTable({ bookings, loading, error, onRefresh }) {
   const [smartFilter, setSmartFilter] = useState('today');
   const [orderModalBooking, setOrderModalBooking] = useState(null);
+  const [detailsRow, setDetailsRow] = useState(null);
 
   const today    = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   const todayISO = new Date().toISOString().split('T')[0];
@@ -281,6 +298,10 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
                     onOrder={setOrderModalBooking}
                     onCheckIn={handleCheckIn}
                     onCheckOut={handleCheckOut}
+                    onViewDetails={() => setDetailsRow({
+                      bookingId: booking.id,
+                      guestName: booking.guests?.full_name || 'Walk-in Guest'
+                    })}
                   />
                 ))}
               </tbody>
@@ -288,6 +309,13 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
           </div>
         )}
       </main>
+
+      <FinancialDetailsModal
+        isOpen={!!detailsRow}
+        bookingId={detailsRow?.bookingId}
+        guestName={detailsRow?.guestName}
+        onClose={() => setDetailsRow(null)}
+      />
 
       <OrderModal
         isOpen={!!orderModalBooking}

@@ -1596,6 +1596,10 @@ body {
   .filter-bar {
     grid-template-columns: 1fr 1fr;
   }
+
+  .filter-bar--financial {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 768px) {
@@ -1630,4 +1634,248 @@ body {
   .form-row { grid-template-columns: 1fr; }
 
   .stats-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+
+  .payment-modal-body {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-modal-summary {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: var(--section-pad);
+    margin-bottom: var(--section-pad);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   20. FINANCIAL LEDGER & BILLING
+   -------------------------------------------------------------------------- */
+.filter-bar--financial {
+  grid-template-columns: 2fr 1fr 1fr auto;
+}
+
+.cell-booking-id {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.alert-banner--danger {
+  background: var(--red-bg);
+  border: 1px solid #fecaca;
+  color: var(--red-text);
+}
+
+.financial-summary-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.financial-summary-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.financial-meta-header {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.financial-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  gap: 12px;
+}
+
+.financial-meta-row--divider {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.financial-meta-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.financial-meta-value {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+}
+
+.financial-meta-value--mono {
+  font-family: var(--font-mono);
+  color: var(--navy);
+}
+
+.financial-table-wrapper {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.financial-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.financial-summary-table th {
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+
+.financial-summary-table td {
+  padding: 8px 10px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border-light, #f1f5f9);
+}
+
+.financial-summary-item {
+  font-weight: 500;
+}
+
+.financial-summary-subtotal {
+  font-weight: 600;
+}
+
+.financial-summary-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-light);
+}
+
+.financial-summary-paid {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.financial-summary-balance-row td {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.financial-summary-balance {
+  color: var(--red-text);
+}
+
+.financial-summary-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.financial-summary-table tfoot {
+  background: var(--bg);
+  font-weight: 600;
+  border-top: 2px solid var(--border);
+}
+
+.financial-summary-table tfoot tr td {
+  padding: 8px 10px;
+}
+
+.payment-modal-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--section-pad);
+  margin-bottom: 0 !important;
+}
+
+.payment-modal-summary {
+  border-right: 1px solid var(--border);
+  padding-right: var(--section-pad);
+}
+
+.payment-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.payment-modal-forms {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.payment-form-section {
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.payment-form-section--disabled {
+  opacity: 0.5;
+}
+
+.payment-form-section__title {
+  margin: 0 0 4px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.payment-modal-settled {
+  text-align: center;
+  padding: 40px 16px;
+  color: var(--text-muted);
+}
+
+.payment-modal-settled__icon {
+  font-size: 2rem;
+  margin-bottom: 10px;
+  color: var(--green);
+}
+
+.payment-modal-settled__title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.payment-modal-settled__text {
+  margin: 0;
+  font-size: 0.85rem;
 }

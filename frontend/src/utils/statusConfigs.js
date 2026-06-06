@@ -62,17 +62,17 @@ export const STATUS_CONFIG = {
 
 export const PAYMENT_STATUS_CONFIG = {
   pending: {
-    label: 'No DP',
+    label: 'Pending', //No DP
     color: '#92400e',
     bg: '#fef3c7'
   },
   partial: {
-    label: 'DP Paid',
+    label: 'Partial', //DP Paid
     color: '#d97706',
     bg: '#fed7aa'
   },
   complete: {
-    label: 'All Paid',
+    label: 'Complete', //All Paid
     color: '#065f46',
     bg: '#d1fae5'
   }
@@ -80,6 +80,21 @@ export const PAYMENT_STATUS_CONFIG = {
 
 export const PAYMENT_FILTER_OPTIONS = [
   { key: 'all', label: 'All Payments' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'partial', label: 'Partial' },
+  { key: 'complete', label: 'Complete' },
+];
+
+export const TIMEFRAME_FILTER_OPTIONS = [
+  { key: 'all', label: 'All Time' },
+  { key: 'today', label: 'Today' },
+  { key: 'month', label: 'This Month' },
+  { key: 'year', label: 'This Year' },
+];
+
+export const FINANCIAL_PAYMENT_FILTER_OPTIONS = [
+  { key: 'all', label: 'All Payments' },
+  { key: 'unpaid', label: 'Unpaid / Outstanding' },
   { key: 'pending', label: 'No DP' },
   { key: 'partial', label: 'DP Paid' },
   { key: 'complete', label: 'All Paid' },

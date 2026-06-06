@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   CheckCircle,
   Clock,
@@ -15,10 +13,12 @@ import {
 } from 'lucide-react';
 import Badge from './ui/Badge';
 import TableActionButton from './TableActionButton';
+import TablePagination from './TablePagination';
 import EditReservationModal from './EditReservationModal';
 import ReservationPaymentModal from './ReservationPaymentModal';
 import { downloadReservationInvoice } from '../utils/invoiceUtils';
-import { PAYMENT_FILTER_OPTIONS } from '../utils/statusConfigs';
+import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../utils/statusConfigs';
+import { matchesTimeframeFilter } from '../utils/tableFilters';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -126,13 +126,6 @@ const STATUS_FILTER_OPTIONS = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
-const TIMEFRAME_FILTER_OPTIONS = [
-  { key: 'all', label: 'All Time' },
-  { key: 'today', label: 'Today' },
-  { key: 'month', label: 'This Month' },
-  { key: 'year', label: 'This Year' },
-];
-
 function AllReservationsTable({
   reservations,
   loading,
@@ -148,41 +141,20 @@ function AllReservationsTable({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const startOfYear = new Date(today.getFullYear(), 0, 1);
-
   const filtered = useMemo(() => {
     return reservations.filter((res) => {
       if (
         searchTerm &&
         !res.guest_full_name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-        !res.villa_names?.toLowerCase().includes(searchTerm.toLowerCase())
+        !res.villa_names?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+        !res.display_id?.toLowerCase().includes(searchTerm.toLowerCase())
       )
         return false;
 
       if (paymentFilter !== 'all' && res.payment_status !== paymentFilter)
         return false;
       if (statusFilter !== 'all' && res.status !== statusFilter) return false;
-
-      if (timeframeFilter !== 'all') {
-        const checkInDate = new Date(res.check_in_date);
-        if (
-          timeframeFilter === 'today' &&
-          checkInDate.toDateString() !== today.toDateString()
-        )
-          return false;
-        if (
-          timeframeFilter === 'month' &&
-          (checkInDate < startOfMonth || checkInDate > today)
-        )
-          return false;
-        if (
-          timeframeFilter === 'year' &&
-          (checkInDate < startOfYear || checkInDate > today)
-        )
-          return false;
-      }
+      if (!matchesTimeframeFilter(res.check_in_date, timeframeFilter)) return false;
       return true;
     });
   }, [reservations, searchTerm, paymentFilter, statusFilter, timeframeFilter]);
@@ -368,48 +340,11 @@ function AllReservationsTable({
         </div>
       )}
 
-      {/* ── Pagination ──────────────────────────────────────── */}
-      {totalPages > 1 && (
-        <div className="pagination">
-          <button
-            type="button"
-            className="pagination__btn"
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            <ChevronLeft size={14} />
-          </button>
-
-          {Array.from({ length: totalPages }, (_, i) => i + 1)
-            .filter((p) => Math.abs(p - currentPage) <= 1 || p === 1 || p === totalPages)
-            .map((page, idx, arr) => {
-              const showEllipsis = idx > 0 && arr[idx - 1] !== page - 1;
-              return (
-                <React.Fragment key={page}>
-                  {showEllipsis && <span className="pagination__ellipsis">…</span>}
-                  <button
-                    type="button"
-                    className={`pagination__btn pagination__btn--page ${currentPage === page ? 'pagination__btn--active' : ''}`}
-                    onClick={() => setCurrentPage(page)}
-                  >
-                    {page}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-
-          <button
-            type="button"
-            className="pagination__btn"
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            <ChevronRight size={14} />
-          </button>
-
-          <span className="pagination__label">Page {currentPage} of {totalPages}</span>
-        </div>
-      )}
+      <TablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+      />
     </div>
   );
 }
@@ -476,7 +411,7 @@ function ReservationPage() {
   const handleDownloadInvoice = async (reservation) => {
     try {
       setDownloadingId(reservation.id);
-      await downloadReservationInvoice(reservation.id);
+      await downloadReservationInvoice(reservation.id, reservation.display_id);
     } catch (err) {
       console.error('Invoice download failed:', err);
       alert(err.message || 'Failed to download invoice');

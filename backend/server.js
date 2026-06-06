@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import { streamBookingConfirmationPdf } from './services/bookingConfirmationPdf.js';
 
 dotenv.config();
 
@@ -13,13 +14,12 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(cors());
-app.use(express.json({ limit: '20mb' }));   // ← increased limit for base64 file uploads
+app.use(express.json({ limit: '20mb' }));
 
 // ─────────────────────────────────────────────────────────────
 // 📋 BOOKINGS
 // ─────────────────────────────────────────────────────────────
 
-// GET ALL BOOKINGS with guest + villa + order totals
 app.get('/api/bookings', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -61,10 +61,20 @@ app.get('/api/bookings', async (req, res) => {
       const extraBedAddon = b.booking_addons?.find(ba => ba.addons?.name === 'Extra Bed');
       const extraBedQty = extraBedAddon?.quantity || 0;
 
-      let stayPhase = 'in-house';
-      if (b.check_in_date === today) stayPhase = 'arrival';
-      else if (b.check_out_date === today) stayPhase = 'departure';
-      else if (b.check_in_date > today) stayPhase = 'upcoming';
+      // FIX 4: If status is 'checked_in', phase must be 'in-house' regardless of date.
+      // This ensures the badge immediately reflects the operational state after check-in.
+      let stayPhase;
+      if (b.status === 'checked_in') {
+        stayPhase = 'in-house';
+      } else if (b.check_in_date === today) {
+        stayPhase = 'arrival';
+      } else if (b.check_out_date === today) {
+        stayPhase = 'departure';
+      } else if (b.check_in_date > today) {
+        stayPhase = 'upcoming';
+      } else {
+        stayPhase = 'in-house';
+      }
 
       const orderTotal = orderTotalMap[b.id] || 0;
 
@@ -87,7 +97,6 @@ app.get('/api/bookings', async (req, res) => {
   }
 });
 
-// POST NEW BOOKING
 app.post('/api/bookings', async (req, res) => {
   const { villa_ids, guest_id, check_in_date, check_out_date, total_guests, total_price, notes, selected_addons } = req.body;
 
@@ -133,7 +142,6 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// PATCH booking status
 app.patch('/api/bookings/:id/status', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -152,7 +160,6 @@ app.patch('/api/bookings/:id/status', async (req, res) => {
   }
 });
 
-// PATCH booking details
 app.patch('/api/bookings/:id', async (req, res) => {
   const { id } = req.params;
   const { check_in_date, check_out_date, total_guests, notes, total_price } = req.body;
@@ -189,7 +196,6 @@ app.patch('/api/bookings/:id', async (req, res) => {
   }
 });
 
-// PATCH cancel booking with mandatory reason
 app.patch('/api/bookings/:id/cancel', async (req, res) => {
   const { id } = req.params;
   const { cancellation_reason } = req.body;
@@ -279,92 +285,6 @@ app.get('/api/bookings/:bookingId/orders', async (req, res) => {
   }
 });
 
-// GET food orders for a booking (used by OrderModal history tab)
-app.get('/api/bookings/:bookingId/food-orders', async (req, res) => {
-  const { bookingId } = req.params;
-
-  try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`
-        *,
-        order_items (
-          id,
-          quantity,
-          unit_price,
-          menu_items (id, name, category)
-        )
-      `)
-      .eq('booking_id', bookingId)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    const formatted = (data || []).map(order => ({
-      ...order,
-      total_price: order.total_amount,
-      items: (order.order_items || []).map(item => ({
-        menu_item_name: item.menu_items?.name || 'Unknown',
-        quantity: item.quantity,
-        price_at_order: item.unit_price,
-      })),
-    }));
-
-    res.json(formatted);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST food orders (used by OrderModal)
-app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
-  const { bookingId } = req.params;
-  const { items } = req.body;
-
-  if (!items || items.length === 0) {
-    return res.status(400).json({ error: 'Order must contain at least one item.' });
-  }
-
-  try {
-    const menuIds = items.map(i => i.menu_item_id);
-    const { data: menuData, error: menuError } = await supabase
-      .from('menu_items')
-      .select('id, price')
-      .in('id', menuIds);
-
-    if (menuError) throw menuError;
-
-    const priceMap = {};
-    menuData.forEach(m => { priceMap[m.id] = m.price; });
-
-    const total_amount = items.reduce((sum, item) => {
-      return sum + (priceMap[item.menu_item_id] || 0) * item.quantity;
-    }, 0);
-
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert([{ booking_id: bookingId, total_amount }])
-      .select()
-      .single();
-
-    if (orderError) throw orderError;
-
-    const orderItemRows = items.map(item => ({
-      order_id: order.id,
-      menu_item_id: item.menu_item_id,
-      quantity: item.quantity,
-      unit_price: priceMap[item.menu_item_id] || 0,
-    }));
-
-    const { error: itemsError } = await supabase.from('order_items').insert(orderItemRows);
-    if (itemsError) throw itemsError;
-
-    res.status(201).json({ ...order, items: orderItemRows });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
 app.post('/api/bookings/:bookingId/orders', async (req, res) => {
   const { bookingId } = req.params;
   const { items, staff_note } = req.body;
@@ -391,7 +311,7 @@ app.post('/api/bookings/:bookingId/orders', async (req, res) => {
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .insert([{ booking_id: bookingId, staff_note: staff_note || null, total_amount }])
+      .insert([{ booking_id: bookingId, staff_note: staff_note || null, total_amount, status: 'open' }])
       .select()
       .single();
 
@@ -409,6 +329,106 @@ app.post('/api/bookings/:bookingId/orders', async (req, res) => {
 
     res.status(201).json({ ...order, items: orderItemRows });
   } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/bookings/:bookingId/food-orders', async (req, res) => {
+  const { bookingId } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        order_items (
+          id,
+          quantity,
+          unit_price,
+          menu_items (id, name, category)
+        )
+      `)
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const formatted = (data || []).map(order => ({
+      ...order,
+      total_price: order.total_amount,
+      items: (order.order_items || []).map(item => ({
+        menu_item_name: item.menu_items?.name || 'Unknown',
+        quantity: item.quantity,
+        price_at_order: Number(item.unit_price) || 0, // Ensure it parses cleanly as a number
+      })),
+    }));
+
+    res.json(formatted);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
+  const { bookingId } = req.params;
+  const { items } = req.body;
+
+  if (!items || items.length === 0) {
+    return res.status(400).json({ error: 'Order must contain at least one item.' });
+  }
+
+  try {
+    const menuIds = items.map(i => i.menu_item_id);
+    const { data: menuData, error: menuError } = await supabase
+      .from('menu_items')
+      .select('id, price')
+      .in('id', menuIds);
+
+    if (menuError) throw menuError;
+
+    const priceMap = {};
+    menuData.forEach(m => { priceMap[m.id] = m.price; });
+
+    const total_amount = items.reduce((sum, item) => {
+      return sum + (priceMap[item.menu_item_id] || 0) * item.quantity;
+    }, 0);
+
+    // 1. Insert order with the status 'open' which strictly matches your check constraint
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert([{ 
+        booking_id: bookingId, 
+        total_amount: total_amount, 
+        status: 'open' 
+      }])
+      .select()
+      .single();
+
+    if (orderError) {
+      console.error("❌ Supabase Orders Insert Error:", orderError);
+      return res.status(400).json({ error: orderError.message });
+    }
+
+    // 2. Prepare item insertion rows
+    const orderItemRows = items.map(item => ({
+      order_id: order.id,
+      menu_item_id: item.menu_item_id,
+      quantity: item.quantity,
+      unit_price: priceMap[item.menu_item_id] || 0,
+    }));
+
+    const { error: itemsError } = await supabase
+      .from('order_items')
+      .insert(orderItemRows);
+
+    if (itemsError) {
+      console.error("❌ Supabase Order Items Insert Error:", itemsError);
+      throw itemsError;
+    }
+
+    res.status(201).json({ ...order, items: orderItemRows });
+  } catch (error) {
+    console.error("Backend Food Order Submission Error:", error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -544,8 +564,12 @@ function stayNights(checkIn, checkOut) {
   );
 }
 
-function buildInvoiceId(bookingId) {
-  return `UM-${String(bookingId).slice(0, 8).toUpperCase()}`;
+function buildInvoiceId(bookingOrId) {
+  if (bookingOrId && typeof bookingOrId === 'object') {
+    if (bookingOrId.display_id) return bookingOrId.display_id;
+    return `UM-${String(bookingOrId.id).slice(0, 8).toUpperCase()}`;
+  }
+  return `UM-${String(bookingOrId).slice(0, 8).toUpperCase()}`;
 }
 
 async function buildFinancialSummary(bookingId) {
@@ -570,6 +594,7 @@ async function buildFinancialSummary(bookingId) {
     .select(`
       id,
       total_amount,
+      status,
       created_at,
       order_items (
         quantity,
@@ -579,7 +604,7 @@ async function buildFinancialSummary(bookingId) {
       )
     `)
     .eq('booking_id', bookingId)
-    .not('status', 'eq', 'billed');
+    .in('status', ['open', 'served']);
 
   if (orderError) throw orderError;
 
@@ -697,7 +722,8 @@ async function buildFinancialSummary(bookingId) {
 
   return {
     booking,
-    invoiceId: buildInvoiceId(bookingId),
+    invoiceId: buildInvoiceId(booking),
+    displayId: booking.display_id || buildInvoiceId(booking),
     accommodation,
     totalAccommodation: accommodation,
     totalAddons,
@@ -724,19 +750,6 @@ async function buildFinancialSummary(bookingId) {
 
 // ─────────────────────────────────────────────────────────────
 // 📎  RECEIPT UPLOAD — Supabase Storage
-//
-// POST /api/bookings/:bookingId/upload-receipt
-//
-// Body: { fileData: string (base64 dataURL), fileName: string,
-//         fileType: string, paymentType: 'partial' | 'final' }
-//
-// Storage bucket : transaction_reservation
-// Storage path   : receipt/guest/{guestId}/{bookingId}/{baseName}_{suffix}.{ext}
-//
-// Suffix logic (evaluated at upload time against live payment_status):
-//   paymentType === 'final'               → suffix = '_full'
-//   booking.payment_status === 'complete' → suffix = '_full'  (safety guard)
-//   otherwise                             → suffix = '_partial'
 // ─────────────────────────────────────────────────────────────
 
 app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
@@ -748,7 +761,6 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
   }
 
   try {
-    // 1. Fetch booking to resolve guestId + current payment_status
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select('id, guest_id, payment_status, amount_paid')
@@ -757,27 +769,21 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
 
     if (bookingError) throw bookingError;
 
-    // 2. Determine suffix based on paymentType + live payment_status
     let suffix = '_partial';
     if (paymentType === 'final' || booking.payment_status === 'complete') {
       suffix = '_full';
     }
 
-    // 3. Inject suffix before file extension
-    //    "bank_slip.pdf" → "bank_slip_partial.pdf"
     const dotIdx = fileName.lastIndexOf('.');
     const baseName = dotIdx !== -1 ? fileName.slice(0, dotIdx) : fileName;
     const ext      = dotIdx !== -1 ? fileName.slice(dotIdx)    : '';
     const finalFileName = `${baseName}${suffix}${ext}`;
 
-    // 4. Build full storage path
     const storagePath = `receipt/guest/${booking.guest_id}/${bookingId}/${finalFileName}`;
 
-    // 5. Decode base64 data URL → raw Buffer
     const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // 6. Upload to Supabase Storage (upsert so re-uploads overwrite cleanly)
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('transaction_reservation')
       .upload(storagePath, buffer, {
@@ -787,7 +793,6 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
 
     if (uploadError) throw uploadError;
 
-    // 7. Resolve public URL
     const { data: urlData } = supabase.storage
       .from('transaction_reservation')
       .getPublicUrl(storagePath);
@@ -806,12 +811,14 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// 📊  FINANCIAL ENDPOINTS
+// ─────────────────────────────────────────────────────────────
 
 app.get('/api/financial/income', async (req, res) => {
   try {
     const { data: bookings, error } = await supabase
       .from('bookings')
-      .select('id, status, payment_status, created_at')
+      .select('id, display_id, status, payment_status, created_at')
       .not('status', 'eq', 'cancelled')
       .order('created_at', { ascending: false });
 
@@ -822,7 +829,8 @@ app.get('/api/financial/income', async (req, res) => {
         const summary = await buildFinancialSummary(b.id);
         return {
           bookingId: b.id,
-          invoiceId: summary.invoiceId,
+          displayId: summary.displayId,
+          invoiceId: summary.displayId,
           guestName: summary.booking.guests?.full_name || 'Unknown Guest',
           checkIn: summary.booking.check_in_date,
           checkOut: summary.booking.check_out_date,
@@ -844,42 +852,26 @@ app.get('/api/financial/income', async (req, res) => {
   }
 });
 
-app.get('/api/bookings/:bookingId/financial-summary', async (req, res) => {
+app.get('/api/bookings/:bookingId/invoice/pdf', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
     const summary = await buildFinancialSummary(bookingId);
-    res.json({
-      invoiceId: summary.invoiceId,
-      guestName: summary.booking.guests?.full_name || 'Unknown Guest',
-      checkIn: summary.booking.check_in_date,
-      checkOut: summary.booking.check_out_date,
-      villaNames: summary.villaNames,
-      accommodation: summary.accommodation,
-      totalAccommodation: summary.totalAccommodation,
-      totalAddons: summary.totalAddons,
-      totalMenuItems: summary.totalMenuItems,
-      extraBeds: summary.extraBeds,
-      extraBreakfast: summary.extraBreakfast,
-      otherAddons: summary.otherAddons,
-      accommodationLines: summary.accommodationLines,
-      addonLines: summary.addonLines,
-      menuLines: summary.menuLines,
-      lineItems: summary.lineItems,
-      menuItems: summary.menuItems,
-      menuTotal: summary.menuTotal,
-      fb: summary.menuTotal,
-      addons: summary.totalAddons,
-      total: summary.total,
-      amountPaid: summary.amountPaid,
-      balanceDue: summary.balanceDue,
-      balance: summary.balance,
-      reminder: summary.reminder,
-      paymentStatus: summary.paymentStatus,
-      hasPartialPayment: summary.hasPartialPayment,
-    });
+    const displayId = summary.displayId;
+    const filename = `Booking Confirmation - ${displayId}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-store');
+
+    await streamBookingConfirmationPdf(summary, res);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('PDF generation error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Failed to generate booking confirmation PDF' });
+    } else {
+      res.end();
+    }
   }
 });
 
@@ -888,14 +880,19 @@ app.get('/api/bookings/:bookingId/invoice', async (req, res) => {
 
   try {
     const summary = await buildFinancialSummary(bookingId);
-    const shortId = String(bookingId).slice(0, 8).toUpperCase();
+    const displayId = summary.displayId;
 
     res.json({
-      invoiceNumber: `UM-${shortId}`,
+      invoiceNumber: displayId,
+      displayId,
       guestName: summary.booking.guests?.full_name || 'Guest',
       checkIn: summary.booking.check_in_date,
       checkOut: summary.booking.check_out_date,
       villaNames: summary.villaNames,
+      lineItems: summary.lineItems,
+      accommodationLines: summary.accommodationLines,
+      addonLines: summary.addonLines,
+      menuLines: summary.menuLines,
       accommodation: summary.accommodation,
       extraBeds: summary.extraBeds,
       extraBreakfast: summary.extraBreakfast,
@@ -925,7 +922,6 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
     return res.status(400).json({ error: 'Invalid payment amount.' });
   }
 
-  // 🔓 Validation guard relaxed for development flow progression
   try {
     const summary = await buildFinancialSummary(bookingId);
     const booking = summary.booking;
@@ -940,7 +936,6 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
     const newAmountPaid = Number(booking.amount_paid) + Number(amount);
     const grandTotal = summary.total;
 
-    // ⚡ Direct, explicit status mapping logic
     let newPaymentStatus = 'pending';
     if (paymentType === 'partial') {
       newPaymentStatus = 'partial';
@@ -959,7 +954,6 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
 
     const descriptiveAttachmentLabel = proofFileName ? `Proof: ${proofFileName}` : 'No document uploaded';
 
-    // 1. Insert an analytical financial audit trail record
     await supabase.from('finances').insert([{
       booking_id: bookingId,
       type: 'income',
@@ -969,12 +963,11 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
       description: `${paymentType === 'final' ? 'Final' : 'Partial'} payment via ${paymentMethod}. ${descriptiveAttachmentLabel}${notes ? `. ${notes}` : ''}`,
     }]);
 
-    // 2. Commit the new tracking math directly to the booking record
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
       .update({
         amount_paid: newAmountPaid,
-        payment_status: newPaymentStatus, // ← Instantly writes 'partial' or 'complete'
+        payment_status: newPaymentStatus,
       })
       .eq('id', bookingId)
       .select()
@@ -982,7 +975,6 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    // Auto-resolve booking logic if client checkout matches zero balances
     if (newPaymentStatus === 'complete' && updatedBooking.status === 'checked_out') {
       await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId);
     }
@@ -1028,7 +1020,6 @@ app.patch('/api/bookings/:bookingId/payment-status', async (req, res) => {
   }
 });
 
-// CHECK-IN — confirmed → checked_in
 app.patch('/api/bookings/:bookingId/check-in', async (req, res) => {
   const { bookingId } = req.params;
 
@@ -1051,7 +1042,6 @@ app.patch('/api/bookings/:bookingId/check-in', async (req, res) => {
   }
 });
 
-// CHECK-OUT — checked_in → checked_out (+ auto-complete if paid)
 app.patch('/api/bookings/:bookingId/check-out', async (req, res) => {
   const { bookingId } = req.params;
 

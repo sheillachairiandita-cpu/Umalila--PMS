@@ -1,63 +1,6 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
-
--- ============================================================
--- 1. CUSTOM ENUM TYPES DEFINITIONS
--- ============================================================
-
--- User Access Roles
-CREATE TYPE user_role AS ENUM (
-    'owner', 
-    'admin', 
-    'staff'
-);
-
--- Complete Booking Lifecycle States
-CREATE TYPE booking_status AS ENUM (
-    'pending', 
-    'confirmed', 
-    'checked_in', 
-    'checked_out', 
-    'cancelled', 
-    'completed'
-);
-
--- Core Financial Cashflow Types
-CREATE TYPE finance_type AS ENUM (
-    'income', 
-    'expense'
-);
-
--- Financial Reporting Categories
-CREATE TYPE finance_category AS ENUM (
-    'room_revenue', 
-    'fb_revenue', 
-    'addon_revenue', 
-    'salary', 
-    'maintenance', 
-    'marketing', 
-    'other'
-);
-
--- Food & Beverage Kitchen Workflow States
-CREATE TYPE order_status AS ENUM (
-    'pending', 
-    'preparing', 
-    'served', 
-    'billed'
-);
-
--- Menu Pricing & Inventory Categories
-CREATE TYPE menu_category AS ENUM (
-    'food', 
-    'beverage', 
-    'snack', 
-    'dessert', 
-    'partner_kitchen', 
-    'other'
-);
-
 CREATE TABLE public.users (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   email text NOT NULL UNIQUE,
@@ -75,6 +18,7 @@ CREATE TABLE public.villas (
   description text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   base_breakfast smallint NOT NULL DEFAULT '0'::smallint CHECK (base_breakfast >= 0),
+  display_id text UNIQUE,
   CONSTRAINT villas_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.guests (
@@ -84,6 +28,7 @@ CREATE TABLE public.guests (
   phone_number text NOT NULL,
   id_card_number text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  display_id text UNIQUE,
   CONSTRAINT guests_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.bookings (
@@ -98,6 +43,8 @@ CREATE TABLE public.bookings (
   notes text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   amount_paid numeric DEFAULT 0.00,
+  payment_status text NOT NULL DEFAULT 'pending'::text CHECK (payment_status = ANY (ARRAY['pending'::text, 'partial'::text, 'complete'::text])),
+  display_id text UNIQUE,
   CONSTRAINT bookings_pkey PRIMARY KEY (id),
   CONSTRAINT bookings_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id),
   CONSTRAINT bookings_guest_id_fkey FOREIGN KEY (guest_id) REFERENCES public.guests(id)
@@ -178,4 +125,3 @@ CREATE TABLE public.booking_villas (
   CONSTRAINT booking_villas_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
   CONSTRAINT booking_villas_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id)
 );
-

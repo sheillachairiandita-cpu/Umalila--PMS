@@ -43,7 +43,7 @@ function QtyStepper({ qty, onIncrease, onDecrease }) {
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────
-function OrderModal({ isOpen, booking, onClose, onOrderPlaced }) {
+function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
   const [tab, setTab] = useState('menu'); // 'menu' | 'cart' | 'history'
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(false);
@@ -86,16 +86,14 @@ function OrderModal({ isOpen, booking, onClose, onOrderPlaced }) {
 
   const fetchOrderHistory = async () => {
     if (!booking?.id) return;
-    setLoadingOrders(true);
     try {
+      // FIX: Changed from /orders to /food-orders to match your backend formatter
       const response = await fetch(`/api/bookings/${booking.id}/food-orders`);
       if (!response.ok) throw new Error('Failed to fetch order history');
       const data = await response.json();
-      setOrdersHistory(data || []);
+      setOrdersHistory(data);
     } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingOrders(false);
+      console.error('Error loading history:', err);
     }
   };
 
@@ -152,14 +150,27 @@ function OrderModal({ isOpen, booking, onClose, onOrderPlaced }) {
         body: JSON.stringify({ items: itemsPayload }),
       });
 
-      if (!response.ok) throw new Error('Failed to submit order');
+      // Fetch structural error text directly from server if response fails
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to submit order to server.');
+      }
 
+      // Clear the local state shopping cart
       setCart({});
-      if (onOrderPlaced) onOrderPlaced();
+      
+      // FIX: Triggers parent layout state updates cleanly
+      if (typeof onOrderSaved === 'function') {
+        onOrderSaved();
+      } else if (typeof onOrderPlaced === 'function') {
+        onOrderPlaced(); // Fallback safety catch
+      }
+      
       await fetchOrderHistory();
       setTab('history');
     } catch (err) {
-      setError(err.message);
+      console.error("Frontend Order Placement Error:", err);
+      setError(err.message || '⚠️ Failed to submit order');
     } finally {
       setSubmitting(false);
     }
