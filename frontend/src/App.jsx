@@ -10,11 +10,9 @@ import ReservationPage from './components/ReservationPage';
 import FinancialDashboardPage from './components/FinancialDashboardPage';
 import PublicReservationForm from './components/PublicReservationForm'; 
 import PublicSuccessMessage from './components/PublicSuccessMessage';
+import Dashboard from './components/Dashboard'; // ← ADD THIS
 import './App.css';
 
-// ==========================================
-// 🛡️ SUB-COMPONENT: FULL INTERNAL ADMIN PANEL
-// ==========================================
 function AdminPortal() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,8 +20,6 @@ function AdminPortal() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  // Dashboard stats state
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -84,9 +80,7 @@ function AdminPortal() {
       <main className="main-content">
         {activePage === 'dashboard' && (
           <div className="dashboard-container">
-            
             <DashboardStats stats={stats} loading={statsLoading} />
-
             <OperationsTable
               bookings={bookings}
               loading={loading}
@@ -97,40 +91,26 @@ function AdminPortal() {
         )}
 
         {activePage === 'calendar' && <CalendarPage onOpenBookingModal={() => setIsModalOpen(true)} />}
-
         {activePage === 'reservations' && <ReservationPage />}
-
         {activePage === 'financial' && <FinancialDashboardPage />}
+        {activePage === 'insights' && <Dashboard />}  {/* ← ADD THIS */}
 
-         {activePage === 'reservationlist' && (
+        {activePage === 'reservationlist' && (
           <div className="dashboard-container">
             <header className="header-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button
                 className="add-booking-btn"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 16px',
-                  backgroundColor: '#0f172a',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontWeight: '500',
-                  cursor: 'pointer'
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 16px', backgroundColor: '#0f172a', color: '#ffffff',
+                  border: 'none', borderRadius: '8px', fontWeight: '500', cursor: 'pointer'
                 }}
                 onClick={() => setIsModalOpen(true)}
               >
                 <Plus size={16} /> New Reservation
               </button>
             </header>
-
-            <OperationsTable
-              bookings={bookings}
-              loading={loading}
-              error={error}
-              onRefresh={handleRefresh}
-            />
+            <OperationsTable bookings={bookings} loading={loading} error={error} onRefresh={handleRefresh} />
           </div>
         )}
 
@@ -148,7 +128,8 @@ function AdminPortal() {
           </div>
         )}
 
-        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'financial', 'reservationlist'].includes(activePage) && (
+        {/* ↓ Add 'insights' to the exclusion list */}
+        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'financial', 'reservationlist', 'insights'].includes(activePage) && (
           <div className="placeholder-page">
             <h1 className="placeholder-page-title">
               {activePage.charAt(0).toUpperCase() + activePage.slice(1)}
@@ -167,25 +148,14 @@ function AdminPortal() {
   );
 }
 
-// ==========================================
-// 🚀 THE CORE ROUTER CONTROL HUB
-// ==========================================
 function App() {
   return (
     <Router>
       <Routes>
-        {/* Path The Public Facing Guest Universe */}
-        {/* Pass down a route redirection behavior prop to the form execution block */}
         <Route path="/" element={<PublicReservationForm />} />
         <Route path="/book" element={<Navigate to="/" replace />} />
-        
-        {/* New Explicit Success Route Node */}
         <Route path="/success" element={<PublicSuccessMessage />} />
-
-        {/* PATH B: The Internal Private Staff Universe */}
         <Route path="/admin" element={<AdminPortal />} />
-
-        {/* SAFETY VALVE: Catch any spelling typos and return to guest homepage */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

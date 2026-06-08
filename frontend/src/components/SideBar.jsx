@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Wallet,
+  PieChart,
 } from 'lucide-react';
 
 const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
@@ -103,6 +104,19 @@ const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
         >
           <Users size={15} />
           <span>Guest Directory</span>
+        </button>
+
+        <div className="sidebar-divider" />
+        <div className="nav-group-title">Analytics</div>
+
+        <button
+          type="button"
+          className={`nav-item ${activePage === 'insights' ? 'active' : ''}`}
+          onClick={() => setActivePage('insights')}
+          title="Dashboard & Insights"
+        >
+          <PieChart size={15} />
+          <span>Dashboard</span>
         </button>
 
         <div className="sidebar-divider" />
