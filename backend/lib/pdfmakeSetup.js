@@ -1,30 +1,27 @@
-import pdfmake from 'pdfmake';
-import { customVfs } from './vfs_fonts.js';
+import PdfPrinter from 'pdfmake/src/printer.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// 1. Force-load the base64 compiled asset maps into pdfmake's internal virtual storage
-Object.entries(customVfs).forEach(([fileName, base64Content]) => {
-  if (base64Content) {
-    // Registering with explicit base64 formatting tells pdfmake exactly how to unpack the .ttf binary
-    pdfmake.virtualfs.writeFileSync(fileName, base64Content, 'base64');
-  }
-});
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// 2. Set structural font families map matching your style overrides precisely
-pdfmake.setFonts({
+// Absolute path pointing directly to: ../backend/lib/fonts
+const fontsDir = path.join(__dirname, 'fonts');
+
+const fontDescriptors = {
   Roboto: {
-    normal: pdfmake.virtualfs.existsSync('Roboto-Regular.ttf') ? 'Roboto-Regular.ttf' : 'Helvetica',
-    bold: pdfmake.virtualfs.existsSync('Roboto-Bold.ttf') ? 'Roboto-Bold.ttf' : 'Helvetica-Bold',
-    italics: pdfmake.virtualfs.existsSync('Roboto-Italic.ttf') ? 'Roboto-Italic.ttf' : 'Helvetica-Oblique',
-    bolditalics: pdfmake.virtualfs.existsSync('Roboto-BoldItalic.ttf') ? 'Roboto-BoldItalic.ttf' : 'Helvetica-BoldOblique'
+    normal: path.join(fontsDir, 'Roboto-Regular.ttf'),
+    bold: path.join(fontsDir, 'Roboto-Bold.ttf'),
+    italics: path.join(fontsDir, 'Roboto-Italic.ttf'),
+    bolditalics: path.join(fontsDir, 'Roboto-BoldItalic.ttf')
   },
   Courier: {
-    normal: pdfmake.virtualfs.existsSync('CourierPrime-Regular.ttf') ? 'Courier-Regular.ttf' : 'Courier',
-    bold: pdfmake.virtualfs.existsSync('CourierPrime-Bold.ttf') ? 'Courier-Bold.ttf' : 'Courier-Bold'
+    normal: path.join(fontsDir, 'CourierPrime-Regular.ttf'),
+    bold: path.join(fontsDir, 'CourierPrime-Bold.ttf')
   }
-});
+};
 
-// 3. Open access rules to authorize rendering local asset files safely
-pdfmake.setLocalAccessPolicy(() => true);
-pdfmake.setUrlAccessPolicy(() => false);
+// Instantiate the printer instance cleanly
+const printer = new PdfPrinter(fontDescriptors);
 
-export default pdfmake;
+export default printer;
