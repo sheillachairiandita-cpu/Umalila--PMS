@@ -2,15 +2,9 @@
 
 import { generateBookingConfirmationPdf } from '../services/bookingConfirmationPdf.js';
 
-// Note: supabase will be passed as parameter or imported from server
-let supabaseInstance;
-
-export function setSupabaseInstance(supabaseClient) {
-  supabaseInstance = supabaseClient;
-}
-
 /**
  * Build financial summary from booking data
+ * Format data to match bookingConfirmationPdf.js template expectations
  */
 export async function buildFinancialSummary(bookingId, supabase) {
   try {
@@ -25,6 +19,7 @@ export async function buildFinancialSummary(bookingId, supabase) {
         notes,
         payment_status,
         amount_paid,
+        created_at,
         guests (full_name, email, phone_number),
         booking_villas (
           villas (id, name, base_rate_per_night, base_breakfast)
@@ -47,43 +42,31 @@ export async function buildFinancialSummary(bookingId, supabase) {
     const checkOut = new Date(booking.check_out_date);
     const nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
 
-    // Calculate villa charges
-    let villaSubtotal = 0;
-    const villas = booking.booking_villas?.map(bv => {
-      const rate = bv.villas?.base_rate_per_night || 0;
-      const lineTotal = rate * nights;
-      villaSubtotal += lineTotal;
-      
-      return {
-        name: bv.villas?.name || 'Villa Unit',
-        rate: rate,
-        nights: nights,
-        subtotal: lineTotal,
-      };
-    }) || [];
+    // Build villas array
+    const villas = booking.booking_villas?.map(bv => ({
+      name: bv.villas?.name || 'Villa Unit',
+      rate: bv.villas?.base_rate_per_night || 0,
+      nights: nights,
+      subtotal: (bv.villas?.base_rate_per_night || 0) * nights,
+    })) || [];
 
-    // Calculate addon charges
-    let addonSubtotal = 0;
-    const addons = booking.booking_addons?.map(ba => {
-      const price = ba.addons?.price_per_night || 0;
-      const qty = ba.quantity || 1;
-      const lineTotal = price * qty;
-      addonSubtotal += lineTotal;
-      
-      return {
-        name: ba.addons?.name || 'Add-on Service',
-        unitPrice: price,
-        quantity: qty,
-        subtotal: lineTotal,
-      };
-    }) || [];
+    // Build addons array
+    const addons = booking.booking_addons?.map(ba => ({
+      name: ba.addons?.name || 'Add-on',
+      unitPrice: ba.addons?.price_per_night || 0,
+      quantity: ba.quantity || 1,
+      subtotal: (ba.addons?.price_per_night || 0) * (ba.quantity || 1),
+    })) || [];
+
+    // Calculate totals
+    const villaSubtotal = villas.reduce((sum, v) => sum + (v.subtotal || 0), 0);
+    const addonSubtotal = addons.reduce((sum, a) => sum + (a.subtotal || 0), 0);
+    const subtotal = villaSubtotal + addonSubtotal;
 
     // Calculate discount if applicable
     let discountAmount = 0;
     if (booking.discounts) {
       const discount = booking.discounts;
-      const subtotal = villaSubtotal + addonSubtotal;
-      
       if (discount.type === 'percentage') {
         discountAmount = (subtotal * discount.value) / 100;
       } else if (discount.type === 'fixed') {
@@ -91,30 +74,60 @@ export async function buildFinancialSummary(bookingId, supabase) {
       }
     }
 
-    const subtotal = villaSubtotal + addonSubtotal;
     const totalAfterDiscount = Math.max(subtotal - discountAmount, 0);
     const amountPaid = booking.amount_paid || 0;
     const balanceDue = Math.max(totalAfterDiscount - amountPaid, 0);
 
+    // Return summary object formatted for PDF template
     return {
+      // Invoice metadata
       id: booking.id,
       displayId: `INV${booking.id.slice(0, 6).toUpperCase()}`,
+      created_at: booking.created_at,
+      
+      // Guest information
       guestName: booking.guests?.full_name || 'Valued Guest',
       guestEmail: booking.guests?.email || '',
-      guestPhone: booking.guests?.phone_number || '',
+      phone: booking.guests?.phone_number || '',
+      
+      // Stay details
       checkInDate: booking.check_in_date,
       checkOutDate: booking.check_out_date,
       totalGuests: booking.total_guests,
       nights: nights,
+      
+      // Villa and addon details (for line items)
       villas: villas,
       addons: addons,
+      villa_names: villas.map(v => v.name).join(', ') || 'Villa Unit',
+      
+      // Financial details
       subtotal: subtotal,
+      villaSubtotal: villaSubtotal,
+      addonSubtotal: addonSubtotal,
+      discountCode: booking.discounts?.code || null,
       discountAmount: discountAmount,
+      total: totalAfterDiscount,
       totalPrice: totalAfterDiscount,
+      
+      // Payment status
       amountPaid: amountPaid,
       balanceDue: balanceDue,
       paymentStatus: booking.payment_status || 'pending',
+      
+      // Additional info
       notes: booking.notes || '',
+      
+      // Booking object (for template backwards compatibility)
+      booking: {
+        id: booking.id,
+        check_in_date: booking.check_in_date,
+        check_out_date: booking.check_out_date,
+        total_guests: booking.total_guests,
+        total_price: booking.total_price,
+        created_at: booking.created_at,
+        guests: booking.guests,
+      },
     };
   } catch (error) {
     console.error('Error building financial summary:', error);
@@ -127,7 +140,7 @@ export async function buildFinancialSummary(bookingId, supabase) {
  */
 export async function streamBookingConfirmationPdf(summary, res) {
   try {
-    // Call your existing bookingConfirmationPdf function
+    // Call the PDF generation function
     const pdfBuffer = await generateBookingConfirmationPdf(summary);
     res.write(pdfBuffer);
     res.end();

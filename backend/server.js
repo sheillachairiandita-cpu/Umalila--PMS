@@ -8,7 +8,6 @@ import {
   discountPayloadFromBody,
 } from './lib/discountUtils.js';
 import { streamBookingConfirmationPdf } from './lib/pdfHelpers.js';
-   import { generateBookingConfirmationPdf } from './services/bookingConfirmationPdf.js';
 
 dotenv.config();
 

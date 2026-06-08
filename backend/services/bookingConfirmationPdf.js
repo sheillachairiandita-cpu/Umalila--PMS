@@ -1,12 +1,20 @@
-// backend/services/bookingConfirmationPdf.js
-import { PDFDocument, fontFiles } from '../lib/pdfkitSetup.js';
+/**
+ * Booking Confirmation PDF — Updated layout matching INV00108 design
+ * Uses pdfmake with custom styling
+ */
+
+import pdfmake from '../lib/pdfmakeSetup.js';
 
 const COLORS = {
-  brandDark: '#0F172A',     
-  brandMid: '#4F46E5',      
-  brandAccent: '#16A34A',   
-  textMuted: '#64748B',     
-  text: '#1E293B',
+  brandDark: '#2E241C',
+  brandMid: '#5C4A3A',
+  brandAccent: '#8B6F47',
+  cream: '#F7F3ED',
+  border: '#C9B8A4',
+  text: '#2E241C',
+  textMuted: '#6B5D52',
+  white: '#FFFFFF',
+  tableHead: '#3D3228',
 };
 
 const PROPERTY = {
@@ -14,331 +22,632 @@ const PROPERTY = {
   email: 'stayatumalila@gmail.com',
   instagram: '@stayatumalila',
   phone: '+62 822 6805 7800',
-  address: 'Jl. Batu Bagiriak, Alahan Panjang, Kec. Lembah Gumanti, Kabupaten Solok, Sumatera Barat 27371',
+  addressLines: [
+    'Jl. Batu Bagiriak, Alahan Panjang,',
+    'Kec. Lembah Gumanti, Kabupaten',
+    'Solok, Sumatera Barat 27371',
+  ],
+  bankName: 'Bank BNI',
+  bankAccount: '0174105357',
+  bankAccountName: 'Chairiyanto',
 };
 
 function formatIdr(amount) {
-  return Math.round(Number(amount) || 0).toLocaleString('id-ID');
+  return Math.round(Number(amount) || 0).toLocaleString('de-DE');
 }
 
-export function generateBookingConfirmationPdf(summary) {
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({
-        size: 'A4',
-        margin: 40,
-        bufferPages: true,
-      });
+function formatInvoiceDate(dateStr) {
+  const d = new Date(dateStr || Date.now());
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
 
-      // Register fonts
-      doc.registerFont('Roboto', fontFiles['Roboto-Regular.ttf']);
-      doc.registerFont('RobotoBold', fontFiles['Roboto-Bold.ttf']);
-      doc.registerFont('RobotoItalic', fontFiles['Roboto-Italic.ttf']);
-      doc.registerFont('Courier', fontFiles['CourierPrime-Regular.ttf']);
-      doc.registerFont('CourierBold', fontFiles['CourierPrime-Bold.ttf']);
-
-      const guestName = summary.guestName || 'Valued Guest';
-      const villaNames = summary.villaNames || 'Villa Unit';
-      const checkIn = summary.checkInDate || '-';
-      const checkOut = summary.checkOutDate || '-';
-      const totalGuests = summary.totalGuests ? `${summary.totalGuests} Guests` : '6 Guests';
-
-      // Calculate nights
-      let nightCount = 1;
-      if (summary.checkInDate && summary.checkOutDate) {
-        const diffTime = Math.abs(new Date(summary.checkOutDate) - new Date(summary.checkInDate));
-        nightCount = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      }
-
-      // ========== HEADER ==========
-      doc
-        .font('RobotoBold')
-        .fontSize(24)
-        .fillColor(COLORS.brandDark)
-        .text(PROPERTY.name, 50, 40);
-
-      doc
-        .font('RobotoBold')
-        .fontSize(16)
-        .fillColor(COLORS.brandMid)
-        .text('BOOKING CONFIRMATION', 50, 70);
-
-      doc
-        .font('Courier')
-        .fontSize(10)
-        .fillColor(COLORS.textMuted)
-        .text(`Invoice No: ${summary.displayId || summary.id || 'INV00107'}`, 50, 95);
-
-      // ========== SALUTATION ==========
-      doc
-        .moveTo(50, 125)
-        .lineTo(555, 125)
-        .stroke(COLORS.borderLight);
-
-      doc
-        .font('RobotoBold')
-        .fontSize(16)
-        .fillColor(COLORS.brandDark)
-        .text('Your reservation is confirmed!', 50, 145);
-
-      doc
-        .font('Roboto')
-        .fontSize(11)
-        .fillColor(COLORS.text)
-        .text(
-          `Dear ${guestName}, thank you for choosing to stay at Villa Umalila. We're pleased to confirm your reservation parameters outlined below:`,
-          50,
-          170,
-          { width: 505, align: 'left' }
-        );
-
-      // ========== RESERVATION DETAILS TABLE ==========
-      let yPos = doc.y + 20;
-
-      const details = [
-        ['Guest Name', guestName],
-        ['Villa Type', villaNames],
-        ['No. of Guests', totalGuests],
-        ['Check-in Date', `${checkIn} | After 2 PM`],
-        ['Check-out Date', `${checkOut} | Before 11 AM`],
-      ];
-
-      doc
-        .font('Roboto')
-        .fontSize(10);
-
-      details.forEach(([label, value]) => {
-        doc.fillColor(COLORS.textMuted).text(label, 50, yPos, { width: 150 });
-        doc.fillColor(COLORS.text).font('RobotoBold').text(value, 210, yPos - 15, { width: 345 });
-        yPos += 25;
-      });
-
-      // ========== FINANCIAL BREAKDOWN ==========
-      yPos += 10;
-      doc
-        .moveTo(50, yPos)
-        .lineTo(555, yPos)
-        .stroke(COLORS.borderLight);
-
-      yPos += 15;
-      doc
-        .font('RobotoBold')
-        .fontSize(12)
-        .fillColor(COLORS.brandDark)
-        .text('Financial Summary', 50, yPos);
-
-      yPos += 25;
-
-      // Table header
-      const colX = { desc: 50, qty: 300, unit: 400, total: 480 };
-      doc
-        .font('RobotoBold')
-        .fontSize(10)
-        .fillColor(COLORS.brandDark);
-
-      doc.text('Description', colX.desc, yPos);
-      doc.text('Qty', colX.qty, yPos);
-      doc.text('Unit Price', colX.unit, yPos);
-      doc.text('Total', colX.total, yPos);
-
-      yPos += 20;
-      doc
-        .moveTo(50, yPos - 5)
-        .lineTo(555, yPos - 5)
-        .stroke(COLORS.borderLight);
-
-      // Calculate subtotal
-      let subtotal = 0;
-
-      if (Array.isArray(summary.villas) && summary.villas.length > 0) {
-        summary.villas.forEach(v => {
-          const rate = Number(v.rate) || 0;
-          const qty = Number(v.nights) || nightCount;
-          const lineTotal = rate * qty;
-          subtotal += lineTotal;
-
-          doc
-            .font('Roboto')
-            .fontSize(10)
-            .fillColor(COLORS.text)
-            .text(v.name || 'Villa Unit', colX.desc, yPos);
-
-          doc.text(`${qty} night(s)`, colX.qty, yPos);
-          doc.font('Courier').text(`${formatIdr(rate)}`, colX.unit, yPos);
-          doc.font('CourierBold').text(`${formatIdr(lineTotal)}`, colX.total, yPos);
-
-          yPos += 20;
-        });
-      }
-
-      if (Array.isArray(summary.addons) && summary.addons.length > 0) {
-        summary.addons.forEach(a => {
-          const price = Number(a.unitPrice) || 0;
-          const qty = Number(a.quantity) || 1;
-          const lineTotal = price * qty;
-          subtotal += lineTotal;
-
-          doc
-            .font('Roboto')
-            .fontSize(10)
-            .fillColor(COLORS.text)
-            .text(a.name || 'Extra Service', colX.desc, yPos);
-
-          doc.text(`${qty} unit(s)`, colX.qty, yPos);
-          doc.font('Courier').text(`${formatIdr(price)}`, colX.unit, yPos);
-          doc.font('CourierBold').text(`${formatIdr(lineTotal)}`, colX.total, yPos);
-
-          yPos += 20;
-        });
-      }
-
-      if (subtotal === 0) {
-        const rawTotal = Number(summary.totalPrice) || 0;
-        doc
-          .font('Roboto')
-          .fontSize(10)
-          .fillColor(COLORS.text)
-          .text(villaNames, colX.desc, yPos);
-
-        doc.text(`${nightCount} night(s)`, colX.qty, yPos);
-        doc.font('Courier').text(`${formatIdr(rawTotal)}`, colX.unit, yPos);
-        doc.font('CourierBold').text(`${formatIdr(rawTotal)}`, colX.total, yPos);
-
-        subtotal = rawTotal;
-      }
-
-      yPos += 25;
-      doc
-        .moveTo(50, yPos - 5)
-        .lineTo(555, yPos - 5)
-        .stroke(COLORS.brandDark);
-
-      doc
-        .font('RobotoBold')
-        .fontSize(11)
-        .fillColor(COLORS.brandDark)
-        .text('SUBTOTAL (IDR)', colX.desc, yPos);
-
-      doc.text(`${formatIdr(subtotal)}`, colX.total, yPos);
-
-      // ========== PAYMENT INSTRUCTIONS ==========
-      yPos += 40;
-      doc
-        .font('RobotoBold')
-        .fontSize(12)
-        .fillColor(COLORS.brandDark)
-        .text('Payment Instruction (IDR)', 50, yPos);
-
-      yPos += 25;
-      const paymentDetails = [
-        ['Bank Details', ': Bank BNI'],
-        ['Bank Account', ': 0174105357'],
-        ['Name', ': Chairiyanto'],
-      ];
-
-      paymentDetails.forEach(([label, value]) => {
-        doc
-          .font('RobotoBold')
-          .fontSize(10)
-          .fillColor(COLORS.text)
-          .text(label, 50, yPos);
-
-        doc
-          .font('Courier')
-          .fontSize(10)
-          .fillColor(COLORS.text)
-          .text(value, 180, yPos - 15);
-
-        yPos += 20;
-      });
-
-      yPos += 10;
-      doc
-        .font('Roboto')
-        .fontSize(9)
-        .fillColor(COLORS.textMuted)
-        .text(
-          'Please send your payment details to complete your booking through our contact person.',
-          50,
-          yPos,
-          { width: 505 }
-        );
-
-      // ========== IMPORTANT NOTICE ==========
-      yPos += 40;
-      doc
-        .moveTo(50, yPos)
-        .lineTo(555, yPos)
-        .stroke(COLORS.borderLight);
-
-      yPos += 15;
-      doc
-        .font('RobotoBold')
-        .fontSize(11)
-        .fillColor('#7F1D1D')
-        .text('⚠️ Important Notice', 50, yPos);
-
-      yPos += 20;
-      doc
-        .font('Roboto')
-        .fontSize(9.5)
-        .fillColor('#7F1D1D')
-        .list(
-          [
-            'Please present your KTP and booking details during check-in.',
-            'Villa Umalila does not accommodate unmarried couples.'
-          ],
-          50,
-          yPos,
-          { bulletRadius: 3 }
-        );
-
-      // ========== FOOTER ==========
-      yPos = doc.page.height - 100;
-      doc
-        .font('RobotoBold')
-        .fontSize(12)
-        .fillColor(COLORS.text)
-        .text(PROPERTY.name, 50, yPos, { align: 'center', width: 505 });
-
-      yPos += 20;
-      doc
-        .font('Roboto')
-        .fontSize(9)
-        .fillColor(COLORS.textMuted)
-        .text(PROPERTY.address, 50, yPos, { align: 'center', width: 505 });
-
-      yPos += 20;
-      doc
-        .font('Courier')
-        .fontSize(9)
-        .fillColor(COLORS.textMuted)
-        .text(
-          `Email: ${PROPERTY.email} | Contact: ${PROPERTY.phone} | Instagram: ${PROPERTY.instagram}`,
-          50,
-          yPos,
-          { align: 'center', width: 505 }
-        );
-
-      yPos += 20;
-      doc
-        .font('RobotoBold')
-        .fontSize(11)
-        .fillColor(COLORS.brandMid)
-        .text('Thank you for staying with us!', 50, yPos, { align: 'center', width: 505 });
-
-      // Convert to Buffer
-      const chunks = [];
-      doc.on('data', chunk => chunks.push(chunk));
-      doc.on('end', () => {
-        const pdfBuffer = Buffer.concat(chunks);
-        resolve(pdfBuffer);
-      });
-      doc.on('error', reject);
-
-      doc.end();
-    } catch (error) {
-      reject(error);
-    }
+function formatStayDate(dateStr, suffix) {
+  const d = new Date(dateStr);
+  const formatted = d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
   });
+  return `${formatted} | ${suffix}`;
+}
+
+function stayDurationLabel(checkIn, checkOut, nights) {
+  const days = nights + 1;
+  return `${days} day${days !== 1 ? 's' : ''} ${nights} night${nights !== 1 ? 's' : ''}`;
+}
+
+function guestFirstName(fullName) {
+  return (fullName || 'Guest').trim().split(/\s+/)[0];
+}
+
+function formatLineQty(line) {
+  if (line.type === 'accommodation') {
+    const n = line.quantity || 1;
+    return `${n} Night${n !== 1 ? 's' : ''}`;
+  }
+  if (line.type === 'addon') {
+    const name = (line.name || line.description || '').toLowerCase();
+    const qty = line.quantity || 1;
+    if (name.includes('bed')) return `${qty} Bed${qty !== 1 ? 's' : ''}`;
+    return String(qty);
+  }
+  return String(line.quantity || 1);
+}
+
+/**
+ * Page 1: Confirmation Letter
+ */
+function buildConfirmationPage(summary) {
+  const booking = summary.booking || summary;
+  const guestName = booking.guestName || booking.guests?.full_name || 'Guest';
+  const phone = booking.phone || booking.guests?.phone_number || '—';
+  const nights = booking.nights || Math.max(
+    Math.ceil(
+      (new Date(booking.checkOutDate || booking.check_out_date) - new Date(booking.checkInDate || booking.check_in_date)) /
+        (1000 * 60 * 60 * 24)
+    ),
+    1
+  );
+  const guestCount = booking.totalGuests || booking.total_guests || 1;
+  const villaName = booking.villaNames || summary.villa_names || '—';
+
+  return [
+    // Header with Umalila branding
+    {
+      text: 'Umalila',
+      style: 'confirmHeaderTitle',
+      alignment: 'center',
+      margin: [0, 0, 0, 28],
+    },
+
+    // Guest details grid
+    {
+      columns: [
+        {
+          width: '48%',
+          stack: [
+            { text: 'Guest Name', style: 'gridLabel' },
+            { text: guestName, style: 'gridValue', margin: [0, 0, 0, 12] },
+            { text: 'Villa Type', style: 'gridLabel' },
+            { text: villaName, style: 'gridValue', margin: [0, 0, 0, 12] },
+            { text: 'No. of Guests', style: 'gridLabel' },
+            { text: `${guestCount} Guest${guestCount !== 1 ? 's' : ''}`, style: 'gridValue' },
+          ],
+        },
+        {
+          width: '4%',
+          text: '',
+        },
+        {
+          width: '48%',
+          stack: [
+            { text: 'Check-in Date', style: 'gridLabel' },
+            { text: formatStayDate(booking.checkInDate || booking.check_in_date, 'After 2 PM'), style: 'gridValue', margin: [0, 0, 0, 12] },
+            { text: 'Check-out Date', style: 'gridLabel' },
+            { text: formatStayDate(booking.checkOutDate || booking.check_out_date, 'Before 11 AM'), style: 'gridValue' },
+          ],
+        },
+      ],
+      margin: [0, 0, 0, 22],
+    },
+
+    // Contact info row
+    {
+      columns: [
+        { text: PROPERTY.email, style: 'contactLine', alignment: 'center' },
+        { text: PROPERTY.instagram, style: 'contactLine', alignment: 'center' },
+        { text: PROPERTY.phone, style: 'contactLine', alignment: 'center' },
+      ],
+      margin: [0, 0, 0, 28],
+    },
+
+    // Main headline
+    {
+      text: 'Your reservation is confirmed!',
+      style: 'confirmHeadline',
+      alignment: 'left',
+      margin: [0, 0, 0, 14],
+    },
+
+    // Greeting
+    {
+      text: [
+        'Dear ',
+        { text: guestFirstName(guestName), bold: true },
+        ',\n\nThank you for choosing to stay at Villa Umalila. We\'re pleased to confirm your reservation for ',
+        { text: stayDurationLabel(booking.checkInDate || booking.check_in_date, booking.checkOutDate || booking.check_out_date, nights), bold: true },
+        '.',
+      ],
+      style: 'bodyText',
+      alignment: 'left',
+      margin: [0, 0, 0, 18],
+    },
+
+    // Reservation Details section
+    {
+      text: 'Reservation Details',
+      style: 'sectionTitle',
+      margin: [0, 0, 0, 12],
+    },
+
+    // Detail table - matching your PDF
+    {
+      table: {
+        widths: ['*', '*'],
+        body: [
+          [
+            { text: 'Guest Name', style: 'detailLabel', border: [false, false, true, false] },
+            { text: guestName, style: 'detailValue', border: [false, false, false, false] },
+          ],
+          [
+            { text: 'Villa Type', style: 'detailLabel', border: [false, false, true, false] },
+            { text: villaName, style: 'detailValue', border: [false, false, false, false] },
+          ],
+          [
+            { text: 'No. of Guests', style: 'detailLabel', border: [false, false, true, false] },
+            { text: `${guestCount} Guest${guestCount !== 1 ? 's' : ''}`, style: 'detailValue', border: [false, false, false, false] },
+          ],
+          [
+            { text: 'Check-in Date', style: 'detailLabel', border: [false, false, true, false] },
+            { text: formatStayDate(booking.checkInDate || booking.check_in_date, 'After 2 PM'), style: 'detailValue', border: [false, false, false, false] },
+          ],
+          [
+            { text: 'Check-out Date', style: 'detailLabel', border: [false, false, true, false] },
+            { text: formatStayDate(booking.checkOutDate || booking.check_out_date, 'Before 11 AM'), style: 'detailValue', border: [false, false, false, false] },
+          ],
+        ],
+      },
+      layout: {
+        hLineWidth: () => 1,
+        vLineWidth: () => 0,
+        hLineColor: () => COLORS.border,
+        paddingLeft: () => 12,
+        paddingRight: () => 12,
+        paddingTop: () => 8,
+        paddingBottom: () => 8,
+        fillColor: (rowIndex) => (rowIndex % 2 === 0 ? COLORS.white : COLORS.cream),
+      },
+      margin: [0, 0, 0, 18],
+    },
+
+    // Forward text
+    {
+      text: 'We look forward to welcoming you to Villa Umalila.',
+      style: 'bodyText',
+      alignment: 'left',
+      margin: [0, 0, 0, 22],
+    },
+
+    // Important Notice section
+    {
+      text: 'Important Notice',
+      style: 'sectionTitle',
+      margin: [0, 0, 0, 10],
+    },
+
+    {
+      ul: [
+        'Please present your KTP and booking details during check-in.',
+        'Villa Umalila does not accommodate unmarried couples.',
+      ],
+      style: 'noticeList',
+      margin: [12, 0, 0, 28],
+    },
+
+    // Footer
+    {
+      stack: [
+        { text: PROPERTY.name, style: 'footerBrand' },
+        ...PROPERTY.addressLines.map((line) => ({ text: line, style: 'footerAddress' })),
+      ],
+      margin: [0, 20, 0, 0],
+    },
+
+    { text: '', pageBreak: 'after' },
+  ];
+}
+
+/**
+ * Page 2: Invoice Details
+ */
+function buildInvoicePage(summary) {
+  const booking = summary.booking || summary;
+  const guestName = booking.guestName || booking.guests?.full_name || 'Guest';
+  const phone = booking.phone || booking.guests?.phone_number || '—';
+  const displayId = summary.displayId || `INV${(booking.id || '000000').slice(0, 6).toUpperCase()}`;
+  const invoiceDate = formatInvoiceDate(booking.created_at || new Date().toISOString());
+  
+  // Build line items from villas and addons
+  const lineItems = [];
+  
+  if (summary.villas && Array.isArray(summary.villas)) {
+    summary.villas.forEach(villa => {
+      lineItems.push({
+        description: villa.name || 'Accommodation',
+        quantity: villa.nights || 1,
+        unitPrice: villa.rate || 0,
+        subtotal: (villa.rate || 0) * (villa.nights || 1),
+        type: 'accommodation',
+      });
+    });
+  }
+
+  if (summary.addons && Array.isArray(summary.addons)) {
+    summary.addons.forEach(addon => {
+      lineItems.push({
+        description: addon.name || 'Add-on',
+        quantity: addon.quantity || 1,
+        unitPrice: addon.unitPrice || 0,
+        subtotal: (addon.unitPrice || 0) * (addon.quantity || 1),
+        type: 'addon',
+      });
+    });
+  }
+
+  const subtotal = lineItems.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+
+  return [
+    // Header
+    {
+      text: 'Umalila',
+      style: 'confirmHeaderTitle',
+      alignment: 'center',
+      margin: [0, 0, 0, 28],
+    },
+
+    // Invoice header info
+    {
+      columns: [
+        {
+          width: '50%',
+          stack: [
+            { text: 'Invoice No', style: 'invoiceHeaderLabel' },
+            { text: `: ${displayId}`, style: 'invoiceHeaderValue', margin: [0, 0, 0, 10] },
+            { text: 'Date', style: 'invoiceHeaderLabel' },
+            { text: `: ${invoiceDate}`, style: 'invoiceHeaderValue' },
+          ],
+        },
+        {
+          width: '50%',
+          text: '',
+        },
+      ],
+      margin: [0, 0, 0, 20],
+    },
+
+    // Bill To section
+    {
+      columns: [
+        {
+          width: '50%',
+          stack: [
+            { text: PROPERTY.name, style: 'billAddressTitle', margin: [0, 0, 0, 6] },
+            ...PROPERTY.addressLines.map((line) => ({ text: line, style: 'billAddressLine' })),
+            { text: `Contact: ${PROPERTY.phone}`, style: 'billAddressLine', margin: [0, 4, 0, 0] },
+          ],
+        },
+        {
+          width: '50%',
+          stack: [
+            { text: 'Bill To', style: 'billSectionTitle', margin: [0, 0, 0, 8] },
+            { text: `Customer : ${guestName}`, style: 'billInfo', margin: [0, 0, 0, 4] },
+            { text: `Contact   : ${phone}`, style: 'billInfo' },
+          ],
+        },
+      ],
+      margin: [0, 0, 0, 20],
+    },
+
+    // Invoice table
+    {
+      table: {
+        headerRows: 1,
+        widths: ['*', '12%', '18%', '18%'],
+        body: [
+          // Header row
+          [
+            { text: 'DESCRIPTION', style: 'invoiceTh', alignment: 'left' },
+            { text: 'QTY', style: 'invoiceTh', alignment: 'center' },
+            { text: 'UNIT PRICE', style: 'invoiceTh', alignment: 'right' },
+            { text: 'TOTAL PRICE', style: 'invoiceTh', alignment: 'right' },
+          ],
+          // Line items
+          ...lineItems.map(item => [
+            { text: item.description, style: 'invoiceItemDesc', alignment: 'left' },
+            { text: formatLineQty(item), style: 'invoiceItemQty', alignment: 'center' },
+            { text: formatIdr(item.unitPrice), style: 'invoiceItemMoney', alignment: 'right' },
+            { text: formatIdr(item.subtotal), style: 'invoiceItemMoney', alignment: 'right' },
+          ]),
+          // Subtotal row
+          [
+            { text: 'SUB TOTAL (IDR)', style: 'subtotalLabel', colSpan: 3, alignment: 'right' },
+            {},
+            {},
+            { text: formatIdr(subtotal), style: 'subtotalValue', alignment: 'right' },
+          ],
+        ],
+      },
+      layout: {
+        hLineWidth: (i, node) => {
+          if (i === 0 || i === 1) return 1;
+          if (i === node.table.body.length) return 1;
+          return 0.5;
+        },
+        vLineWidth: () => 0,
+        hLineColor: () => COLORS.border,
+        fillColor: (rowIndex, node) => {
+          if (rowIndex === 0) return COLORS.tableHead;
+          if (rowIndex === node.table.body.length - 1) return COLORS.cream;
+          return COLORS.white;
+        },
+        paddingLeft: () => 8,
+        paddingRight: () => 8,
+        paddingTop: () => 8,
+        paddingBottom: () => 8,
+      },
+      margin: [0, 0, 0, 20],
+    },
+
+    // Payment Instructions
+    {
+      text: 'Payment Instruction (IDR)',
+      style: 'sectionTitle',
+      margin: [0, 0, 0, 10],
+    },
+
+    {
+      stack: [
+        { text: `Bank Details   : ${PROPERTY.bankName}`, style: 'paymentInfo' },
+        { text: `Bank Account : ${PROPERTY.bankAccount}`, style: 'paymentInfo', margin: [0, 4, 0, 0] },
+        { text: `Name              : ${PROPERTY.bankAccountName}`, style: 'paymentInfo', margin: [0, 4, 0, 0] },
+      ],
+      margin: [0, 0, 0, 12],
+    },
+
+    {
+      text: 'Please send your payment details to complete your booking through our contact person.',
+      style: 'bodyText',
+      margin: [0, 0, 0, 28],
+    },
+
+    // Thank you
+    {
+      text: 'Thank you for staying with us!',
+      style: 'thankYouText',
+      alignment: 'center',
+      margin: [0, 20, 0, 0],
+    },
+  ];
+}
+
+/**
+ * Build complete PDF document definition
+ */
+export function buildBookingConfirmationDocDefinition(summary) {
+  return {
+    pageSize: 'A4',
+    pageMargins: [40, 40, 40, 40],
+    defaultStyle: 'normal',
+    styles: {
+  normal: {
+    font: 'Helvetica',
+    fontSize: 10,
+    lineHeight: 1.4,
+    color: COLORS.text,
+  },
+
+  confirmHeaderTitle: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 28,
+    color: COLORS.brandDark,
+  },
+
+  confirmHeadline: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 16,
+    color: COLORS.brandDark,
+  },
+
+  gridLabel: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 9,
+    color: COLORS.textMuted,
+  },
+
+  gridValue: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 11,
+    color: COLORS.brandDark,
+  },
+
+  contactLine: {
+    font: 'Helvetica',
+    fontSize: 9,
+    color: COLORS.textMuted,
+  },
+
+  bodyText: {
+    font: 'Helvetica',
+    fontSize: 10,
+    lineHeight: 1.5,
+    color: COLORS.text,
+  },
+
+  sectionTitle: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 12,
+    color: COLORS.tableHead,
+  },
+
+  detailLabel: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  detailValue: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  noticeList: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  footerBrand: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 12,
+    color: COLORS.brandDark,
+  },
+
+  footerAddress: {
+    font: 'Helvetica',
+    fontSize: 9,
+    color: COLORS.text,
+  },
+
+  invoiceHeaderLabel: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 11,
+    color: COLORS.brandDark,
+  },
+
+  invoiceHeaderValue: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  billSectionTitle: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 11,
+    color: COLORS.brandDark,
+  },
+
+  billAddressTitle: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 11,
+    color: COLORS.brandDark,
+  },
+
+  billAddressLine: {
+    font: 'Helvetica',
+    fontSize: 9,
+    color: COLORS.text,
+  },
+
+  billInfo: {
+    font: 'Helvetica',
+    fontSize: 9,
+    color: COLORS.text,
+  },
+
+  invoiceTh: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 9,
+    color: COLORS.white,
+  },
+
+  invoiceItemDesc: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  invoiceItemQty: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  invoiceItemMoney: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  subtotalLabel: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  subtotalValue: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 11,
+    color: COLORS.brandDark,
+  },
+
+  paymentInfo: {
+    font: 'Helvetica',
+    fontSize: 10,
+    color: COLORS.text,
+  },
+
+  thankYouText: {
+    font: 'Helvetica',
+    bold: true,
+    fontSize: 12,
+    color: COLORS.brandMid,
+  },
+},
+  };
+}
+
+export async function generateBookingConfirmationPdf(summary) {
+  try {
+    console.log('pdfmake:', pdfmake);
+    console.log('pdfmake keys:', Object.keys(pdfmake));
+
+    const docDefinition = buildBookingConfirmationDocDefinition(summary);
+
+    const pdf = pdfmake.createPdf(docDefinition);
+
+    const buffer = await pdf.getBuffer();
+
+    return Buffer.isBuffer(buffer)
+      ? buffer
+      : Buffer.from(buffer);
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    throw error;
+  }
+}
+
+/**
+ * Stream PDF directly to response
+ */
+export async function streamBookingConfirmationPdf(summary, res) {
+  try {
+    const pdfBuffer = await generateBookingConfirmationPdf(summary);
+    res.write(pdfBuffer);
+    res.end();
+  } catch (error) {
+    console.error('Error streaming PDF:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.end();
+    }
+    throw error;
+  }
 }
