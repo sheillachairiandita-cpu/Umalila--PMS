@@ -2,12 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { streamBookingConfirmationPdf } from './services/bookingConfirmationPdf.js';
 import {
   calculateDiscountAmount,
   mapDiscountRow,
   discountPayloadFromBody,
 } from './lib/discountUtils.js';
+import { streamBookingConfirmationPdf } from './lib/pdfHelpers.js';
+   import { generateBookingConfirmationPdf } from './services/bookingConfirmationPdf.js';
 
 dotenv.config();
 
@@ -1456,7 +1457,7 @@ app.get('/api/bookings/:bookingId/invoice/pdf', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const summary = await buildFinancialSummary(bookingId);
+    const summary = await buildFinancialSummary(bookingId, supabase);
     const displayId = summary.displayId;
     const filename = `Booking Confirmation - ${displayId}.pdf`;
 
