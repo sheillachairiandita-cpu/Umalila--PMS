@@ -76,36 +76,6 @@ const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
           <span>Financial</span>
         </button>
 
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'frontdesk' ? 'active' : ''}`}
-          onClick={() => setActivePage('frontdesk')}
-          title="Front Desk"
-        >
-          <CalendarDays size={15} />
-          <span>Front Desk</span>
-        </button>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'villas' ? 'active' : ''}`}
-          onClick={() => setActivePage('villas')}
-          title="Villa Units"
-        >
-          <BedDouble size={15} />
-          <span>Villa Units</span>
-        </button>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'guests' ? 'active' : ''}`}
-          onClick={() => setActivePage('guests')}
-          title="Guest Directory"
-        >
-          <Users size={15} />
-          <span>Guest Directory</span>
-        </button>
-
         <div className="sidebar-divider" />
         <div className="nav-group-title">Analytics</div>
 
