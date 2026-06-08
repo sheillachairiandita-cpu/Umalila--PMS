@@ -8,7 +8,6 @@ import { Badge } from './ui';
 import TableActionButton from './TableActionButton';
 import TablePagination from './TablePagination';
 import FinancialDetailsModal from './FinancialDetailsModal';
-import ReservationPaymentModal from './ReservationPaymentModal';
 import {
   FINANCIAL_PAYMENT_FILTER_OPTIONS,
   TIMEFRAME_FILTER_OPTIONS,
@@ -238,9 +237,6 @@ function IncomeTable({ rows, loading, onViewDetails, onEdit }) {
                       <TableActionButton title="View Details" variant="default" onClick={() => onViewDetails(row)}>
                         <Eye size={13} />
                       </TableActionButton>
-                      <TableActionButton title="Manage Payment" variant="success" onClick={() => onEdit(row)}>
-                        <CreditCard size={13} />
-                      </TableActionButton>
                     </div>
                   </td>
                 </tr>
@@ -360,16 +356,6 @@ function FinancialDashboardPage() {
         guestName={detailsRow?.guestName}
         displayId={detailsRow?.displayId}
         onClose={() => setDetailsRow(null)}
-      />
-
-      <ReservationPaymentModal
-        isOpen={!!editRow}
-        booking={editBooking}
-        onClose={() => setEditRow(null)}
-        onPaymentRecorded={() => {
-          fetchIncome();
-          setEditRow(null);
-        }}
       />
     </div>
   );

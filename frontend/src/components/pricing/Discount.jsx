@@ -1,16 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Tag, Percent, DollarSign, AlertTriangle } from 'lucide-react';
+import { Plus, Tag, Percent, DollarSign } from 'lucide-react';
+import {
+  PricingPaneToolbar,
+  PricingLockNotice,
+  PricingFormError,
+  PricingFormFooter,
+  PricingDeleteModal,
+  PricingActionCell,
+} from './pricingShared';
 
 const SCOPE_OPTIONS = [
-  { value: 'global',    label: 'Global (All Items)' },
-  { value: 'villas',    label: 'Villas Only' },
-  { value: 'addons',    label: 'Add-ons Only' },
-  { value: 'menu',      label: 'Menu Only' },
+  { value: 'global', label: 'Global (All Items)' },
+  { value: 'villas', label: 'Villas Only' },
+  { value: 'addons', label: 'Add-ons Only' },
+  { value: 'menu', label: 'Menu Only' },
 ];
 
 const TYPE_OPTIONS = [
   { value: 'percentage', label: 'Percentage (%)' },
-  { value: 'fixed',      label: 'Fixed Amount (IDR)' },
+  { value: 'fixed', label: 'Fixed Amount (IDR)' },
+];
+
+const APPLICATION_RULE_OPTIONS = [
+  { value: 'all_items', label: 'All eligible items' },
+  { value: 'highest_priced_single', label: 'Highest-priced villa only' },
+  { value: 'lowest_priced_single', label: 'Lowest-priced villa only' },
 ];
 
 const EMPTY_FORM = {
@@ -19,31 +33,9 @@ const EMPTY_FORM = {
   type: 'percentage',
   value: '',
   scope: 'global',
+  application_rule: 'all_items',
   is_active: true,
-  description: '',
 };
-
-// ─── Local storage key (swap with API calls when backend is ready) ───────────
-const LS_KEY = 'umalila_discounts_v1';
-
-function loadDiscounts() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveDiscounts(discounts) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(discounts));
-  } catch {}
-}
-
-function generateId() {
-  return `disc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
 
 function DiscountModal({ isOpen, onClose, onSaved, initialData }) {
   const isEdit = !!initialData;
@@ -53,14 +45,26 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData }) {
 
   useEffect(() => {
     if (isOpen) {
-      setForm(isEdit ? { ...EMPTY_FORM, ...initialData } : { ...EMPTY_FORM });
+      setForm(
+        isEdit
+          ? {
+              promo_code: initialData.promo_code || initialData.code || '',
+              name: initialData.name || '',
+              type: initialData.type || 'percentage',
+              value: initialData.value ?? '',
+              scope: initialData.scope || 'global',
+              application_rule: initialData.application_rule || 'all_items',
+              is_active: initialData.is_active !== false && initialData.status !== 'inactive',
+            }
+          : { ...EMPTY_FORM }
+      );
       setError(null);
     }
   }, [isOpen, isEdit, initialData]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.promo_code.trim() || !form.name.trim() || form.value === '') {
       setError('Promo code, name, and value are required.');
@@ -74,30 +78,40 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData }) {
       setError('Value must be a positive number.');
       return;
     }
-    setSubmitting(true);
 
-    // Simulate async save — replace with real API call when backend is ready
-    setTimeout(() => {
-      const discounts = loadDiscounts();
-      if (isEdit) {
-        const idx = discounts.findIndex((d) => d.id === initialData.id);
-        if (idx !== -1) {
-          discounts[idx] = { ...form, id: initialData.id, value: Number(form.value) };
-        }
-      } else {
-        const code = form.promo_code.trim().toUpperCase();
-        if (discounts.some((d) => d.promo_code === code)) {
-          setError('A discount with this promo code already exists.');
-          setSubmitting(false);
-          return;
-        }
-        discounts.push({ ...form, promo_code: code, id: generateId(), value: Number(form.value) });
+    setSubmitting(true);
+    setError(null);
+    try {
+      const payload = {
+        promo_code: form.promo_code.trim().toUpperCase(),
+        name: form.name.trim(),
+        type: form.type,
+        value: Number(form.value),
+        scope: form.scope,
+        application_rule: form.application_rule,
+        is_active: form.is_active,
+      };
+
+      const url = isEdit ? `/api/discounts/${initialData.id}` : '/api/discounts';
+      const method = isEdit ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to save discount');
       }
-      saveDiscounts(discounts);
-      setSubmitting(false);
+
       onSaved();
       onClose();
-    }, 300);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -108,16 +122,15 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData }) {
             <Tag size={16} className="pricing-modal__icon" />
             <h3>{isEdit ? 'Edit Discount' : 'Create New Discount'}</h3>
           </div>
-          <button className="pricing-modal__close" onClick={onClose}>×</button>
+          <button type="button" className="pricing-modal__close" onClick={onClose}>×</button>
         </div>
 
-        <div className="pricing-lock-notice">
-          <AlertTriangle size={13} />
+        <PricingLockNotice>
           Discount rules apply to <strong>new bookings only</strong>. Already-confirmed reservations are unaffected.
-        </div>
+        </PricingLockNotice>
 
         <form onSubmit={handleSubmit} className="pricing-modal__form">
-          {error && <div className="pricing-form-error">{error}</div>}
+          <PricingFormError message={error} />
 
           <div className="pricing-form-row">
             <div className="pricing-form-group">
@@ -175,64 +188,41 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData }) {
                 ))}
               </select>
             </div>
-            <div className="pricing-form-group" style={{ justifyContent: 'flex-end' }}>
-              <label className="pricing-checkbox-label" style={{ marginTop: 'auto', paddingBottom: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                />
-                Discount is active
-              </label>
+            <div className="pricing-form-group">
+              <label>Application Rule *</label>
+              <select
+                value={form.application_rule}
+                onChange={(e) => setForm({ ...form, application_rule: e.target.value })}
+              >
+                {APPLICATION_RULE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
           </div>
 
           <div className="pricing-form-group" style={{ gridColumn: '1/-1' }}>
-            <label>Description / Notes</label>
-            <textarea
-              rows={2}
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Internal note about this discount…"
-            />
+            <label className="pricing-checkbox-label">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+              />
+              Discount is active
+            </label>
+            {form.application_rule === 'highest_priced_single' && form.type === 'percentage' && (
+              <p className="pricing-form-hint">
+                Percentage will be deducted from the single most expensive villa in each reservation.
+              </p>
+            )}
           </div>
 
-          <div className="pricing-modal__footer">
-            <button type="button" className="pricing-btn pricing-btn--ghost" onClick={onClose} disabled={submitting}>
-              Cancel
-            </button>
-            <button type="submit" className="pricing-btn pricing-btn--primary" disabled={submitting}>
-              {submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Discount'}
-            </button>
-          </div>
+          <PricingFormFooter
+            onCancel={onClose}
+            submitting={submitting}
+            submitLabel={submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Discount'}
+          />
         </form>
-      </div>
-    </div>
-  );
-}
-
-function DeleteConfirmModal({ isOpen, itemName, onClose, onConfirm, deleting }) {
-  if (!isOpen) return null;
-  return (
-    <div className="pricing-modal-overlay">
-      <div className="pricing-modal pricing-modal--sm">
-        <div className="pricing-modal__header">
-          <div className="pricing-modal__title-group">
-            <Trash2 size={15} style={{ color: 'var(--red)' }} />
-            <h3>Delete Discount</h3>
-          </div>
-        </div>
-        <div style={{ padding: '16px 20px' }}>
-          <p style={{ fontSize: '0.88rem', color: 'var(--text-mid)', marginBottom: 16 }}>
-            Delete discount <strong>{itemName}</strong>? This promo code will stop working immediately for new bookings.
-          </p>
-          <div className="pricing-modal__footer">
-            <button className="pricing-btn pricing-btn--ghost" onClick={onClose} disabled={deleting}>Cancel</button>
-            <button className="pricing-btn pricing-btn--danger" onClick={onConfirm} disabled={deleting}>
-              {deleting ? 'Deleting…' : 'Delete'}
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -240,148 +230,165 @@ function DeleteConfirmModal({ isOpen, itemName, onClose, onConfirm, deleting }) 
 
 function Discount() {
   const [discounts, setDiscounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editDiscount, setEditDiscount] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const refresh = () => setDiscounts(loadDiscounts());
-
-  useEffect(() => { refresh(); }, []);
-
-  const handleDelete = () => {
-    if (!deleteTarget) return;
-    const updated = loadDiscounts().filter((d) => d.id !== deleteTarget.id);
-    saveDiscounts(updated);
-    refresh();
-    setDeleteTarget(null);
+  const fetchDiscounts = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/discounts');
+      if (!res.ok) throw new Error('Failed to fetch discounts');
+      setDiscounts(await res.json());
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleActive = (id) => {
-    const updated = loadDiscounts().map((d) =>
-      d.id === id ? { ...d, is_active: !d.is_active } : d
-    );
-    saveDiscounts(updated);
-    refresh();
+  useEffect(() => { fetchDiscounts(); }, []);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/discounts/${deleteTarget.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete discount');
+      await fetchDiscounts();
+      setDeleteTarget(null);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const toggleActive = async (discount) => {
+    try {
+      const res = await fetch(`/api/discounts/${discount.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !(discount.is_active !== false && discount.status !== 'inactive') }),
+      });
+      if (!res.ok) throw new Error('Failed to update discount status');
+      await fetchDiscounts();
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   const scopeLabel = (scope) => SCOPE_OPTIONS.find((s) => s.value === scope)?.label || scope;
+  const ruleLabel = (rule) => APPLICATION_RULE_OPTIONS.find((r) => r.value === rule)?.label || rule;
+  const isActive = (d) => d.is_active !== false && d.status !== 'inactive';
 
   return (
     <div className="pricing-pane">
-      <div className="pricing-pane__toolbar">
-        <div>
-          <h4 className="pricing-pane__subtitle">Discounts & Promo Codes</h4>
-          <p className="pricing-pane__desc">
-            Manage promotional discounts. Active discounts are applied at booking. Changes never affect confirmed reservations.
-          </p>
-        </div>
-        <button className="pricing-btn pricing-btn--primary" onClick={() => { setEditDiscount(null); setModalOpen(true); }}>
-          <Plus size={14} /> Create New Discount
-        </button>
-      </div>
+      <PricingPaneToolbar
+        title="Discounts & Promo Codes"
+        description="Manage promotional discounts stored in the database. Active discounts can be applied when editing reservations."
+        actionLabel="Create New Discount"
+        actionIcon={Plus}
+        onAction={() => { setEditDiscount(null); setModalOpen(true); }}
+      />
 
-      {/* Info banner — backend hookup note */}
-      <div className="pricing-info-banner">
-        <Tag size={13} />
-        Discounts are currently stored locally and managed in the UI. Connect <code>/api/discounts</code> to persist across sessions and integrate with booking calculations.
-      </div>
+      {loading && <div className="pricing-loading">Loading discounts…</div>}
+      {!loading && error && <div className="pricing-error">{error}</div>}
 
-      <div className="pricing-table-wrap">
-        <table className="pricing-table">
-          <thead>
-            <tr>
-              <th>Promo Code</th>
-              <th>Discount Name</th>
-              <th className="text-center">Type</th>
-              <th className="text-center">Value</th>
-              <th>Scope</th>
-              <th className="text-center">Status</th>
-              <th className="text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {discounts.length === 0 && (
+      {!loading && !error && (
+        <div className="pricing-table-wrap">
+          <table className="pricing-table">
+            <thead>
               <tr>
-                <td colSpan={7} className="pricing-empty">
-                  No discounts yet. Create your first promo code to get started.
-                </td>
+                <th>Promo Code</th>
+                <th>Discount Name</th>
+                <th className="text-center">Type</th>
+                <th className="text-center">Value</th>
+                <th>Scope</th>
+                <th>Application Rule</th>
+                <th className="text-center">Status</th>
+                <th className="text-center">Actions</th>
               </tr>
-            )}
-            {discounts.map((d) => (
-              <tr key={d.id}>
-                <td>
-                  <span className="pricing-code-pill">{d.promo_code}</span>
-                </td>
-                <td className="pricing-name-cell">
-                  {d.name}
-                  {d.description && (
-                    <span className="pricing-subtext">{d.description}</span>
-                  )}
-                </td>
-                <td className="text-center">
-                  {d.type === 'percentage' ? (
-                    <span className="pricing-badge pricing-badge--blue">
-                      <Percent size={9} /> Percentage
-                    </span>
-                  ) : (
-                    <span className="pricing-badge pricing-badge--slate">
-                      <DollarSign size={9} /> Fixed
-                    </span>
-                  )}
-                </td>
-                <td className="text-center pricing-rate-cell">
-                  {d.type === 'percentage'
-                    ? `${d.value}%`
-                    : `Rp ${Number(d.value).toLocaleString('id-ID')}`}
-                </td>
-                <td>
-                  <span className="pricing-badge pricing-badge--slate">{scopeLabel(d.scope)}</span>
-                </td>
-                <td className="text-center">
-                  <button
-                    className={`pricing-status-toggle ${d.is_active ? 'active' : ''}`}
-                    onClick={() => toggleActive(d.id)}
-                    title={d.is_active ? 'Click to deactivate' : 'Click to activate'}
-                  >
-                    {d.is_active ? 'Active' : 'Inactive'}
-                  </button>
-                </td>
-                <td className="text-center">
-                  <div className="pricing-action-group">
+            </thead>
+            <tbody>
+              {discounts.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="pricing-empty">
+                    No discounts yet. Create your first promo code to get started.
+                  </td>
+                </tr>
+              )}
+              {discounts.map((d) => (
+                <tr key={d.id}>
+                  <td><span className="pricing-code-pill">{d.promo_code || d.code}</span></td>
+                  <td className="pricing-name-cell">{d.name}</td>
+                  <td className="text-center">
+                    {d.type === 'percentage' ? (
+                      <span className="pricing-badge pricing-badge--blue">
+                        <Percent size={9} /> Percentage
+                      </span>
+                    ) : (
+                      <span className="pricing-badge pricing-badge--slate">
+                        <DollarSign size={9} /> Fixed
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-center pricing-rate-cell">
+                    {d.type === 'percentage'
+                      ? `${d.value}%`
+                      : `Rp ${Number(d.value).toLocaleString('id-ID')}`}
+                  </td>
+                  <td><span className="pricing-badge pricing-badge--slate">{scopeLabel(d.scope)}</span></td>
+                  <td><span className="pricing-badge pricing-badge--blue">{ruleLabel(d.application_rule)}</span></td>
+                  <td className="text-center">
                     <button
-                      className="pricing-action-btn pricing-action-btn--edit"
-                      title="Edit discount"
-                      onClick={() => { setEditDiscount(d); setModalOpen(true); }}
+                      type="button"
+                      className={`pricing-status-toggle ${isActive(d) ? 'active' : ''}`}
+                      onClick={() => toggleActive(d)}
+                      title={isActive(d) ? 'Click to deactivate' : 'Click to activate'}
                     >
-                      <Pencil size={12} />
+                      {isActive(d) ? 'Active' : 'Inactive'}
                     </button>
-                    <button
-                      className="pricing-action-btn pricing-action-btn--delete"
-                      title="Delete discount"
-                      onClick={() => setDeleteTarget(d)}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </td>
+                  <td className="text-center">
+                    <PricingActionCell
+                      editTitle="Edit discount"
+                      deleteTitle="Delete discount"
+                      onEdit={() => { setEditDiscount(d); setModalOpen(true); }}
+                      onDelete={() => setDeleteTarget(d)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <DiscountModal
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setEditDiscount(null); }}
-        onSaved={refresh}
+        onSaved={fetchDiscounts}
         initialData={editDiscount}
       />
-      <DeleteConfirmModal
+      <PricingDeleteModal
         isOpen={!!deleteTarget}
-        itemName={deleteTarget?.promo_code}
+        title="Delete Discount"
+        itemName={deleteTarget?.promo_code || deleteTarget?.code}
+        message={
+          deleteTarget ? (
+            <>
+              Delete discount <strong>{deleteTarget.promo_code || deleteTarget.code}</strong>? This promo code will stop working immediately for new bookings.
+            </>
+          ) : null
+        }
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        deleting={false}
+        deleting={deleting}
       />
     </div>
   );

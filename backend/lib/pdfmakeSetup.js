@@ -1,42 +1,30 @@
-import { readFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
 import pdfmake from 'pdfmake';
+import { customVfs } from './vfs_fonts.js';
 
-const require = createRequire(import.meta.url);
-const pdfkitEntry = require.resolve('pdfkit');
-const pdfkitDataDir = join(dirname(pdfkitEntry), 'data');
-
-const AFM_FILES = [
-  'Helvetica.afm',
-  'Helvetica-Bold.afm',
-  'Helvetica-Oblique.afm',
-  'Helvetica-BoldOblique.afm',
-];
-
-AFM_FILES.forEach((file) => {
-  const vfsPath = `data/${file}`;
-  pdfmake.virtualfs.writeFileSync(vfsPath, readFileSync(join(pdfkitDataDir, file), 'utf8'), 'utf8');
+// 1. Force-load the base64 compiled asset maps into pdfmake's internal virtual storage
+Object.entries(customVfs).forEach(([fileName, base64Content]) => {
+  if (base64Content) {
+    // Registering with explicit base64 formatting tells pdfmake exactly how to unpack the .ttf binary
+    pdfmake.virtualfs.writeFileSync(fileName, base64Content, 'base64');
+  }
 });
 
+// 2. Set structural font families map matching your style overrides precisely
 pdfmake.setFonts({
-  Helvetica: {
-    normal: 'Helvetica',
-    bold: 'Helvetica-Bold',
-    italics: 'Helvetica-Oblique',
-    bolditalics: 'Helvetica-BoldOblique',
+  Roboto: {
+    normal: pdfmake.virtualfs.existsSync('Roboto-Regular.ttf') ? 'Roboto-Regular.ttf' : 'Helvetica',
+    bold: pdfmake.virtualfs.existsSync('Roboto-Bold.ttf') ? 'Roboto-Bold.ttf' : 'Helvetica-Bold',
+    italics: pdfmake.virtualfs.existsSync('Roboto-Italic.ttf') ? 'Roboto-Italic.ttf' : 'Helvetica-Oblique',
+    bolditalics: pdfmake.virtualfs.existsSync('Roboto-BoldItalic.ttf') ? 'Roboto-BoldItalic.ttf' : 'Helvetica-BoldOblique'
   },
+  Courier: {
+    normal: pdfmake.virtualfs.existsSync('CourierPrime-Regular.ttf') ? 'Courier-Regular.ttf' : 'Courier',
+    bold: pdfmake.virtualfs.existsSync('CourierPrime-Bold.ttf') ? 'Courier-Bold.ttf' : 'Courier-Bold'
+  }
 });
 
-const BUILTIN_FONTS = new Set([
-  'Helvetica',
-  'Helvetica-Bold',
-  'Helvetica-Oblique',
-  'Helvetica-BoldOblique',
-]);
-
-pdfmake.setLocalAccessPolicy((path) => BUILTIN_FONTS.has(path));
+// 3. Open access rules to authorize rendering local asset files safely
+pdfmake.setLocalAccessPolicy(() => true);
 pdfmake.setUrlAccessPolicy(() => false);
 
 export default pdfmake;

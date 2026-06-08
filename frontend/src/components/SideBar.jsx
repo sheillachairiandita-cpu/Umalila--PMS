@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Wallet,
   PieChart,
+  Tags,
 } from 'lucide-react';
 
 const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
@@ -91,6 +92,16 @@ const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
 
         <div className="sidebar-divider" />
         <div className="nav-group-title">System</div>
+
+        <button
+          type="button"
+          className={`nav-item ${activePage === 'pricing' ? 'active' : ''}`}
+          onClick={() => setActivePage('pricing')}
+          title="Pricing"
+        >
+          <Tags size={15} />
+          <span>Pricing</span>
+        </button>
 
         <button
           type="button"

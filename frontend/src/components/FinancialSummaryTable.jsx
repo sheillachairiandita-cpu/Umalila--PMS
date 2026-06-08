@@ -34,7 +34,7 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
     };
 
     fetchDetails();
-  }, [bookingId]);
+  }, [bookingId, onDataLoaded]);
 
   if (loading) {
     return <div className="financial-summary-loading">Loading summary ledger…</div>;
@@ -47,6 +47,17 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
   if (!data) return null;
 
   const bookingRef = data.displayId || data.invoiceNumber;
+  const chargeLines = (data.lineItems || []).filter((line) => line.type !== 'discount' && (line.subtotal ?? 0) >= 0);
+  const discountLines = data.discountLines?.length
+    ? data.discountLines
+    : (data.lineItems || []).filter((line) => line.type === 'discount' || (line.subtotal ?? 0) < 0);
+  const discountAmount = Number(data.discountAmount) || discountLines.reduce(
+    (sum, line) => sum + Math.abs(Number(line.subtotal) || 0),
+    0
+  );
+  const subtotalBeforeDiscount = Number(data.subtotalBeforeDiscount) || (
+    chargeLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0)
+  );
 
   return (
     <div className="financial-summary-container">
@@ -68,6 +79,13 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
           </span>
         </div>
 
+        {data.discountCode && (
+          <div className="financial-meta-row">
+            <span className="financial-meta-label">Discount</span>
+            <span className="financial-meta-value financial-meta-value--mono">{data.discountCode}</span>
+          </div>
+        )}
+
         <div className="financial-meta-row financial-meta-row--divider">
           <span className="financial-meta-label">Payment Status</span>
           <Badge type="payment" value={data.paymentStatus || 'pending'} />
@@ -85,14 +103,14 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
             </tr>
           </thead>
           <tbody>
-            {(!data.lineItems || data.lineItems.length === 0) ? (
+            {chargeLines.length === 0 ? (
               <tr>
                 <td colSpan={4} className="financial-summary-empty">
                   No lines attached to this booking.
                 </td>
               </tr>
             ) : (
-              data.lineItems.map((line, idx) => (
+              chargeLines.map((line, idx) => (
                 <tr key={`${line.name || line.description}-${idx}`}>
                   <td className="financial-summary-item">{line.description || line.name}</td>
                   <td className="text-center">{line.quantity}</td>
@@ -100,6 +118,23 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
                   <td className="text-right financial-summary-subtotal">{formatRp(line.subtotal)}</td>
                 </tr>
               ))
+            )}
+
+            {discountAmount > 0 && (
+              <>
+                <tr className="financial-summary-subtotal-row">
+                  <td colSpan={3} className="text-right">Subtotal Before Discount</td>
+                  <td className="text-right">{formatRp(subtotalBeforeDiscount)}</td>
+                </tr>
+                {(discountLines.length > 0 ? discountLines : [{ description: 'Discount applied', subtotal: -discountAmount }]).map((line, idx) => (
+                  <tr key={`discount-${idx}`} className="financial-summary-discount-row">
+                    <td className="financial-summary-item">{line.description || line.name || 'Discount'}</td>
+                    <td className="text-center">{line.quantity || 1}</td>
+                    <td className="text-right">{formatRp(line.unitPrice || line.unit_price || -discountAmount)}</td>
+                    <td className="text-right financial-summary-discount">−{formatRp(Math.abs(line.subtotal || discountAmount))}</td>
+                  </tr>
+                ))}
+              </>
             )}
           </tbody>
           <tfoot>

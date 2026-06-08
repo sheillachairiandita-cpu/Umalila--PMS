@@ -39,7 +39,7 @@ function BookingActions({
   onOrder, onCheckIn, onCheckOut, onViewDetails,
 }) {
   const canCheckIn  = booking.status === 'confirmed';
-  const canCheckOut = booking.status === 'checked_in' && booking.check_out_date <= todayISO;
+  const canCheckOut = booking.status === 'checked_in' && booking.check_out_date === todayISO;
 
   return (
     <div className="table-action-group">
@@ -111,7 +111,7 @@ function TableHead() {
 
 function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, onCheckIn, onCheckOut, onViewDetails }) {
   // Automation: If status is checked_in, force phase display to 'In House'
-  const computedPhase = booking.status === 'checked_in' ? 'In House' : booking.stay_phase;
+  const computedPhase = booking.status === 'checked_in' ? 'in-house' : booking.stay_phase;
 
   return (
     <tr className={rowClassName(computedPhase)}>

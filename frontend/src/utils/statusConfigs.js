@@ -75,6 +75,11 @@ export const PAYMENT_STATUS_CONFIG = {
     label: 'Complete', //All Paid
     color: '#065f46',
     bg: '#d1fae5'
+  },
+  cancelled: {
+    label: 'Cancelled',
+    color: '#991b1b',
+    bg: '#fee2e2'
   }
 };
 

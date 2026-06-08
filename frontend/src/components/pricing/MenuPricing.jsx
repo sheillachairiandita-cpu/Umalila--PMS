@@ -1,5 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, AlertTriangle, UtensilsCrossed, Coffee, ChefHat } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, UtensilsCrossed } from 'lucide-react';
+import FilterButtonGroup from '../ui/FilterButtonGroup';
+import {
+  PricingPaneToolbar,
+  PricingLockNotice,
+  PricingFormError,
+  PricingFormFooter,
+  PricingDeleteModal,
+  PricingActionCell,
+  PricingLoadingState,
+  PricingErrorState,
+  formatRp,
+} from './pricingShared';
 
 const CATEGORIES = ['food', 'beverage', 'snack', 'dessert', 'other'];
 
@@ -78,18 +90,17 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
             <UtensilsCrossed size={16} className="pricing-modal__icon" />
             <h3>{isEdit ? 'Edit Menu Item' : 'Create New Menu Item'}</h3>
           </div>
-          <button className="pricing-modal__close" onClick={onClose}>×</button>
+          <button type="button" className="pricing-modal__close" onClick={onClose}>×</button>
         </div>
 
         {isEdit && (
-          <div className="pricing-lock-notice">
-            <AlertTriangle size={13} />
+          <PricingLockNotice>
             Price changes apply to <strong>new orders only</strong>. Existing orders are locked.
-          </div>
+          </PricingLockNotice>
         )}
 
         <form onSubmit={handleSubmit} className="pricing-modal__form">
-          {error && <div className="pricing-form-error">{error}</div>}
+          <PricingFormError message={error} />
 
           <div className="pricing-form-row">
             <div className="pricing-form-group" style={{ gridColumn: '1/-1' }}>
@@ -140,42 +151,12 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
             </label>
           </div>
 
-          <div className="pricing-modal__footer">
-            <button type="button" className="pricing-btn pricing-btn--ghost" onClick={onClose} disabled={submitting}>
-              Cancel
-            </button>
-            <button type="submit" className="pricing-btn pricing-btn--primary" disabled={submitting}>
-              {submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
-            </button>
-          </div>
+          <PricingFormFooter
+            onCancel={onClose}
+            submitting={submitting}
+            submitLabel={submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
+          />
         </form>
-      </div>
-    </div>
-  );
-}
-
-function DeleteConfirmModal({ isOpen, itemName, onClose, onConfirm, deleting }) {
-  if (!isOpen) return null;
-  return (
-    <div className="pricing-modal-overlay">
-      <div className="pricing-modal pricing-modal--sm">
-        <div className="pricing-modal__header">
-          <div className="pricing-modal__title-group">
-            <Trash2 size={15} style={{ color: 'var(--red)' }} />
-            <h3>Delete Menu Item</h3>
-          </div>
-        </div>
-        <div style={{ padding: '16px 20px' }}>
-          <p style={{ fontSize: '0.88rem', color: 'var(--text-mid)', marginBottom: 16 }}>
-            Delete <strong>{itemName}</strong>? Existing orders referencing this item will not be affected.
-          </p>
-          <div className="pricing-modal__footer">
-            <button className="pricing-btn pricing-btn--ghost" onClick={onClose} disabled={deleting}>Cancel</button>
-            <button className="pricing-btn pricing-btn--danger" onClick={onConfirm} disabled={deleting}>
-              {deleting ? 'Deleting…' : 'Delete'}
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -194,9 +175,10 @@ function MenuPricing() {
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/menu-items');
+      const res = await fetch('/api/menu-items?all=true');
       if (!res.ok) throw new Error('Failed to fetch menu items');
       setItems(await res.json());
+      setError(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -223,45 +205,39 @@ function MenuPricing() {
 
   const filtered = categoryFilter === 'all' ? items : items.filter((i) => i.category === categoryFilter);
 
-  // Group counts
-  const counts = CATEGORIES.reduce((acc, c) => {
-    acc[c] = items.filter((i) => i.category === c).length;
-    return acc;
-  }, {});
+  const filterOptions = useMemo(() => {
+    const counts = CATEGORIES.reduce((acc, c) => {
+      acc[c] = items.filter((i) => i.category === c).length;
+      return acc;
+    }, {});
+
+    return [
+      { key: 'all', label: `All (${items.length})` },
+      ...CATEGORIES.map((c) => ({
+        key: c,
+        label: `${CATEGORY_META[c]?.label || c} (${counts[c] || 0})`,
+      })),
+    ];
+  }, [items]);
 
   return (
     <div className="pricing-pane">
-      <div className="pricing-pane__toolbar">
-        <div>
-          <h4 className="pricing-pane__subtitle">Menu Items</h4>
-          <p className="pricing-pane__desc">Manage F&B menu prices. Price edits apply to new orders only.</p>
-        </div>
-        <button className="pricing-btn pricing-btn--primary" onClick={() => { setEditItem(null); setModalOpen(true); }}>
-          <Plus size={14} /> Create New Menu Item
-        </button>
-      </div>
+      <PricingPaneToolbar
+        title="Menu Items"
+        description="Manage F&B menu prices. Price edits apply to new orders only."
+        actionLabel="Create New Menu Item"
+        actionIcon={Plus}
+        onAction={() => { setEditItem(null); setModalOpen(true); }}
+      />
 
-      {/* Category filter pills */}
-      <div className="pricing-filter-pills">
-        <button
-          className={`pricing-filter-pill ${categoryFilter === 'all' ? 'active' : ''}`}
-          onClick={() => setCategoryFilter('all')}
-        >
-          All <span className="pricing-pill-count">{items.length}</span>
-        </button>
-        {CATEGORIES.map((c) => (
-          <button
-            key={c}
-            className={`pricing-filter-pill ${categoryFilter === c ? 'active' : ''}`}
-            onClick={() => setCategoryFilter(c)}
-          >
-            {CATEGORY_META[c]?.label || c} <span className="pricing-pill-count">{counts[c] || 0}</span>
-          </button>
-        ))}
-      </div>
+      <FilterButtonGroup
+        options={filterOptions}
+        active={categoryFilter}
+        onChange={setCategoryFilter}
+      />
 
-      {loading && <div className="pricing-loading">Loading menu items…</div>}
-      {!loading && error && <div className="pricing-error">{error}</div>}
+      {loading && <PricingLoadingState message="Loading menu items…" />}
+      {!loading && error && <PricingErrorState message={error} />}
       {!loading && !error && (
         <div className="pricing-table-wrap">
           <table className="pricing-table">
@@ -283,17 +259,12 @@ function MenuPricing() {
                 return (
                   <tr key={item.id}>
                     <td>
-                      <span
-                        className="pricing-badge"
-                        style={{ background: meta.bg, color: meta.color }}
-                      >
+                      <span className="pricing-badge" style={{ background: meta.bg, color: meta.color }}>
                         {meta.label}
                       </span>
                     </td>
                     <td className="pricing-name-cell">{item.name}</td>
-                    <td className="text-right pricing-rate-cell">
-                      Rp {Number(item.price || 0).toLocaleString('id-ID')}
-                    </td>
+                    <td className="text-right pricing-rate-cell">{formatRp(item.price)}</td>
                     <td className="text-center">
                       {item.is_available ? (
                         <span className="pricing-badge pricing-badge--green">Active</span>
@@ -302,22 +273,12 @@ function MenuPricing() {
                       )}
                     </td>
                     <td className="text-center">
-                      <div className="pricing-action-group">
-                        <button
-                          className="pricing-action-btn pricing-action-btn--edit"
-                          title="Edit item"
-                          onClick={() => { setEditItem(item); setModalOpen(true); }}
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          className="pricing-action-btn pricing-action-btn--delete"
-                          title="Delete item"
-                          onClick={() => setDeleteTarget(item)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
+                      <PricingActionCell
+                        editTitle="Edit item"
+                        deleteTitle="Delete item"
+                        onEdit={() => { setEditItem(item); setModalOpen(true); }}
+                        onDelete={() => setDeleteTarget(item)}
+                      />
                     </td>
                   </tr>
                 );
@@ -333,9 +294,17 @@ function MenuPricing() {
         onSaved={fetchItems}
         initialData={editItem}
       />
-      <DeleteConfirmModal
+      <PricingDeleteModal
         isOpen={!!deleteTarget}
+        title="Delete Menu Item"
         itemName={deleteTarget?.name}
+        message={
+          deleteTarget ? (
+            <>
+              Delete <strong>{deleteTarget.name}</strong>? Existing orders referencing this item will not be affected.
+            </>
+          ) : null
+        }
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
         deleting={deleting}

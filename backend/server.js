@@ -3,6 +3,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import { streamBookingConfirmationPdf } from './services/bookingConfirmationPdf.js';
+import {
+  calculateDiscountAmount,
+  mapDiscountRow,
+  discountPayloadFromBody,
+} from './lib/discountUtils.js';
 
 dotenv.config();
 
@@ -26,13 +31,16 @@ app.get('/api/bookings', async (req, res) => {
       .from('bookings')
       .select(`
         *,
+        discounts (id, code, name, type, value, scope, status, application_rule),
         guests (full_name, phone_number),
         booking_villas (
-          villas (name, base_breakfast)
+          villa_id,
+          villas (id, name, base_rate_per_night, base_breakfast)
         ),
         booking_addons (
+          addon_id,
           quantity,
-          addons (id, name, base_breakfast)
+          addons (id, name, price_per_night, is_per_night, base_breakfast)
         )
       `)
       .order('created_at', { ascending: false });
@@ -98,7 +106,18 @@ app.get('/api/bookings', async (req, res) => {
 });
 
 app.post('/api/bookings', async (req, res) => {
-  const { villa_ids, guest_id, check_in_date, check_out_date, total_guests, total_price, notes, selected_addons } = req.body;
+  const {
+    villa_ids,
+    guest_id,
+    check_in_date,
+    check_out_date,
+    total_guests,
+    total_price,
+    notes,
+    selected_addons,
+    apply_discount,
+    discount_id,
+  } = req.body;
 
   try {
     const { data: conflictingBookings, error: checkError } = await supabase
@@ -114,9 +133,43 @@ app.post('/api/bookings', async (req, res) => {
       return res.status(409).json({ error: 'One or more villas are already reserved.' });
     }
 
+    const charges = await computeBookingCharges({
+      villa_ids,
+      selected_addons: selected_addons || [],
+      check_in_date,
+      check_out_date,
+    });
+
+    const { discount, discount_id: resolvedDiscountId } = await resolveDiscountForBooking({
+      apply_discount: !!apply_discount,
+      discount_id,
+    });
+
+    let discountAmount = 0;
+    if (discount) {
+      const result = calculateDiscountAmount(discount, {
+        villaLines: charges.villaLines,
+        addonLines: charges.addonLines,
+        menuLines: [],
+      });
+      discountAmount = result.amount;
+    }
+
+    const computedTotal = Math.max(charges.accommodationTotal - discountAmount, 0);
+    const finalTotal = total_price !== undefined ? Number(total_price) : computedTotal;
+
     const { data: bookingData, error: bookingError } = await supabase
       .from('bookings')
-      .insert([{ guest_id, check_in_date, check_out_date, total_guests, total_price, notes }])
+      .insert([{
+        guest_id,
+        check_in_date,
+        check_out_date,
+        total_guests,
+        total_price: finalTotal,
+        notes,
+        discount_id: discount ? resolvedDiscountId : null,
+        discount_amount: discountAmount,
+      }])
       .select()
       .single();
 
@@ -127,11 +180,28 @@ app.post('/api/bookings', async (req, res) => {
     if (bridgeError) throw bridgeError;
 
     if (selected_addons && selected_addons.length > 0) {
-      const addonRows = selected_addons.map(a => ({
-        booking_id: bookingData.id,
-        addon_id: a.addon_id,
-        quantity: a.quantity
-      }));
+      const addonIds = selected_addons.map((a) => a.addon_id);
+      const { data: addonCatalog, error: addonFetchError } = await supabase
+        .from('addons')
+        .select('id, price_per_night, price, is_per_night')
+        .in('id', addonIds);
+      if (addonFetchError) throw addonFetchError;
+
+      const addonPriceMap = Object.fromEntries(
+        (addonCatalog || []).map((a) => [a.id, Number(a.price_per_night) || Number(a.price) || 0])
+      );
+
+      const addonRows = selected_addons.map((a) => {
+        const unitPrice = addonPriceMap[a.addon_id] || 0;
+        const quantity = Number(a.quantity) || 1;
+        return {
+          booking_id: bookingData.id,
+          addon_id: a.addon_id,
+          quantity,
+          unit_price: unitPrice,
+          subtotal: unitPrice * quantity,
+        };
+      });
       const { error: addonError } = await supabase.from('booking_addons').insert(addonRows);
       if (addonError) throw addonError;
     }
@@ -147,9 +217,15 @@ app.patch('/api/bookings/:id/status', async (req, res) => {
   const { status } = req.body;
 
   try {
+    const updateData = { status };
+
+    if (status === 'checked_in') {
+      // Checked-in bookings always operate in the in-house phase (computed on read).
+    }
+
     const { data, error } = await supabase
       .from('bookings')
-      .update({ status })
+      .update(updateData)
       .eq('id', id)
       .select();
 
@@ -162,20 +238,181 @@ app.patch('/api/bookings/:id/status', async (req, res) => {
 
 app.patch('/api/bookings/:id', async (req, res) => {
   const { id } = req.params;
-  const { check_in_date, check_out_date, total_guests, notes, total_price } = req.body;
+  const {
+    check_in_date,
+    check_out_date,
+    total_guests,
+    notes,
+    total_price,
+    villa_ids,
+    selected_addons,
+    apply_discount,
+    discount_id,
+  } = req.body;
 
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('bookings')
+      .select('check_in_date, check_out_date, status')
+      .eq('id', id)
+      .single();
+
+    if (existingError) throw existingError;
+    if (existing.status === 'cancelled') {
+      return res.status(400).json({ error: 'Cancelled bookings cannot be edited.' });
+    }
+
+    const nextCheckIn = check_in_date ?? existing.check_in_date;
+    const nextCheckOut = check_out_date ?? existing.check_out_date;
+
+    if (new Date(nextCheckOut) <= new Date(nextCheckIn)) {
+      return res.status(400).json({ error: 'Check-out must be after check-in.' });
+    }
+
+    if (Array.isArray(villa_ids) && villa_ids.length > 0) {
+      const { data: conflictingBookings, error: checkError } = await supabase
+        .from('booking_villas')
+        .select(`villa_id, booking_id, bookings!inner (id, check_in_date, check_out_date, status)`)
+        .in('villa_id', villa_ids)
+        .not('bookings.status', 'eq', 'cancelled')
+        .neq('booking_id', id)
+        .lt('bookings.check_in_date', nextCheckOut)
+        .gt('bookings.check_out_date', nextCheckIn);
+
+      if (checkError) throw checkError;
+      if (conflictingBookings && conflictingBookings.length > 0) {
+        return res.status(409).json({ error: 'One or more villas are already reserved for these dates.' });
+      }
+    }
+
     const updateData = {};
     if (check_in_date !== undefined) updateData.check_in_date = check_in_date;
     if (check_out_date !== undefined) updateData.check_out_date = check_out_date;
     if (total_guests !== undefined) updateData.total_guests = total_guests;
     if (notes !== undefined) updateData.notes = notes;
-    if (total_price !== undefined) updateData.total_price = total_price;
 
-    if (updateData.check_in_date && updateData.check_out_date) {
-      if (new Date(updateData.check_out_date) <= new Date(updateData.check_in_date)) {
-        return res.status(400).json({ error: 'Check-out must be after check-in.' });
+    const shouldRecalculate =
+      Array.isArray(villa_ids) ||
+      Array.isArray(selected_addons) ||
+      apply_discount !== undefined ||
+      discount_id !== undefined ||
+      check_in_date !== undefined ||
+      check_out_date !== undefined;
+
+    if (shouldRecalculate) {
+      let resolvedVillaIds = villa_ids;
+      if (!Array.isArray(resolvedVillaIds)) {
+        const { data: currentVillas, error: villaFetchError } = await supabase
+          .from('booking_villas')
+          .select('villa_id')
+          .eq('booking_id', id);
+        if (villaFetchError) throw villaFetchError;
+        resolvedVillaIds = (currentVillas || []).map((row) => row.villa_id);
       }
+
+      let resolvedAddons = selected_addons;
+      if (!Array.isArray(resolvedAddons)) {
+        const { data: currentAddons, error: addonFetchError } = await supabase
+          .from('booking_addons')
+          .select('addon_id, quantity')
+          .eq('booking_id', id);
+        if (addonFetchError) throw addonFetchError;
+        resolvedAddons = (currentAddons || []).map((row) => ({
+          addon_id: row.addon_id,
+          quantity: row.quantity,
+        }));
+      }
+
+      const charges = await computeBookingCharges({
+        villa_ids: resolvedVillaIds,
+        selected_addons: resolvedAddons,
+        check_in_date: nextCheckIn,
+        check_out_date: nextCheckOut,
+      });
+
+      const { discount } = await resolveDiscountForBooking({
+        apply_discount: apply_discount === true,
+        discount_id: apply_discount === true ? discount_id : undefined,
+      });
+
+      let discountAmount = 0;
+      let appliedDiscountId = null;
+
+      if (apply_discount === false) {
+        discountAmount = 0;
+        appliedDiscountId = null;
+      } else {
+        let discountToApply = discount;
+
+        if (!discountToApply && apply_discount !== true) {
+          const { data: currentBooking, error: currentBookingError } = await supabase
+            .from('bookings')
+            .select('discount_id')
+            .eq('id', id)
+            .single();
+          if (currentBookingError) throw currentBookingError;
+          if (currentBooking.discount_id) {
+            discountToApply = await fetchDiscountById(currentBooking.discount_id);
+          }
+        }
+
+        if (discountToApply) {
+          const result = calculateDiscountAmount(discountToApply, {
+            villaLines: charges.villaLines,
+            addonLines: charges.addonLines,
+            menuLines: [],
+          });
+          discountAmount = result.amount;
+          appliedDiscountId = discountToApply.id;
+        }
+      }
+
+      updateData.total_price = total_price !== undefined
+        ? Number(total_price)
+        : Math.max(charges.accommodationTotal - discountAmount, 0);
+      updateData.discount_id = appliedDiscountId;
+      updateData.discount_amount = discountAmount;
+
+      if (Array.isArray(villa_ids)) {
+        await supabase.from('booking_villas').delete().eq('booking_id', id);
+        if (villa_ids.length > 0) {
+          const bridgeRows = villa_ids.map((villaId) => ({ booking_id: id, villa_id: villaId }));
+          const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
+          if (bridgeError) throw bridgeError;
+        }
+      }
+
+      if (Array.isArray(selected_addons)) {
+        await supabase.from('booking_addons').delete().eq('booking_id', id);
+        if (selected_addons.length > 0) {
+          const addonIds = selected_addons.map((a) => a.addon_id);
+          const { data: addonCatalog, error: addonFetchError } = await supabase
+            .from('addons')
+            .select('id, price_per_night, price, is_per_night')
+            .in('id', addonIds);
+          if (addonFetchError) throw addonFetchError;
+
+          const addonPriceMap = Object.fromEntries(
+            (addonCatalog || []).map((a) => [a.id, Number(a.price_per_night) || Number(a.price) || 0])
+          );
+
+          const addonRows = selected_addons.map((a) => {
+            const unitPrice = addonPriceMap[a.addon_id] || 0;
+            const quantity = Number(a.quantity) || 1;
+            return {
+              booking_id: id,
+              addon_id: a.addon_id,
+              quantity,
+              unit_price: unitPrice,
+              subtotal: unitPrice * quantity,
+            };
+          });
+          const { error: addonInsertError } = await supabase.from('booking_addons').insert(addonRows);
+          if (addonInsertError) throw addonInsertError;
+        }
+      }
+    } else if (total_price !== undefined) {
+      updateData.total_price = total_price;
     }
 
     const { data, error } = await supabase
@@ -184,8 +421,17 @@ app.patch('/api/bookings/:id', async (req, res) => {
       .eq('id', id)
       .select(`
         *,
+        discounts (id, code, name, type, value, scope, status, application_rule),
         guests (full_name, phone_number),
-        booking_villas (villas (name))
+        booking_villas (
+          villa_id,
+          villas (id, name, base_rate_per_night)
+        ),
+        booking_addons (
+          addon_id,
+          quantity,
+          addons (id, name, price_per_night, is_per_night)
+        )
       `)
       .single();
 
@@ -223,7 +469,11 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
 
     const { data, error } = await supabase
       .from('bookings')
-      .update({ status: 'cancelled', notes: updatedNotes })
+      .update({
+        status: 'cancelled',
+        payment_status: 'cancelled',
+        notes: updatedNotes,
+      })
       .eq('id', id)
       .select()
       .single();
@@ -241,17 +491,60 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
 
 app.get('/api/menu-items', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('menu_items')
-      .select('*')
-      .eq('is_available', true)
-      .order('category')
-      .order('name');
+    let query = supabase.from('menu_items').select('*').order('category').order('name');
+    if (req.query.all !== 'true') {
+      query = query.eq('is_available', true);
+    }
+    const { data, error } = await query;
 
     if (error) throw error;
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/menu-items', async (req, res) => {
+  const { name, category = 'food', price, is_available = true } = req.body;
+  if (!name?.trim() || price === undefined) {
+    return res.status(400).json({ error: 'Name and price are required.' });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('menu_items')
+      .insert([{ name: name.trim(), category, price: Number(price), is_available }])
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/menu-items/:id', async (req, res) => {
+  const { id } = req.params;
+  const payload = {};
+  if (req.body.name !== undefined) payload.name = req.body.name.trim();
+  if (req.body.category !== undefined) payload.category = req.body.category;
+  if (req.body.price !== undefined) payload.price = Number(req.body.price);
+  if (req.body.is_available !== undefined) payload.is_available = !!req.body.is_available;
+  try {
+    const { data, error } = await supabase.from('menu_items').update(payload).eq('id', id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/menu-items/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('menu_items').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ message: 'Menu item deleted.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 
@@ -524,6 +817,57 @@ app.get('/api/villas', async (req, res) => {
   }
 });
 
+app.post('/api/villas', async (req, res) => {
+  const { name, capacity = 1, base_rate_per_night, description = '', base_breakfast = 0 } = req.body;
+  if (!name?.trim() || base_rate_per_night === undefined) {
+    return res.status(400).json({ error: 'Name and base rate are required.' });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('villas')
+      .insert([{
+        name: name.trim(),
+        capacity: Number(capacity) || 1,
+        base_rate_per_night: Number(base_rate_per_night),
+        description,
+        base_breakfast: Number(base_breakfast) || 0,
+      }])
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/villas/:id', async (req, res) => {
+  const { id } = req.params;
+  const payload = {};
+  if (req.body.name !== undefined) payload.name = req.body.name.trim();
+  if (req.body.capacity !== undefined) payload.capacity = Number(req.body.capacity);
+  if (req.body.base_rate_per_night !== undefined) payload.base_rate_per_night = Number(req.body.base_rate_per_night);
+  if (req.body.description !== undefined) payload.description = req.body.description;
+  if (req.body.base_breakfast !== undefined) payload.base_breakfast = Number(req.body.base_breakfast) || 0;
+  try {
+    const { data, error } = await supabase.from('villas').update(payload).eq('id', id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/villas/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('villas').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ message: 'Villa deleted.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // 👤  GUESTS & ADD-ONS
 // ─────────────────────────────────────────────────────────────
@@ -553,6 +897,122 @@ app.get('/api/addons', async (req, res) => {
   }
 });
 
+app.post('/api/addons', async (req, res) => {
+  const {
+    name,
+    price_per_night,
+    price,
+    base_breakfast = 0,
+    is_per_night = true,
+  } = req.body;
+  const resolvedPrice = price_per_night ?? price;
+  if (!name?.trim() || resolvedPrice === undefined) {
+    return res.status(400).json({ error: 'Name and price are required.' });
+  }
+  try {
+    const numericPrice = Number(resolvedPrice);
+    const { data, error } = await supabase
+      .from('addons')
+      .insert([{
+        name: name.trim(),
+        price_per_night: numericPrice,
+        price: numericPrice,
+        base_breakfast: Number(base_breakfast) || 0,
+        is_per_night: is_per_night !== false,
+      }])
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/addons/:id', async (req, res) => {
+  const { id } = req.params;
+  const payload = {};
+  if (req.body.name !== undefined) payload.name = req.body.name.trim();
+  if (req.body.price_per_night !== undefined) {
+    payload.price_per_night = Number(req.body.price_per_night);
+    payload.price = Number(req.body.price_per_night);
+  } else if (req.body.price !== undefined) {
+    payload.price = Number(req.body.price);
+    payload.price_per_night = Number(req.body.price);
+  }
+  if (req.body.base_breakfast !== undefined) payload.base_breakfast = Number(req.body.base_breakfast) || 0;
+  if (req.body.is_per_night !== undefined) payload.is_per_night = !!req.body.is_per_night;
+  try {
+    const { data, error } = await supabase.from('addons').update(payload).eq('id', id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/addons/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('addons').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ message: 'Add-on deleted.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 🏷️  DISCOUNTS
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/discounts', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('discounts').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json((data || []).map(mapDiscountRow));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/discounts', async (req, res) => {
+  const payload = discountPayloadFromBody(req.body);
+  if (!payload.code || !payload.name || payload.value === undefined || Number.isNaN(payload.value)) {
+    return res.status(400).json({ error: 'Promo code, name, and value are required.' });
+  }
+  try {
+    const { data, error } = await supabase.from('discounts').insert([payload]).select().single();
+    if (error) throw error;
+    res.status(201).json(mapDiscountRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/discounts/:id', async (req, res) => {
+  const payload = discountPayloadFromBody(req.body, { partial: true });
+  if (Object.keys(payload).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update.' });
+  }
+  try {
+    const { data, error } = await supabase.from('discounts').update(payload).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(mapDiscountRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/discounts/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('discounts').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ message: 'Discount deleted.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────
 // 💳  PAYMENT MANAGEMENT
 // ─────────────────────────────────────────────────────────────
@@ -562,6 +1022,105 @@ function stayNights(checkIn, checkOut) {
     Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24)),
     1
   );
+}
+
+function todayISO() {
+  return new Date().toISOString().split('T')[0];
+}
+
+async function fetchDiscountById(discountId) {
+  if (!discountId) return null;
+  const { data, error } = await supabase.from('discounts').select('*').eq('id', discountId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function computeBookingCharges({ villa_ids = [], selected_addons = [], check_in_date, check_out_date }) {
+  const nights = stayNights(check_in_date, check_out_date);
+  let villaTotal = 0;
+  const villaLines = [];
+
+  if (villa_ids.length > 0) {
+    const { data: villas, error } = await supabase.from('villas').select('*').in('id', villa_ids);
+    if (error) throw error;
+    (villas || []).forEach((villa) => {
+      const rate = Number(villa.base_rate_per_night) || 0;
+      const subtotal = rate * nights;
+      villaTotal += subtotal;
+      villaLines.push({
+        type: 'accommodation',
+        name: villa.name,
+        description: `${villa.name} — ${nights} night${nights !== 1 ? 's' : ''}`,
+        quantity: nights,
+        unitPrice: rate,
+        subtotal,
+      });
+    });
+  }
+
+  let addonTotal = 0;
+  const addonLines = [];
+
+  if (selected_addons.length > 0) {
+    const addonIds = selected_addons.map((a) => a.addon_id);
+    const { data: addons, error } = await supabase.from('addons').select('*').in('id', addonIds);
+    if (error) throw error;
+    const addonMap = Object.fromEntries((addons || []).map((a) => [a.id, a]));
+
+    selected_addons.forEach(({ addon_id, quantity }) => {
+      const addon = addonMap[addon_id];
+      if (!addon) return;
+      const qty = Number(quantity) || 1;
+      const unitPrice = Number(addon.price_per_night) || Number(addon.price) || 0;
+      const multiplier = addon.is_per_night !== false ? nights : 1;
+      const subtotal = unitPrice * qty * multiplier;
+      addonTotal += subtotal;
+      addonLines.push({
+        type: 'addon',
+        name: addon.name,
+        description: addon.name,
+        quantity: qty * multiplier,
+        unitPrice,
+        subtotal,
+      });
+    });
+  }
+
+  return {
+    nights,
+    villaTotal,
+    addonTotal,
+    accommodationTotal: villaTotal + addonTotal,
+    villaLines,
+    addonLines,
+  };
+}
+
+async function resolveDiscountForBooking({ apply_discount, discount_id }) {
+  if (!apply_discount) {
+    return { discount: null, discount_id: null, discount_amount: 0 };
+  }
+
+  let discount = null;
+  if (discount_id) {
+    discount = await fetchDiscountById(discount_id);
+  } else {
+    const { data, error } = await supabase
+      .from('discounts')
+      .select('*')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    discount = data;
+  }
+
+  if (!discount || discount.status !== 'active') {
+    return { discount: null, discount_id: null, discount_amount: 0 };
+  }
+
+  return { discount, discount_id: discount.id, discount_amount: null };
 }
 
 function buildInvoiceId(bookingOrId) {
@@ -577,11 +1136,12 @@ async function buildFinancialSummary(bookingId) {
     .from('bookings')
     .select(`
       *,
+      discounts (id, code, name, type, value, scope, status, application_rule),
       guests (full_name, phone_number),
       booking_villas (villas (name, base_rate_per_night)),
       booking_addons (
         quantity,
-        addons (name, price_per_night, base_breakfast)
+        addons (name, price_per_night, price, is_per_night, base_breakfast)
       )
     `)
     .eq('id', bookingId)
@@ -644,14 +1204,16 @@ async function buildFinancialSummary(bookingId) {
   }
 
   const addonLines = (booking.booking_addons || []).map((ba) => {
-    const unitPrice = Number(ba.addons?.price_per_night) || 0;
+    const unitPrice = Number(ba.addons?.price_per_night) || Number(ba.addons?.price) || 0;
     const quantity = ba.quantity || 1;
-    const subtotal = unitPrice * quantity;
+    const multiplier = ba.addons?.is_per_night !== false ? nights : 1;
+    const billableQty = quantity * multiplier;
+    const subtotal = unitPrice * billableQty;
     return {
       type: 'addon',
       name: ba.addons?.name || 'Add-on',
       description: ba.addons?.name || 'Add-on',
-      quantity,
+      quantity: billableQty,
       unitPrice,
       subtotal,
     };
@@ -661,7 +1223,10 @@ async function buildFinancialSummary(bookingId) {
   let extraBreakfast = 0;
   let otherAddons = 0;
   (booking.booking_addons || []).forEach((ba) => {
-    const lineTotal = (Number(ba.addons?.price_per_night) || 0) * (ba.quantity || 1);
+    const unitPrice = Number(ba.addons?.price_per_night) || Number(ba.addons?.price) || 0;
+    const quantity = ba.quantity || 1;
+    const multiplier = ba.addons?.is_per_night !== false ? nights : 1;
+    const lineTotal = unitPrice * quantity * multiplier;
     const addonName = (ba.addons?.name || '').toLowerCase();
     if (addonName.includes('extra bed')) extraBeds += lineTotal;
     else if ((ba.addons?.base_breakfast || 0) > 0 || addonName.includes('breakfast')) extraBreakfast += lineTotal;
@@ -708,8 +1273,35 @@ async function buildFinancialSummary(bookingId) {
     name, quantity, subtotal, unitPrice,
   }));
 
-  const lineItems = [...accommodationLines, ...addonLines, ...menuLines];
-  const total = accommodation + totalAddons + menuTotal;
+  const subtotalBeforeDiscount = accommodation + totalAddons + menuTotal;
+
+  let discountAmount = 0;
+  let discountLines = [];
+  let discountMeta = null;
+
+  if (booking.discount_id && booking.discounts) {
+    const discountResult = calculateDiscountAmount(booking.discounts, {
+      villaLines: accommodationLines,
+      addonLines,
+      menuLines,
+    });
+    discountAmount = discountResult.amount;
+    discountLines = discountResult.lines;
+    discountMeta = mapDiscountRow(booking.discounts);
+  } else if (Number(booking.discount_amount) > 0) {
+    discountAmount = Number(booking.discount_amount);
+    discountLines = [{
+      type: 'discount',
+      name: 'Discount',
+      description: 'Applied discount',
+      quantity: 1,
+      unitPrice: -discountAmount,
+      subtotal: -discountAmount,
+    }];
+  }
+
+  const lineItems = [...accommodationLines, ...addonLines, ...menuLines, ...discountLines];
+  const total = Math.max(subtotalBeforeDiscount - discountAmount, 0);
   const amountPaid = Number(booking.amount_paid) || 0;
   const balanceDue = Math.max(total - amountPaid, 0);
 
@@ -734,9 +1326,15 @@ async function buildFinancialSummary(bookingId) {
     accommodationLines,
     addonLines,
     menuLines,
+    discountLines,
     lineItems,
     menuItems,
     menuTotal,
+    subtotalBeforeDiscount,
+    discountAmount,
+    discount: discountMeta,
+    discountCode: discountMeta?.code || null,
+    applicationRule: discountMeta?.application_rule || null,
     total,
     amountPaid,
     balanceDue,
@@ -745,6 +1343,8 @@ async function buildFinancialSummary(bookingId) {
     paymentStatus: booking.payment_status || 'pending',
     hasPartialPayment: (partialPayments || []).length > 0 || booking.payment_status === 'partial' || booking.payment_status === 'complete',
     villaNames: booking.booking_villas?.map((bv) => bv.villas?.name).filter(Boolean).join(', ') || '—',
+    checkIn: booking.check_in_date,
+    checkOut: booking.check_out_date,
   };
 }
 
@@ -893,10 +1493,16 @@ app.get('/api/bookings/:bookingId/invoice', async (req, res) => {
       accommodationLines: summary.accommodationLines,
       addonLines: summary.addonLines,
       menuLines: summary.menuLines,
+      discountLines: summary.discountLines,
       accommodation: summary.accommodation,
       extraBeds: summary.extraBeds,
       extraBreakfast: summary.extraBreakfast,
       menuItems: summary.menuItems,
+      subtotalBeforeDiscount: summary.subtotalBeforeDiscount,
+      discountAmount: summary.discountAmount,
+      discount: summary.discount,
+      discountCode: summary.discountCode,
+      applicationRule: summary.applicationRule,
       total: summary.total,
       amountPaid: summary.amountPaid,
       balanceDue: summary.balanceDue,
@@ -1048,11 +1654,20 @@ app.patch('/api/bookings/:bookingId/check-out', async (req, res) => {
   try {
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('payment_status')
+      .select('payment_status, check_out_date, status')
       .eq('id', bookingId)
       .single();
 
     if (bookingError) throw bookingError;
+
+    if (booking.status !== 'checked_in') {
+      return res.status(400).json({ error: 'Guest must be checked in before check-out.' });
+    }
+
+    const today = todayISO();
+    if (booking.check_out_date !== today) {
+      return res.status(400).json({ error: 'Check-out is only available on the scheduled check-out date.' });
+    }
 
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')

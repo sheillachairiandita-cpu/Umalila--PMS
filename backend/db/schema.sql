@@ -43,11 +43,14 @@ CREATE TABLE public.bookings (
   notes text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   amount_paid numeric DEFAULT 0.00,
-  payment_status text NOT NULL DEFAULT 'pending'::text CHECK (payment_status = ANY (ARRAY['pending'::text, 'partial'::text, 'complete'::text])),
+  payment_status text NOT NULL DEFAULT 'pending'::text CHECK (payment_status = ANY (ARRAY['pending'::text, 'partial'::text, 'complete'::text, 'cancelled'::text])),
   display_id text UNIQUE,
+  discount_id uuid,
+  discount_amount numeric DEFAULT 0.00 CHECK (discount_amount >= 0::numeric),
   CONSTRAINT bookings_pkey PRIMARY KEY (id),
   CONSTRAINT bookings_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id),
-  CONSTRAINT bookings_guest_id_fkey FOREIGN KEY (guest_id) REFERENCES public.guests(id)
+  CONSTRAINT bookings_guest_id_fkey FOREIGN KEY (guest_id) REFERENCES public.guests(id),
+  CONSTRAINT bookings_discount_id_fkey FOREIGN KEY (discount_id) REFERENCES public.discounts(id)
 );
 CREATE TABLE public.finances (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -124,4 +127,18 @@ CREATE TABLE public.booking_villas (
   CONSTRAINT booking_villas_pkey PRIMARY KEY (id),
   CONSTRAINT booking_villas_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
   CONSTRAINT booking_villas_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id)
+);
+CREATE TABLE public.discounts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  code text NOT NULL UNIQUE,
+  name text NOT NULL,
+  type text NOT NULL CHECK (type = ANY (ARRAY['percentage'::text, 'fixed'::text])),
+  value numeric NOT NULL CHECK (value >= 0::numeric),
+  scope text NOT NULL CHECK (scope = ANY (ARRAY['global'::text, 'villas'::text, 'addons'::text, 'menu'::text])),
+  status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'inactive'::text])),
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  villa_id uuid,
+  application_rule text NOT NULL DEFAULT 'all_items'::text CHECK (application_rule = ANY (ARRAY['all_items'::text, 'highest_priced_single'::text, 'lowest_priced_single'::text])),
+  CONSTRAINT discounts_pkey PRIMARY KEY (id),
+  CONSTRAINT discounts_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id)
 );

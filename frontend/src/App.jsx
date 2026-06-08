@@ -8,6 +8,7 @@ import Sidebar from './components/SideBar';
 import CalendarPage from './components/CalendarPage';
 import ReservationPage from './components/ReservationPage';
 import FinancialDashboardPage from './components/FinancialDashboardPage';
+import Pricing from './components/pricing/Pricing';
 import PublicReservationForm from './components/PublicReservationForm'; 
 import PublicSuccessMessage from './components/PublicSuccessMessage';
 import Dashboard from './components/Dashboard'; // ← ADD THIS
@@ -93,7 +94,8 @@ function AdminPortal() {
         {activePage === 'calendar' && <CalendarPage onOpenBookingModal={() => setIsModalOpen(true)} />}
         {activePage === 'reservations' && <ReservationPage />}
         {activePage === 'financial' && <FinancialDashboardPage />}
-        {activePage === 'insights' && <Dashboard />}  {/* ← ADD THIS */}
+        {activePage === 'pricing' && <Pricing />}
+        {activePage === 'insights' && <Dashboard />}
 
         {activePage === 'reservationlist' && (
           <div className="dashboard-container">
@@ -129,7 +131,7 @@ function AdminPortal() {
         )}
 
         {/* ↓ Add 'insights' to the exclusion list */}
-        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'financial', 'reservationlist', 'insights'].includes(activePage) && (
+        {!['dashboard', 'frontdesk', 'villas', 'calendar', 'reservations', 'financial', 'pricing', 'reservationlist', 'insights'].includes(activePage) && (
           <div className="placeholder-page">
             <h1 className="placeholder-page-title">
               {activePage.charAt(0).toUpperCase() + activePage.slice(1)}

@@ -6,15 +6,18 @@
 import pdfmake from '../lib/pdfmakeSetup.js';
 
 const COLORS = {
-  brandDark: '#2E241C',
-  brandMid: '#5C4A3A',
-  brandAccent: '#8B6F47',
-  cream: '#F7F3ED',
-  border: '#C9B8A4',
-  text: '#2E241C',
-  textMuted: '#6B5D52',
+  brandDark: '#0F172A',     
+  brandMid: '#4F46E5',      
+  brandAccent: '#16A34A',   
+  cream: '#F8FAFC',         
+  border: '#E2E8F0',        
+  text: '#1E293B',          
+  textMuted: '#64748B',     
   white: '#FFFFFF',
-  tableHead: '#3D3228',
+  tableHead: '#F1F5F9',     
+  alertBg: '#FFFBFA',       
+  alertBorder: '#FEE2E2',   
+  alertText: '#7F1D1D',     
 };
 
 const PROPERTY = {
@@ -27,519 +30,322 @@ const PROPERTY = {
     'Kec. Lembah Gumanti, Kabupaten',
     'Solok, Sumatera Barat 27371',
   ],
-  bankName: 'Bank BNI',
-  bankAccount: '0174105357',
-  bankAccountName: 'Chairiyanto',
 };
 
 function formatIdr(amount) {
   return Math.round(Number(amount) || 0).toLocaleString('de-DE');
 }
 
-function formatInvoiceDate(dateStr) {
-  const d = new Date(dateStr || Date.now());
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}/${month}/${year}`;
-}
-
-function formatStayDate(dateStr, suffix) {
-  const d = new Date(dateStr);
-  const formatted = d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-  return `${formatted} | ${suffix}`;
-}
-
-function stayDurationLabel(checkIn, checkOut, nights) {
-  const days = nights + 1;
-  return `${days} day${days !== 1 ? 's' : ''} ${nights} night${nights !== 1 ? 's' : ''}`;
-}
-
-function guestFirstName(fullName) {
-  return (fullName || 'Guest').trim().split(/\s+/)[0];
-}
-
-function formatLineQty(line) {
-  if (line.type === 'accommodation') {
-    const n = line.quantity || 1;
-    return `${n} Night${n !== 1 ? 's' : ''}`;
+function buildConfirmationContent(summary) {
+  const guestName = summary.guestName || 'Valued Guest';
+  const villaNames = summary.villaNames || 'Villa Unit';
+  const checkIn = summary.checkInDate || '-';
+  const checkOut = summary.checkOutDate || '-';
+  const totalGuests = summary.totalGuests ? `${summary.totalGuests} Guests` : '10 Guests';
+  
+  let nightCountText = '1 Night';
+  if (summary.checkInDate && summary.checkOutDate) {
+    try {
+      const diffTime = Math.abs(new Date(summary.checkOutDate) - new Date(summary.checkInDate));
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays > 0) {
+        nightCountText = `${diffDays + 1} Days / ${diffDays} ${diffDays === 1 ? 'Night' : 'Nights'}`;
+      }
+    } catch (e) {
+      nightCountText = '1 Night';
+    }
   }
-  if (line.type === 'addon') {
-    const name = (line.name || line.description || '').toLowerCase();
-    const qty = line.quantity || 1;
-    if (name.includes('bed')) return `${qty} Bed${qty !== 1 ? 's' : ''}`;
-    return String(qty);
-  }
-  return String(line.quantity || 1);
-}
 
-function brandHeader() {
-  return {
-    text: 'Umalila',
-    style: 'brandTitle',
-    alignment: 'center',
-    margin: [0, 0, 0, 18],
-  };
-}
-
-function labelValueTable(rows) {
-  return {
+  // 1. Header Layout Block
+  const headerTable = {
+    style: 'headerTable',
     table: {
-      widths: ['32%', '*'],
-      body: rows.map(([label, value]) => [
-        { text: label, style: 'infoLabel' },
-        { text: value, style: 'infoValue' },
-      ]),
+      widths: ['*', 'auto'],
+      body: [
+        [
+          {
+            columns: [
+              {
+                canvas: [
+                  { type: 'rect', x: 0, y: 0, w: 36, h: 36, r: 8, color: COLORS.brandMid }
+                ],
+                width: 42,
+              },
+              {
+                text: PROPERTY.name,
+                fontSize: 20,
+                bold: true,
+                color: COLORS.brandDark,
+                margin: [0, 6, 0, 0],
+              }
+            ]
+          },
+          {
+            stack: [
+              { text: 'BOOKING CONFIRMATION', fontSize: 20, bold: true, color: COLORS.brandMid, alignment: 'right' },
+              { text: `Document No: ${summary.displayId || summary.id || 'INV00108'}`, fontSize: 10, font: 'Courier', color: COLORS.textMuted, alignment: 'right', margin: [0, 4, 0, 0] }
+            ],
+            alignment: 'right'
+          }
+        ]
+      ]
+    },
+    layout: 'noBorders'
+  };
+
+  // 2. Personal Message Salutation
+  const salutationBlock = {
+    stack: [
+      { text: 'Reservation Confirmed!', fontSize: 16, bold: true, color: COLORS.brandDark, margin: [0, 0, 0, 4] },
+      {
+        text: [
+          'Dear ',
+          { text: guestName, bold: true },
+          ', thank you for choosing to stay with us. We are pleased to confirm your upcoming booking parameters outlined below:'
+        ],
+        fontSize: 11,
+        color: COLORS.text,
+        lineHeight: 1.4
+      }
+    ],
+    margin: [0, 0, 0, 20]
+  };
+
+  // 3. Staying Details Parameter Grid Container
+  const parametersGrid = {
+    style: 'paramCard',
+    table: {
+      widths: ['25%', '25%', '25%', '25%'],
+      body: [
+        [
+          { text: 'Selected Property', style: 'gridLabel' },
+          { text: villaNames, style: 'gridValue' },
+          { text: 'Check-In Date', style: 'gridLabel' },
+          { text: `${checkIn}\n(After 2 PM)`, style: 'gridValue' }
+        ],
+        [
+          { text: 'Registered Party', style: 'gridLabel' },
+          { text: totalGuests, style: 'gridValue' },
+          { text: 'Check-Out Date', style: 'gridLabel' },
+          { text: `${checkOut}\n(Before 11 AM)`, style: 'gridValue' }
+        ],
+        [
+          { text: 'Total Duration', style: 'gridLabel' },
+          { text: nightCountText, style: 'gridValue' },
+          { text: 'Primary Contact', style: 'gridLabel' },
+          { text: summary.guestPhone || '-', style: 'gridValue', font: 'Courier' }
+        ]
+      ]
+    },
+    layout: 'noBorders'
+  };
+
+  // 4. Financial Line Allocations Array Setup
+  const invoiceRows = [];
+  let calculatedSubtotal = 0;
+
+  if (Array.isArray(summary.villas) && summary.villas.length > 0) {
+    summary.villas.forEach(v => {
+      const rate = Number(v.rate) || 0;
+      const qty = Number(v.nights) || 1;
+      const lineTotal = rate * qty;
+      calculatedSubtotal += lineTotal;
+
+      invoiceRows.push([
+        { text: `${v.name || 'Villa Unit'} Allocation`, style: 'tableCell' },
+        { text: `${qty} Night(s)`, style: 'tableCellCenter' },
+        { text: `Rp ${formatIdr(rate)}`, style: 'tableCellRight', font: 'Courier' },
+        { text: `Rp ${formatIdr(lineTotal)}`, style: 'tableCellRight', font: 'Courier', bold: true }
+      ]);
+    });
+  }
+
+  if (Array.isArray(summary.addons) && summary.addons.length > 0) {
+    summary.addons.forEach(a => {
+      const price = Number(a.unitPrice) || 0;
+      const qty = Number(a.quantity) || 1;
+      const lineTotal = price * qty;
+      calculatedSubtotal += lineTotal;
+
+      invoiceRows.push([
+        { text: a.name || 'Addon Charge', style: 'tableCell' },
+        { text: `${qty} Unit(s)`, style: 'tableCellCenter' },
+        { text: `Rp ${formatIdr(price)}`, style: 'tableCellRight', font: 'Courier' },
+        { text: `Rp ${formatIdr(lineTotal)}`, style: 'tableCellRight', font: 'Courier', bold: true }
+      ]);
+    });
+  }
+
+  if (invoiceRows.length === 0) {
+    const rawTotal = Number(summary.totalPrice) || 0;
+    invoiceRows.push([
+      { text: `${villaNames || 'Villa Unit'} Booking Retention`, style: 'tableCell' },
+      { text: '1 Unit', style: 'tableCellCenter' },
+      { text: `Rp ${formatIdr(rawTotal)}`, style: 'tableCellRight', font: 'Courier' },
+      { text: `Rp ${formatIdr(rawTotal)}`, style: 'tableCellRight', font: 'Courier', bold: true }
+    ]);
+    calculatedSubtotal = rawTotal;
+  }
+
+  const explicitDiscountAmount = Number(summary.discountAmount) || 0;
+  const grandNetPayable = Math.max(calculatedSubtotal - explicitDiscountAmount, 0);
+
+  // 5. Itemized Breakdown Pricing Layout
+  const financialTable = {
+    style: 'financialTable',
+    table: {
+      widths: ['*', '15%', '22%', '22%'],
+      headerRows: 1,
+      body: [
+        [
+          { text: 'Description Reference', style: 'tableHeader' },
+          { text: 'Qty', style: 'tableHeaderCenter' },
+          { text: 'Rate Unit', style: 'tableHeaderRight' },
+          { text: 'Gross Total', style: 'tableHeaderRight' }
+        ],
+        ...invoiceRows,
+        [
+          { text: '', colspan: 2, border: [false, false, false, false] },
+          {},
+          { text: 'Subtotal Amount:', style: 'summaryLabel', border: [false, true, false, false] },
+          { text: `Rp ${formatIdr(calculatedSubtotal)}`, style: 'summaryValue', font: 'Courier', border: [false, true, false, false] }
+        ],
+        [
+          { text: '', colspan: 2, border: [false, false, false, false] },
+          {},
+          { text: 'Campaign Discount:', style: 'summaryLabel', border: [false, false, false, false] },
+          { text: explicitDiscountAmount > 0 ? `-Rp ${formatIdr(explicitDiscountAmount)}` : 'Rp 0', style: 'discountValue', font: 'Courier', border: [false, false, false, false] }
+        ],
+        [
+          { text: '', colspan: 2, border: [false, false, false, false] },
+          {},
+          { text: 'Net Total Paid:', style: 'grandTotalLabel', border: [false, false, false, true] },
+          { text: `Rp ${formatIdr(grandNetPayable)}`, style: 'grandTotalValue', font: 'Courier', border: [false, false, false, true] }
+        ]
+      ]
     },
     layout: {
-      hLineWidth: (i, node) => (i === 0 || i === node.table.body.length ? 1 : 0.5),
+      hLineWidth: (i, node) => (i === 1 ? 2 : i > 1 && i <= node.table.body.length - 3 ? 1 : 0),
       vLineWidth: () => 0,
-      hLineColor: () => COLORS.border,
-      paddingLeft: () => 10,
-      paddingRight: () => 10,
-      paddingTop: () => 7,
-      paddingBottom: () => 7,
-      fillColor: (rowIndex) => (rowIndex % 2 === 0 ? COLORS.cream : COLORS.white),
-    },
-    margin: [0, 0, 0, 14],
+      hLineColor: (i, node) => (i === 1 ? COLORS.brandDark : COLORS.border),
+      paddingTop: (i) => (i === 0 ? 6 : 8),
+      paddingBottom: (i) => (i === 0 ? 6 : 8),
+    }
   };
-}
 
-function buildConfirmationPage(summary) {
-  const booking = summary.booking;
-  const guestName = booking.guests?.full_name || 'Guest';
-  const phone = booking.guests?.phone_number || '—';
-  const nights = Math.max(
-    Math.ceil(
-      (new Date(booking.check_out_date) - new Date(booking.check_in_date)) /
-        (1000 * 60 * 60 * 24)
-    ),
-    1
-  );
-  const guestCount = booking.total_guests || 1;
+  // 6. Operational Guardrails Notice Card
+  const operationalTermsCard = {
+    style: 'alertCard',
+    table: {
+      widths: ['*'],
+      body: [
+        [
+          {
+            stack: [
+              { text: 'IMPORTANT OPERATIONAL TERMS', fontSize: 10, bold: true, color: COLORS.alertText, margin: [0, 0, 0, 4] },
+              {
+                ul: [
+                  'Please present valid national identification documents (KTP/Passport) for all checking-in members upon arrival.',
+                  'To honor local operational policies, Villa Umalila explicitly accommodates family structures or married couples only.'
+                ],
+                fontSize: 9.5,
+                color: COLORS.alertText,
+                lineHeight: 1.4
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    layout: {
+      hLineWidth: () => 1, vLineWidth: () => 1,
+      hLineColor: () => COLORS.alertBorder, vLineColor: () => COLORS.alertBorder,
+      fillColor: () => COLORS.alertBg,
+    },
+    margin: [0, 0, 0, 20]
+  };
 
-  return [
-    brandHeader(),
-    labelValueTable([
-      ['Guest Name', guestName],
-      ['Villa Type', summary.villaNames || '—'],
-      ['No. of Guests', `${guestCount} Guest${guestCount !== 1 ? 's' : ''}`],
-      ['Check-in Date', formatStayDate(booking.check_in_date, 'After 2 PM')],
-      ['Check-out Date', formatStayDate(booking.check_out_date, 'Before 11 AM')],
-    ]),
-    {
-      columns: [
-        { text: PROPERTY.email, style: 'contactLine', alignment: 'center' },
-        { text: PROPERTY.instagram, style: 'contactLine', alignment: 'center' },
-        { text: PROPERTY.phone, style: 'contactLine', alignment: 'center' },
-      ],
-      margin: [0, 0, 0, 22],
-    },
-    {
-      text: 'Your reservation is confirmed!',
-      style: 'confirmHeadline',
-      alignment: 'center',
-      margin: [0, 0, 0, 14],
-    },
-    {
-      text: [
-        'Dear ',
-        { text: guestFirstName(guestName), bold: true },
-        ',\nThank you for choosing to stay at Villa Umalila. We\u2019re pleased to confirm your reservation for ',
-        { text: stayDurationLabel(booking.check_in_date, booking.check_out_date, nights), bold: true },
-        '.',
-      ],
-      style: 'bodyText',
-      alignment: 'center',
-      margin: [24, 0, 24, 18],
-    },
-    { text: 'Reservation Details', style: 'sectionTitle', margin: [0, 0, 0, 8] },
-    {
-      text: 'We look forward to welcoming you to Villa Umalila.',
-      style: 'bodyText',
-      margin: [0, 0, 0, 18],
-    },
-    {
-      text: 'Important Notice',
-      style: 'sectionTitle',
-      margin: [0, 0, 0, 8],
-    },
-    {
-      ul: [
-        'Please present your KTP and booking details during check-in.',
-        'Villa Umalila does not accomodate unmarried couples.',
-      ],
-      style: 'noticeList',
-      margin: [8, 0, 0, 28],
-    },
-    {
-      stack: [
-        { text: PROPERTY.name, style: 'footerBrand' },
-        ...PROPERTY.addressLines.map((line) => ({ text: line, style: 'footerAddress' })),
-      ],
-      margin: [0, 12, 0, 0],
-    },
-    { text: '', pageBreak: 'after' },
-  ];
-}
-
-function buildInvoiceTableBody(lineItems, subtotal) {
-  const body = [
-    [
-      { text: 'DESCRIPTION', style: 'invoiceTh', alignment: 'left' },
-      { text: 'QTY', style: 'invoiceTh', alignment: 'center' },
-      { text: 'UNIT PRICE', style: 'invoiceTh', alignment: 'right' },
-      { text: 'TOTAL PRICE', style: 'invoiceTh', alignment: 'right' },
+  // 7. Base Location Address Footer
+  const locationFooter = {
+    stack: [
+      { text: PROPERTY.name, fontSize: 11, bold: true, color: COLORS.text, alignment: 'center', margin: [0, 0, 0, 2] },
+      { text: PROPERTY.addressLines.join(' '), fontSize: 9, color: COLORS.textMuted, alignment: 'center', margin: [0, 0, 0, 4] },
+      {
+        text: `📧 ${PROPERTY.email}   |   📞 ${PROPERTY.phone}   |   📸 ${PROPERTY.instagram}`,
+        fontSize: 9, color: COLORS.textMuted, alignment: 'center', font: 'Courier'
+      }
     ],
-  ];
-
-  lineItems.forEach((line) => {
-    body.push([
-      { text: line.description || line.name || 'Item', style: 'invoiceItemDesc' },
-      { text: formatLineQty(line), style: 'invoiceItemQty', alignment: 'center' },
-      { text: formatIdr(line.unitPrice), style: 'invoiceItemMoney', alignment: 'right' },
-      { text: formatIdr(line.subtotal), style: 'invoiceItemMoney', alignment: 'right' },
-    ]);
-  });
-
-  body.push([
-    { text: 'SUB TOTAL (IDR)', style: 'subtotalLabel', colSpan: 3, alignment: 'right' },
-    {},
-    {},
-    {
-      text: formatIdr(subtotal),
-      style: 'subtotalValue',
-      alignment: 'right',
-    },
-  ]);
-
-  return body;
-}
-
-function buildInvoicePage(summary) {
-  const booking = summary.booking;
-  const guestName = booking.guests?.full_name || 'Guest';
-  const phone = booking.guests?.phone_number || '—';
-  const displayId = summary.displayId;
-  const invoiceDate = formatInvoiceDate(booking.created_at);
-  const lineItems = summary.lineItems?.length
-    ? summary.lineItems
-    : [
-        {
-          type: 'accommodation',
-          description: summary.villaNames || 'Accommodation',
-          quantity: Math.max(
-            Math.ceil(
-              (new Date(booking.check_out_date) - new Date(booking.check_in_date)) /
-                (1000 * 60 * 60 * 24)
-            ),
-            1
-          ),
-          unitPrice: summary.accommodation,
-          subtotal: summary.accommodation,
-        },
-      ];
-
-  const subtotal = summary.total;
+    margin: [0, 10, 0, 0]
+  };
 
   return [
-    brandHeader(),
-    {
-      table: {
-        headerRows: 1,
-        widths: ['*', 70, 85, 85],
-        body: buildInvoiceTableBody(lineItems, subtotal),
-      },
-      layout: {
-        hLineWidth: (i, node) => {
-          if (i === 0 || i === 1) return 0;
-          if (i === node.table.body.length) return 1;
-          return 0.5;
-        },
-        vLineWidth: () => 0,
-        hLineColor: () => COLORS.border,
-        fillColor: (rowIndex) => {
-          if (rowIndex === 0) return COLORS.tableHead;
-          if (rowIndex === lineItems.length + 1) return COLORS.cream;
-          return rowIndex % 2 === 0 ? COLORS.white : COLORS.cream;
-        },
-        paddingLeft: () => 8,
-        paddingRight: () => 8,
-        paddingTop: () => 6,
-        paddingBottom: () => 6,
-      },
-      margin: [0, 0, 0, 20],
-    },
-    {
-      columns: [
-        {
-          width: '48%',
-          stack: [
-            { text: 'Bill To', style: 'billSectionTitle', margin: [0, 0, 0, 8] },
-            {
-              table: {
-                widths: [68, '*'],
-                body: [
-                  [
-                    { text: 'Customer', style: 'billLabel' },
-                    { text: `: ${guestName}`, style: 'billValue' },
-                  ],
-                  [
-                    { text: 'Contact', style: 'billLabel' },
-                    { text: `: ${phone}`, style: 'billValue' },
-                  ],
-                ],
-              },
-              layout: 'noBorders',
-            },
-            { text: PROPERTY.name, style: 'billAddressTitle', margin: [0, 12, 0, 4] },
-            ...PROPERTY.addressLines.map((line) => ({
-              text: line,
-              style: 'billAddressLine',
-            })),
-            { text: `Contact: ${PROPERTY.phone}`, style: 'billAddressLine', margin: [0, 4, 0, 0] },
-          ],
-        },
-        {
-          width: '4%',
-          text: '',
-        },
-        {
-          width: '48%',
-          stack: [
-            {
-              table: {
-                widths: [72, '*'],
-                body: [
-                  [
-                    { text: 'Invoice No', style: 'billLabel' },
-                    { text: `: ${displayId}`, style: 'billValueBold' },
-                  ],
-                  [
-                    { text: 'Date', style: 'billLabel' },
-                    { text: `: ${invoiceDate}`, style: 'billValue' },
-                  ],
-                ],
-              },
-              layout: 'noBorders',
-              margin: [0, 0, 0, 16],
-            },
-            { text: 'Payment Instruction (IDR)', style: 'billSectionTitle', margin: [0, 0, 0, 8] },
-            { text: 'Bank Details', style: 'paymentSubtitle', margin: [0, 0, 0, 6] },
-            {
-              table: {
-                widths: [88, '*'],
-                body: [
-                  [
-                    { text: 'Bank Account', style: 'billLabel' },
-                    { text: `: ${PROPERTY.bankName}`, style: 'billValue' },
-                  ],
-                  [
-                    { text: '', style: 'billLabel' },
-                    { text: `: ${PROPERTY.bankAccount}`, style: 'billValue' },
-                  ],
-                  [
-                    { text: 'Name', style: 'billLabel' },
-                    { text: `: ${PROPERTY.bankAccountName}`, style: 'billValue' },
-                  ],
-                ],
-              },
-              layout: 'noBorders',
-            },
-            {
-              text:
-                'Please send your payment details to complete your booking through our contact person.',
-              style: 'paymentNote',
-              margin: [0, 10, 0, 0],
-            },
-          ],
-        },
-      ],
-      margin: [0, 0, 0, 24],
-    },
-    {
-      text: 'Thank you for staying with us!',
-      style: 'thankYou',
-      alignment: 'center',
-    },
+    headerTable,
+    { text: '', margin: [0, 10] },
+    salutationBlock,
+    parametersGrid,
+    { text: '', margin: [0, 5] },
+    financialTable,
+    { text: '', margin: [0, 5] },
+    operationalTermsCard,
+    { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, color: COLORS.border }] },
+    locationFooter
   ];
 }
 
-export function buildBookingConfirmationDocDefinition(summary) {
+function buildBookingConfirmationDocDefinition(summary) {
   return {
     pageSize: 'A4',
-    pageMargins: [48, 48, 48, 48],
+    pageMargins: [40, 40, 40, 40],
     defaultStyle: {
-      font: 'Helvetica',
-      fontSize: 10,
-      color: COLORS.text,
-      lineHeight: 1.35,
+      font: 'Roboto' // Safe registration fallback verified via updated setup
     },
     styles: {
-      brandTitle: {
-        fontSize: 28,
-        bold: true,
-        color: COLORS.brandDark,
-        characterSpacing: 1.5,
-      },
-      infoLabel: {
-        fontSize: 9,
-        color: COLORS.textMuted,
-        bold: true,
-      },
-      infoValue: {
-        fontSize: 10,
-        color: COLORS.text,
-        alignment: 'right',
-      },
-      contactLine: {
-        fontSize: 8.5,
-        color: COLORS.brandMid,
-      },
-      confirmHeadline: {
-        fontSize: 14,
-        bold: true,
-        color: COLORS.brandDark,
-      },
-      bodyText: {
-        fontSize: 10,
-        color: COLORS.text,
-      },
-      sectionTitle: {
-        fontSize: 11,
-        bold: true,
-        color: COLORS.brandDark,
-      },
-      noticeList: {
-        fontSize: 9.5,
-        color: COLORS.textMuted,
-      },
-      footerBrand: {
-        fontSize: 10,
-        bold: true,
-        color: COLORS.brandDark,
-      },
-      footerAddress: {
-        fontSize: 9,
-        color: COLORS.textMuted,
-      },
-      invoiceTh: {
-        fontSize: 8,
-        bold: true,
-        color: COLORS.white,
-        margin: [0, 2, 0, 2],
-      },
-      invoiceItemDesc: {
-        fontSize: 9.5,
-        color: COLORS.text,
-      },
-      invoiceItemQty: {
-        fontSize: 9,
-        color: COLORS.textMuted,
-      },
-      invoiceItemMoney: {
-        fontSize: 9.5,
-        color: COLORS.text,
-      },
-      subtotalLabel: {
-        fontSize: 10,
-        bold: true,
-        color: COLORS.brandDark,
-        margin: [0, 4, 8, 4],
-      },
-      subtotalValue: {
-        fontSize: 11,
-        bold: true,
-        color: COLORS.brandDark,
-        margin: [0, 4, 0, 4],
-      },
-      billSectionTitle: {
-        fontSize: 10,
-        bold: true,
-        color: COLORS.brandDark,
-      },
-      billLabel: {
-        fontSize: 9,
-        color: COLORS.textMuted,
-      },
-      billValue: {
-        fontSize: 9,
-        color: COLORS.text,
-      },
-      billValueBold: {
-        fontSize: 9,
-        bold: true,
-        color: COLORS.brandDark,
-      },
-      billAddressTitle: {
-        fontSize: 9,
-        bold: true,
-        color: COLORS.text,
-      },
-      billAddressLine: {
-        fontSize: 8.5,
-        color: COLORS.textMuted,
-      },
-      paymentSubtitle: {
-        fontSize: 9,
-        bold: true,
-        color: COLORS.brandMid,
-      },
-      paymentNote: {
-        fontSize: 8.5,
-        color: COLORS.textMuted,
-        italics: true,
-      },
-      thankYou: {
-        fontSize: 11,
-        bold: true,
-        color: COLORS.brandAccent,
-      },
+      headerTable: { margin: [0, 0, 0, 10] },
+      paramCard: { margin: [0, 0, 0, 10], fillColor: COLORS.cream },
+      gridLabel: { fontSize: 10.5, color: COLORS.textMuted, padding: [10, 6, 10, 6] },
+      gridValue: { fontSize: 10.5, bold: true, color: COLORS.brandDark, padding: [10, 6, 10, 6] },
+      financialTable: { margin: [0, 10, 0, 15] },
+      tableHeader: { fontSize: 10.5, bold: true, color: COLORS.text, fillColor: COLORS.tableHead },
+      tableHeaderCenter: { fontSize: 10.5, bold: true, color: COLORS.text, alignment: 'center', fillColor: COLORS.tableHead },
+      tableHeaderRight: { fontSize: 10.5, bold: true, color: COLORS.text, alignment: 'right', fillColor: COLORS.tableHead },
+      tableCell: { fontSize: 10.5, color: COLORS.text, margin: [0, 2, 0, 2] },
+      tableCellCenter: { fontSize: 10.5, color: COLORS.textMuted, alignment: 'center', margin: [0, 2, 0, 2] },
+      tableCellRight: { fontSize: 10.5, color: COLORS.text, alignment: 'right', margin: [0, 2, 0, 2] },
+      summaryLabel: { fontSize: 10.5, bold: true, color: COLORS.textMuted, alignment: 'right', margin: [0, 4, 0, 2] },
+      summaryValue: { fontSize: 10.5, bold: true, color: COLORS.brandDark, alignment: 'right', margin: [0, 4, 0, 2] },
+      discountValue: { fontSize: 10.5, bold: true, color: COLORS.brandAccent, alignment: 'right', margin: [0, 2, 0, 2] },
+      grandTotalLabel: { fontSize: 11.5, bold: true, color: COLORS.brandDark, alignment: 'right', margin: [0, 4, 0, 4] },
+      grandTotalValue: { fontSize: 12.5, bold: true, color: COLORS.brandMid, alignment: 'right', margin: [0, 4, 0, 4] }
     },
-    background: (currentPage) => {
-      if (currentPage === 1) {
-        return {
-          canvas: [
-            {
-              type: 'rect',
-              x: 0,
-              y: 0,
-              w: 595.28,
-              h: 841.89,
-              color: COLORS.white,
-            },
-          ],
-        };
-      }
-      return null;
-    },
-    content: [
-      ...buildConfirmationPage(summary),
-      ...buildInvoicePage(summary),
-    ],
+    content: buildConfirmationContent(summary),
     info: {
-      title: `Booking Confirmation - ${summary.displayId}`,
-      author: 'Villa Umalila',
-      subject: 'Booking Confirmation',
+      title: `Booking Confirmation - ${summary.displayId || 'Umalila'}`,
+      author: 'Villa Umalila'
     },
     compress: true,
   };
 }
 
 export async function streamBookingConfirmationPdf(summary, writableStream) {
-  const docDefinition = buildBookingConfirmationDocDefinition(summary);
-  const pdfDoc = pdfmake.createPdf(docDefinition);
-  const stream = await pdfDoc.getStream();
+  try {
+    const docDefinition = buildBookingConfirmationDocDefinition(summary);
+    const pdfDoc = pdfmake.createPdf(docDefinition);
+    const stream = await pdfDoc.getStream();
 
-  return new Promise((resolve, reject) => {
-    stream.on('error', reject);
-    writableStream.on('error', reject);
-    writableStream.on('finish', resolve);
-    stream.pipe(writableStream);
-    stream.end();
-  });
+    return new Promise((resolve, reject) => {
+      stream.on('data', (chunk) => writableStream.write(chunk));
+      stream.on('end', () => {
+        writableStream.end();
+        resolve();
+      });
+      stream.on('error', (err) => {
+        writableStream.end();
+        reject(err);
+      });
+    });
+  } catch (error) {
+    console.error('💥 Layout Generation Crash Intercepted:', error);
+    writableStream.end(); // Forces the browser request to terminate cleanly rather than hanging
+    throw error;
+  }
 }
