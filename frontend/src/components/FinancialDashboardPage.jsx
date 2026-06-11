@@ -9,7 +9,7 @@ import TableActionButton from './TableActionButton';
 import TablePagination from './TablePagination';
 import FinancialDetailsModal from './FinancialDetailsModal';
 import {
-  FINANCIAL_PAYMENT_FILTER_OPTIONS,
+  PAYMENT_FILTER_OPTIONS,
   TIMEFRAME_FILTER_OPTIONS,
 } from '../utils/statusConfigs';
 import { matchesTimeframeFilter } from '../utils/tableFilters';
@@ -111,7 +111,7 @@ function IncomeTable({ rows, loading, onViewDetails, onEdit }) {
     setCurrentPage(1);
   };
 
-  const paymentOptions = FINANCIAL_PAYMENT_FILTER_OPTIONS.map((o) =>
+  const paymentOptions = PAYMENT_FILTER_OPTIONS.map((o) =>
     o.key === 'unpaid' ? { ...o, label: `Unpaid / Outstanding (${unpaidCount})` } : o
   );
 
