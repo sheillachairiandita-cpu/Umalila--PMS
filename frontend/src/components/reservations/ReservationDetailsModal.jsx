@@ -1,6 +1,6 @@
 import React from 'react';
-import { Badge, Modal, Card } from './ui';
-import { COLORS, SPACING, TYPOGRAPHY } from '../styles/theme';
+import { Badge, Modal, Card } from '../ui';
+import { COLORS, SPACING, TYPOGRAPHY } from '../../styles/theme';
 
 // ============================================
 // DETAILS MODAL - Shows full reservation info

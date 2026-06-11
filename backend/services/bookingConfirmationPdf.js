@@ -367,7 +367,7 @@ function drawInvoicePage(doc, summary) {
   const booking    = summary.booking || summary;
   const guestName  = summary.guestName  || booking.guests?.full_name  || 'Guest';
   const phone      = summary.phone      || booking.guests?.phone_number || '—';
-  const displayId  = summary.displayId  || `INV${(booking.id || '000000').slice(0, 6).toUpperCase()}`;
+  const displayId  = summary.displayId  || booking.display_id || `INV${(booking.id || '000000').slice(0, 6).toUpperCase()}`;
   const invoiceDate = formatInvoiceDate(booking.created_at || new Date().toISOString());
 
   // ── Build line items ──────────────────────────────────────────────────────
@@ -386,12 +386,14 @@ function drawInvoicePage(doc, summary) {
     });
   } else if (Array.isArray(summary.villas)) {
     summary.villas.forEach(villa => {
+      const lineNights = villa.nights || 1;
+      const rate = villa.rate || 0;
       lineItems.push({
         description: villa.name || 'Accommodation',
         name:        villa.name || 'Accommodation',
-        quantity:    villa.nights || 1,
-        unitPrice:   villa.rate   || 0,
-        subtotal:    (villa.rate || 0) * (villa.nights || 1),
+        quantity:    lineNights,
+        unitPrice:   rate,
+        subtotal:    villa.subtotal ?? rate * lineNights,
         type:        'accommodation',
       });
     });
@@ -413,9 +415,9 @@ function drawInvoicePage(doc, summary) {
       lineItems.push({
         description: addon.name || 'Add-on',
         name:        addon.name || 'Add-on',
-        quantity:    addon.quantity  || 1,
+        quantity:    addon.quantity || 1,
         unitPrice:   addon.unitPrice || 0,
-        subtotal:    (addon.unitPrice || 0) * (addon.quantity || 1),
+        subtotal:    addon.subtotal ?? (addon.unitPrice || 0) * (addon.quantity || 1),
         type:        'addon',
       });
     });

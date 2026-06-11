@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { DollarSign } from 'lucide-react';
-import { Modal, Button, Input, Alert, FileUpload } from './ui';
-import { FinancialSummaryTable } from './FinancialSummaryTable';
+import { Modal, Button, Input, Alert, FileUpload } from '../ui';
+import { FinancialSummaryTable } from '../financial/FinancialSummaryTable';
 
 async function uploadReceipt(bookingId, proof, paymentType) {
   if (!proof?.dataUrl) return null;
@@ -72,9 +72,9 @@ function ReservationPaymentModal({
     }
   }, [summary]);
 
-  const handleDataLoaded = (dataFromTable) => {
+  const handleDataLoaded = useCallback((dataFromTable) => {
     setSummary(dataFromTable);
-  };
+  }, []);
 
   const handlePaymentComplete = () => {
     const callback = onPaymentRecorded || onPaymentSaved;

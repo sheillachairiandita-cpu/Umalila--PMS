@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import Alert from './ui/Alert';
-import Badge from './ui/Badge';
+import React, { useEffect, useState, useRef } from 'react';
+import Alert from '../ui/Alert';
+import Badge from '../ui/Badge';
 
 function formatRp(amount) {
   return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
@@ -10,12 +10,19 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const onDataLoadedRef = useRef(onDataLoaded);
+
+  useEffect(() => {
+    onDataLoadedRef.current = onDataLoaded;
+  }, [onDataLoaded]);
 
   useEffect(() => {
     if (!bookingId) {
       setData(null);
       return;
     }
+
+    let cancelled = false;
 
     const fetchDetails = async () => {
       setLoading(true);
@@ -24,17 +31,22 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
         const res = await fetch(`/api/bookings/${bookingId}/invoice`);
         if (!res.ok) throw new Error('Failed to load financial details');
         const summaryData = await res.json();
+        if (cancelled) return;
         setData(summaryData);
-        if (onDataLoaded) onDataLoaded(summaryData);
+        onDataLoadedRef.current?.(summaryData);
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchDetails();
-  }, [bookingId, onDataLoaded]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId]);
 
   if (loading) {
     return <div className="financial-summary-loading">Loading summary ledger…</div>;

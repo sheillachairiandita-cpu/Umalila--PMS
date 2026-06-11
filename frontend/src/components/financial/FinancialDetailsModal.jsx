@@ -1,6 +1,6 @@
 import React from 'react';
 import { FileText } from 'lucide-react';
-import { Modal, Button } from './ui';
+import { Modal, Button } from '../ui';
 import { FinancialSummaryTable } from './FinancialSummaryTable'; // Import shared component
 
 function FinancialDetailsModal({ isOpen, bookingId, guestName, displayId, onClose }) {

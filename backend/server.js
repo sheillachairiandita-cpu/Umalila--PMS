@@ -35,12 +35,16 @@ app.get('/api/bookings', async (req, res) => {
         guests (full_name, phone_number),
         booking_villas (
           villa_id,
-          villas (id, name, base_rate_per_night, base_breakfast)
+          rate_per_night,
+          nights,
+          villas (id, name, base_rate_per_night, base_breakfast, display_id)
         ),
         booking_addons (
           addon_id,
           quantity,
-          addons (id, name, price_per_night, is_per_night, base_breakfast)
+          unit_price,
+          subtotal,
+          addons (id, name, price, is_per_night, base_breakfast)
         )
       `)
       .order('created_at', { ascending: false });
@@ -175,7 +179,14 @@ app.post('/api/bookings', async (req, res) => {
 
     if (bookingError) throw bookingError;
 
-    const bridgeRows = villa_ids.map(vId => ({ booking_id: bookingData.id, villa_id: vId }));
+    const nights = stayNights(check_in_date, check_out_date);
+    const { data: villaCatalog, error: villaFetchError } = await supabase
+      .from('villas')
+      .select('id, base_rate_per_night')
+      .in('id', villa_ids);
+    if (villaFetchError) throw villaFetchError;
+
+    const bridgeRows = buildBookingVillaRows(bookingData.id, villa_ids, villaCatalog, nights);
     const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
     if (bridgeError) throw bridgeError;
 
@@ -183,27 +194,17 @@ app.post('/api/bookings', async (req, res) => {
       const addonIds = selected_addons.map((a) => a.addon_id);
       const { data: addonCatalog, error: addonFetchError } = await supabase
         .from('addons')
-        .select('id, price_per_night, price, is_per_night')
+        .select('id, price, is_per_night')
         .in('id', addonIds);
       if (addonFetchError) throw addonFetchError;
 
-      const addonPriceMap = Object.fromEntries(
-        (addonCatalog || []).map((a) => [a.id, Number(a.price_per_night) || Number(a.price) || 0])
-      );
-
-      const addonRows = selected_addons.map((a) => {
-        const unitPrice = addonPriceMap[a.addon_id] || 0;
-        const quantity = Number(a.quantity) || 1;
-        return {
-          booking_id: bookingData.id,
-          addon_id: a.addon_id,
-          quantity,
-          unit_price: unitPrice,
-          subtotal: unitPrice * quantity,
-        };
-      });
+      const addonRows = buildBookingAddonRows(bookingData.id, selected_addons, addonCatalog, nights);
       const { error: addonError } = await supabase.from('booking_addons').insert(addonRows);
-      if (addonError) throw addonError;
+      if (addonError) {
+        await supabase.from('booking_villas').delete().eq('booking_id', bookingData.id);
+        await supabase.from('bookings').delete().eq('id', bookingData.id);
+        throw addonError;
+      }
     }
 
     res.status(201).json(bookingData);
@@ -373,12 +374,37 @@ app.patch('/api/bookings/:id', async (req, res) => {
       updateData.discount_id = appliedDiscountId;
       updateData.discount_amount = discountAmount;
 
+      const patchNights = stayNights(nextCheckIn, nextCheckOut);
+
       if (Array.isArray(villa_ids)) {
         await supabase.from('booking_villas').delete().eq('booking_id', id);
         if (villa_ids.length > 0) {
-          const bridgeRows = villa_ids.map((villaId) => ({ booking_id: id, villa_id: villaId }));
+          const { data: villaCatalog, error: villaCatalogError } = await supabase
+            .from('villas')
+            .select('id, base_rate_per_night')
+            .in('id', villa_ids);
+          if (villaCatalogError) throw villaCatalogError;
+
+          const bridgeRows = buildBookingVillaRows(id, villa_ids, villaCatalog, patchNights);
           const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
           if (bridgeError) throw bridgeError;
+        }
+      } else if (check_in_date !== undefined || check_out_date !== undefined) {
+        const { data: currentBridge, error: bridgeFetchError } = await supabase
+          .from('booking_villas')
+          .select('id, villa_id, rate_per_night')
+          .eq('booking_id', id);
+        if (bridgeFetchError) throw bridgeFetchError;
+
+        if (currentBridge?.length) {
+          await Promise.all(
+            currentBridge.map((row) =>
+              supabase
+                .from('booking_villas')
+                .update({ nights: patchNights })
+                .eq('id', row.id)
+            )
+          );
         }
       }
 
@@ -388,25 +414,11 @@ app.patch('/api/bookings/:id', async (req, res) => {
           const addonIds = selected_addons.map((a) => a.addon_id);
           const { data: addonCatalog, error: addonFetchError } = await supabase
             .from('addons')
-            .select('id, price_per_night, price, is_per_night')
+            .select('id, price, is_per_night')
             .in('id', addonIds);
           if (addonFetchError) throw addonFetchError;
 
-          const addonPriceMap = Object.fromEntries(
-            (addonCatalog || []).map((a) => [a.id, Number(a.price_per_night) || Number(a.price) || 0])
-          );
-
-          const addonRows = selected_addons.map((a) => {
-            const unitPrice = addonPriceMap[a.addon_id] || 0;
-            const quantity = Number(a.quantity) || 1;
-            return {
-              booking_id: id,
-              addon_id: a.addon_id,
-              quantity,
-              unit_price: unitPrice,
-              subtotal: unitPrice * quantity,
-            };
-          });
+          const addonRows = buildBookingAddonRows(id, selected_addons, addonCatalog, patchNights);
           const { error: addonInsertError } = await supabase.from('booking_addons').insert(addonRows);
           if (addonInsertError) throw addonInsertError;
         }
@@ -425,12 +437,16 @@ app.patch('/api/bookings/:id', async (req, res) => {
         guests (full_name, phone_number),
         booking_villas (
           villa_id,
-          villas (id, name, base_rate_per_night)
+          rate_per_night,
+          nights,
+          villas (id, name, base_rate_per_night, display_id)
         ),
         booking_addons (
           addon_id,
           quantity,
-          addons (id, name, price_per_night, is_per_night)
+          unit_price,
+          subtotal,
+          addons (id, name, price, is_per_night)
         )
       `)
       .single();
@@ -478,7 +494,14 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (error.message?.includes('check_payment_status')) {
+        return res.status(400).json({
+          error: 'Could not cancel booking: the database must allow payment_status "cancelled". Run backend/db/migrations/001_allow_cancelled_payment_status.sql in Supabase SQL Editor.',
+        });
+      }
+      throw error;
+    }
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -564,6 +587,7 @@ app.get('/api/bookings/:bookingId/orders', async (req, res) => {
           id,
           quantity,
           unit_price,
+          unit_cost,
           subtotal,
           menu_items (id, name, category)
         )
@@ -604,18 +628,23 @@ app.post('/api/bookings/:bookingId/orders', async (req, res) => {
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .insert([{ booking_id: bookingId, staff_note: staff_note || null, total_amount, status: 'open' }])
+      .insert([{ booking_id: bookingId, staff_note: staff_note || null, total_amount, status: 'pending' }])
       .select()
       .single();
 
     if (orderError) throw orderError;
 
-    const orderItemRows = items.map(item => ({
-      order_id: order.id,
-      menu_item_id: item.menu_item_id,
-      quantity: item.quantity,
-      unit_price: priceMap[item.menu_item_id] || 0,
-    }));
+    const orderItemRows = items.map(item => {
+      const unitPrice = priceMap[item.menu_item_id] || 0;
+      const quantity = item.quantity;
+      return {
+        order_id: order.id,
+        menu_item_id: item.menu_item_id,
+        quantity,
+        unit_price: unitPrice,
+        unit_cost: 0,
+      };
+    });
 
     const { error: itemsError } = await supabase.from('order_items').insert(orderItemRows);
     if (itemsError) throw itemsError;
@@ -638,6 +667,8 @@ app.get('/api/bookings/:bookingId/food-orders', async (req, res) => {
           id,
           quantity,
           unit_price,
+          unit_cost,
+          subtotal,
           menu_items (id, name, category)
         )
       `)
@@ -652,7 +683,8 @@ app.get('/api/bookings/:bookingId/food-orders', async (req, res) => {
       items: (order.order_items || []).map(item => ({
         menu_item_name: item.menu_items?.name || 'Unknown',
         quantity: item.quantity,
-        price_at_order: Number(item.unit_price) || 0, // Ensure it parses cleanly as a number
+        price_at_order: Number(item.unit_price) || 0,
+        subtotal: Number(item.subtotal) || Number(item.unit_price) * (item.quantity || 1),
       })),
     }));
 
@@ -686,13 +718,12 @@ app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
       return sum + (priceMap[item.menu_item_id] || 0) * item.quantity;
     }, 0);
 
-    // 1. Insert order with the status 'open' which strictly matches your check constraint
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .insert([{ 
-        booking_id: bookingId, 
-        total_amount: total_amount, 
-        status: 'open' 
+      .insert([{
+        booking_id: bookingId,
+        total_amount,
+        status: 'pending',
       }])
       .select()
       .single();
@@ -702,13 +733,17 @@ app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
       return res.status(400).json({ error: orderError.message });
     }
 
-    // 2. Prepare item insertion rows
-    const orderItemRows = items.map(item => ({
-      order_id: order.id,
-      menu_item_id: item.menu_item_id,
-      quantity: item.quantity,
-      unit_price: priceMap[item.menu_item_id] || 0,
-    }));
+    const orderItemRows = items.map(item => {
+      const unitPrice = priceMap[item.menu_item_id] || 0;
+      const quantity = item.quantity;
+      return {
+        order_id: order.id,
+        menu_item_id: item.menu_item_id,
+        quantity,
+        unit_price: unitPrice,
+        unit_cost: 0,
+      };
+    });
 
     const { error: itemsError } = await supabase
       .from('order_items')
@@ -873,11 +908,16 @@ app.delete('/api/villas/:id', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 
 app.post('/api/guests', async (req, res) => {
-  const { full_name, email, phone_number } = req.body;
+  const { full_name, email, phone_number, id_card_number } = req.body;
   try {
     const { data, error } = await supabase
       .from('guests')
-      .insert([{ full_name, email, phone_number }])
+      .insert([{
+        full_name,
+        email,
+        phone_number,
+        ...(id_card_number !== undefined ? { id_card_number } : {}),
+      }])
       .select();
 
     if (error) throw error;
@@ -891,7 +931,7 @@ app.get('/api/addons', async (req, res) => {
   try {
     const { data, error } = await supabase.from('addons').select('*').order('name');
     if (error) throw error;
-    res.json(data);
+    res.json((data || []).map(mapAddonRow));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -900,12 +940,12 @@ app.get('/api/addons', async (req, res) => {
 app.post('/api/addons', async (req, res) => {
   const {
     name,
-    price_per_night,
     price,
+    price_per_night,
     base_breakfast = 0,
     is_per_night = true,
   } = req.body;
-  const resolvedPrice = price_per_night ?? price;
+  const resolvedPrice = price ?? price_per_night;
   if (!name?.trim() || resolvedPrice === undefined) {
     return res.status(400).json({ error: 'Name and price are required.' });
   }
@@ -915,7 +955,6 @@ app.post('/api/addons', async (req, res) => {
       .from('addons')
       .insert([{
         name: name.trim(),
-        price_per_night: numericPrice,
         price: numericPrice,
         base_breakfast: Number(base_breakfast) || 0,
         is_per_night: is_per_night !== false,
@@ -923,7 +962,7 @@ app.post('/api/addons', async (req, res) => {
       .select()
       .single();
     if (error) throw error;
-    res.status(201).json(data);
+    res.status(201).json(mapAddonRow(data));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -933,19 +972,17 @@ app.patch('/api/addons/:id', async (req, res) => {
   const { id } = req.params;
   const payload = {};
   if (req.body.name !== undefined) payload.name = req.body.name.trim();
-  if (req.body.price_per_night !== undefined) {
-    payload.price_per_night = Number(req.body.price_per_night);
-    payload.price = Number(req.body.price_per_night);
-  } else if (req.body.price !== undefined) {
+  if (req.body.price !== undefined) {
     payload.price = Number(req.body.price);
-    payload.price_per_night = Number(req.body.price);
+  } else if (req.body.price_per_night !== undefined) {
+    payload.price = Number(req.body.price_per_night);
   }
   if (req.body.base_breakfast !== undefined) payload.base_breakfast = Number(req.body.base_breakfast) || 0;
   if (req.body.is_per_night !== undefined) payload.is_per_night = !!req.body.is_per_night;
   try {
     const { data, error } = await supabase.from('addons').update(payload).eq('id', id).select().single();
     if (error) throw error;
-    res.json(data);
+    res.json(mapAddonRow(data));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1028,6 +1065,45 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
+function addonUnitPrice(addon) {
+  return Number(addon?.price) || 0;
+}
+
+function mapAddonRow(row) {
+  if (!row) return row;
+  const price = Number(row.price) || 0;
+  return { ...row, price, price_per_night: price };
+}
+
+function buildBookingVillaRows(bookingId, villaIds, villaCatalog, nights) {
+  const villaMap = Object.fromEntries((villaCatalog || []).map((v) => [v.id, v]));
+  return villaIds.map((villaId) => {
+    const villa = villaMap[villaId];
+    const rate = Number(villa?.base_rate_per_night) || 0;
+    return {
+      booking_id: bookingId,
+      villa_id: villaId,
+      rate_per_night: rate,
+      nights,
+    };
+  });
+}
+
+function buildBookingAddonRows(bookingId, selectedAddons, addonCatalog, nights) {
+  const addonMap = Object.fromEntries((addonCatalog || []).map((a) => [a.id, a]));
+  return selectedAddons.map((selection) => {
+    const addon = addonMap[selection.addon_id];
+    const unitPrice = addon ? addonUnitPrice(addon) : 0;
+    const quantity = Number(selection.quantity) || 1;
+    return {
+      booking_id: bookingId,
+      addon_id: selection.addon_id,
+      quantity,
+      unit_price: unitPrice,
+    };
+  });
+}
+
 async function fetchDiscountById(discountId) {
   if (!discountId) return null;
   const { data, error } = await supabase.from('discounts').select('*').eq('id', discountId).maybeSingle();
@@ -1071,7 +1147,7 @@ async function computeBookingCharges({ villa_ids = [], selected_addons = [], che
       const addon = addonMap[addon_id];
       if (!addon) return;
       const qty = Number(quantity) || 1;
-      const unitPrice = Number(addon.price_per_night) || Number(addon.price) || 0;
+      const unitPrice = addonUnitPrice(addon);
       const multiplier = addon.is_per_night !== false ? nights : 1;
       const subtotal = unitPrice * qty * multiplier;
       addonTotal += subtotal;
@@ -1138,10 +1214,12 @@ async function buildFinancialSummary(bookingId) {
       *,
       discounts (id, code, name, type, value, scope, status, application_rule),
       guests (full_name, phone_number),
-      booking_villas (villas (name, base_rate_per_night)),
+      booking_villas (rate_per_night, nights, villas (name, base_rate_per_night)),
       booking_addons (
         quantity,
-        addons (name, price_per_night, price, is_per_night, base_breakfast)
+        unit_price,
+        subtotal,
+        addons (name, price, is_per_night, base_breakfast)
       )
     `)
     .eq('id', bookingId)
@@ -1164,7 +1242,7 @@ async function buildFinancialSummary(bookingId) {
       )
     `)
     .eq('booking_id', bookingId)
-    .in('status', ['open', 'served']);
+    .in('status', ['pending', 'preparing', 'served']);
 
   if (orderError) throw orderError;
 
@@ -1173,15 +1251,16 @@ async function buildFinancialSummary(bookingId) {
   let calculatedAccommodation = 0;
 
   (booking.booking_villas || []).forEach((bv) => {
-    const rate = Number(bv.villas?.base_rate_per_night) || 0;
-    const subtotal = rate > 0 ? rate * nights : 0;
+    const rate = Number(bv.rate_per_night) || Number(bv.villas?.base_rate_per_night) || 0;
+    const lineNights = Number(bv.nights) || nights;
+    const subtotal = rate > 0 ? rate * lineNights : 0;
     if (rate > 0) {
       calculatedAccommodation += subtotal;
       accommodationLines.push({
         type: 'accommodation',
         name: bv.villas?.name || 'Villa',
-        description: `${bv.villas?.name || 'Villa'} — ${nights} night${nights !== 1 ? 's' : ''}`,
-        quantity: nights,
+        description: `${bv.villas?.name || 'Villa'} — ${lineNights} night${lineNights !== 1 ? 's' : ''}`,
+        quantity: lineNights,
         unitPrice: rate,
         subtotal,
       });
@@ -1204,11 +1283,11 @@ async function buildFinancialSummary(bookingId) {
   }
 
   const addonLines = (booking.booking_addons || []).map((ba) => {
-    const unitPrice = Number(ba.addons?.price_per_night) || Number(ba.addons?.price) || 0;
+    const unitPrice = Number(ba.unit_price) || addonUnitPrice(ba.addons);
     const quantity = ba.quantity || 1;
     const multiplier = ba.addons?.is_per_night !== false ? nights : 1;
     const billableQty = quantity * multiplier;
-    const subtotal = unitPrice * billableQty;
+    const subtotal = Number(ba.subtotal) || unitPrice * billableQty;
     return {
       type: 'addon',
       name: ba.addons?.name || 'Add-on',
@@ -1223,10 +1302,10 @@ async function buildFinancialSummary(bookingId) {
   let extraBreakfast = 0;
   let otherAddons = 0;
   (booking.booking_addons || []).forEach((ba) => {
-    const unitPrice = Number(ba.addons?.price_per_night) || Number(ba.addons?.price) || 0;
+    const unitPrice = Number(ba.unit_price) || addonUnitPrice(ba.addons);
     const quantity = ba.quantity || 1;
     const multiplier = ba.addons?.is_per_night !== false ? nights : 1;
-    const lineTotal = unitPrice * quantity * multiplier;
+    const lineTotal = Number(ba.subtotal) || unitPrice * quantity * multiplier;
     const addonName = (ba.addons?.name || '').toLowerCase();
     if (addonName.includes('extra bed')) extraBeds += lineTotal;
     else if ((ba.addons?.base_breakfast || 0) > 0 || addonName.includes('breakfast')) extraBreakfast += lineTotal;
@@ -1343,6 +1422,10 @@ async function buildFinancialSummary(bookingId) {
     paymentStatus: booking.payment_status || 'pending',
     hasPartialPayment: (partialPayments || []).length > 0 || booking.payment_status === 'partial' || booking.payment_status === 'complete',
     villaNames: booking.booking_villas?.map((bv) => bv.villas?.name).filter(Boolean).join(', ') || '—',
+    guestName: booking.guests?.full_name || 'Guest',
+    phone: booking.guests?.phone_number || '',
+    totalGuests: booking.total_guests,
+    nights,
     checkIn: booking.check_in_date,
     checkOut: booking.check_out_date,
   };
@@ -1567,6 +1650,7 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
       category: paymentType === 'final' ? 'final_payment' : 'partial_payment',
       transaction_date: new Date().toISOString().split('T')[0],
       description: `${paymentType === 'final' ? 'Final' : 'Partial'} payment via ${paymentMethod}. ${descriptiveAttachmentLabel}${notes ? `. ${notes}` : ''}`,
+      status: 'approved',
     }]);
 
     const { data: updatedBooking, error: updateError } = await supabase
