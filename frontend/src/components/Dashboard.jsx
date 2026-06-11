@@ -5,12 +5,14 @@
  * Global filters: date range + villa selector (fixed header)
  */
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, DollarSign, Users, BedDouble,
-  Coffee, Calendar, ArrowUpRight, ArrowDownRight, BarChart2,
+  Coffee, Calendar, BarChart2,
   Activity, Percent, Moon, ChevronDown, RefreshCw,
 } from 'lucide-react';
+import { KpiCard, KpiCardGrid } from './ui/KpiCard';
+import PageTabs from './ui/PageTabs';
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -331,35 +333,6 @@ function MonthBars({ months, maxMonth }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// KPI CARD
-// ─────────────────────────────────────────────────────────────
-function KpiCard({ icon: Icon, label, value, sub, trend, color = 'var(--navy)', mono = false }) {
-  const up = trend > 0;
-  return (
-    <div className="dash-kpi-card">
-      <div className="dash-kpi-icon" style={{ background: `${color}12`, color }}>
-        <Icon size={16} />
-      </div>
-      <div className="dash-kpi-label">{label}</div>
-      <div className="dash-kpi-value" style={{ fontFamily: mono ? 'var(--font-mono)' : undefined }}>
-        {value}
-      </div>
-      {(sub || trend !== undefined) && (
-        <div className="dash-kpi-sub">
-          {trend !== undefined && (
-            <span style={{ color: up ? 'var(--green)' : 'var(--red)', display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', fontWeight: 700 }}>
-              {up ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
-              {Math.abs(trend).toFixed(1)}%
-            </span>
-          )}
-          {sub && <span>{sub}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
 // GLOBAL FILTER BAR
 // ─────────────────────────────────────────────────────────────
 function GlobalFilterBar({ preset, setPreset, customStart, setCustomStart, customEnd, setCustomEnd, villaFilter, setVillaFilter, villas, loading, onRefresh }) {
@@ -452,14 +425,14 @@ function FinancialTab({ data, loading }) {
   return (
     <div className="dash-tab-content">
       {/* Row 1: Primary KPIs */}
-      <div className="dash-kpi-grid">
-        <KpiCard icon={DollarSign} label="Gross Revenue" value={formatRp(totalRevenue)} color="var(--navy)" mono />
-        <KpiCard icon={TrendingUp} label="Amount Collected" value={formatRp(totalCollected)} color="#059669" mono />
-        <KpiCard icon={TrendingDown} label="Outstanding" value={formatRp(totalBalance)} color="#dc2626" mono />
-        <KpiCard icon={Percent} label="Collection Rate" value={formatPct(collectionRate)} color="#7c3aed" sub="of gross revenue" />
-        <KpiCard icon={Calendar} label="Bookings in Period" value={formatNum(bookingCount)} color="var(--navy)" />
-        <KpiCard icon={DollarSign} label="Avg. Revenue / Booking" value={bookingCount ? formatRp(totalRevenue / bookingCount) : 'Rp 0'} color="#d97706" mono />
-      </div>
+      <KpiCardGrid>
+        <KpiCard icon={DollarSign} label="Gross Revenue" value={formatRp(totalRevenue)} mono />
+        <KpiCard icon={TrendingUp} label="Amount Collected" value={formatRp(totalCollected)} mono />
+        <KpiCard icon={TrendingDown} label="Outstanding" value={formatRp(totalBalance)} mono />
+        <KpiCard icon={Percent} label="Collection Rate" value={formatPct(collectionRate)} sub="of gross revenue" />
+        <KpiCard icon={Calendar} label="Bookings in Period" value={formatNum(bookingCount)} />
+        <KpiCard icon={DollarSign} label="Avg. Revenue / Booking" value={bookingCount ? formatRp(totalRevenue / bookingCount) : 'Rp 0'} mono />
+      </KpiCardGrid>
 
       {/* Row 2: Charts */}
       <div className="dash-chart-row">
@@ -565,14 +538,14 @@ function HospitalityTab({ data, loading }) {
   return (
     <div className="dash-tab-content">
       {/* Row 1: Core hospitality KPIs */}
-      <div className="dash-kpi-grid">
-        <KpiCard icon={BedDouble} label="Occupancy Rate" value={formatPct(occupancyRate)} color={occColor} sub="of available room-nights" />
-        <KpiCard icon={DollarSign} label="ADR" value={formatRp(adr)} color="var(--navy)" sub="Avg. Daily Rate" mono />
-        <KpiCard icon={BarChart2} label="RevPAR" value={formatRp(revpar)} color="#7c3aed" sub="Rev. per Available Room" mono />
-        <KpiCard icon={Calendar} label="Total Bookings" value={formatNum(totalBookings)} color="var(--navy)" />
-        <KpiCard icon={Moon} label="Total Room Nights" value={formatNum(totalNights)} color="#d97706" sub={`avg ${avgStay}n/stay`} />
-        <KpiCard icon={Users} label="Total Guests" value={formatNum(totalGuests)} color="#059669" sub={`avg ${avgGuests} guests/booking`} />
-      </div>
+      <KpiCardGrid>
+        <KpiCard icon={BedDouble} label="Occupancy Rate" value={formatPct(occupancyRate)} sub="of available room-nights" />
+        <KpiCard icon={DollarSign} label="ADR" value={formatRp(adr)} sub="Avg. Daily Rate" mono />
+        <KpiCard icon={BarChart2} label="RevPAR" value={formatRp(revpar)} sub="Rev. per Available Room" mono />
+        <KpiCard icon={Calendar} label="Total Bookings" value={formatNum(totalBookings)} />
+        <KpiCard icon={Moon} label="Total Room Nights" value={formatNum(totalNights)} sub={`avg ${avgStay}n/stay`} />
+        <KpiCard icon={Users} label="Total Guests" value={formatNum(totalGuests)} sub={`avg ${avgGuests} guests/booking`} />
+      </KpiCardGrid>
 
       {/* Row 2: Booking trend + Occupancy gauge */}
       <div className="dash-chart-row">
@@ -923,94 +896,6 @@ function Dashboard() {
         }
         .dash-refresh-btn:hover { background: var(--bg-subtle); color: var(--text); }
 
-        /* Tabs */
-        .dash-tabs {
-          display: flex;
-          gap: 2px;
-          background: var(--bg-white);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: 4px;
-          width: fit-content;
-        }
-
-        .dash-tab-btn {
-          padding: 6px 16px;
-          border: none;
-          border-radius: var(--radius-md);
-          background: transparent;
-          color: var(--text-muted);
-          font-size: 0.8rem;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          transition: all 0.15s;
-          font-family: var(--font-sans);
-          white-space: nowrap;
-        }
-        .dash-tab-btn:hover { color: var(--text); }
-        .dash-tab-btn--active {
-          background: var(--navy);
-          color: #fff;
-        }
-
-        /* KPI Grid */
-        .dash-kpi-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-          gap: 10px;
-        }
-
-        .dash-kpi-card {
-          background: var(--bg-white);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-lg);
-          padding: 12px 14px;
-          box-shadow: var(--shadow-sm);
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .dash-kpi-icon {
-          width: 28px;
-          height: 28px;
-          border-radius: var(--radius-sm);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 4px;
-          flex-shrink: 0;
-        }
-
-        .dash-kpi-label {
-          font-size: 0.65rem;
-          font-weight: 700;
-          color: var(--text-light);
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-
-        .dash-kpi-value {
-          font-size: 1.25rem;
-          font-weight: 800;
-          color: var(--text);
-          line-height: 1.1;
-          letter-spacing: -0.02em;
-        }
-
-        .dash-kpi-sub {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 0.65rem;
-          color: var(--text-light);
-          font-weight: 500;
-          margin-top: 1px;
-        }
-
         /* Chart row */
         .dash-chart-row {
           display: grid;
@@ -1127,22 +1012,15 @@ function Dashboard() {
       />
 
       {/* Tab switcher */}
-      <div className="dash-tabs">
-        <button
-          className={`dash-tab-btn ${tab === 'financial' ? 'dash-tab-btn--active' : ''}`}
-          onClick={() => setTab('financial')}
-        >
-          <DollarSign size={13} />
-          Financial Overview
-        </button>
-        <button
-          className={`dash-tab-btn ${tab === 'hospitality' ? 'dash-tab-btn--active' : ''}`}
-          onClick={() => setTab('hospitality')}
-        >
-          <BedDouble size={13} />
-          Hospitality KPIs
-        </button>
-      </div>
+      <PageTabs
+        ariaLabel="Insights sections"
+        activeTab={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'financial', label: 'Financial Overview', icon: DollarSign },
+          { key: 'hospitality', label: 'Hospitality KPIs', icon: BedDouble },
+        ]}
+      />
 
       {/* Tab content */}
       {tab === 'financial' && (

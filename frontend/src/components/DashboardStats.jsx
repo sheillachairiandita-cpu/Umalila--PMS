@@ -1,5 +1,6 @@
 import React from 'react';
 import { Users, LogIn, LogOut, Coffee, CalendarCheck } from 'lucide-react';
+import { KpiCard, KpiCardGrid } from './ui/KpiCard';
 
 function DashboardStats({ stats, loading }) {
   const cards = [
@@ -11,22 +12,17 @@ function DashboardStats({ stats, loading }) {
   ];
 
   return (
-    <section className="stats-grid">
-      {cards.map(({ key, label, icon: Icon }) => (
-        <div key={key} className="metric-card">
-          <div className="metric-card__icon-bg">
-            <Icon color="var(--navy)" />
-          </div>
-          <div className="metric-card__label-row">
-            <Icon color="var(--text-muted)" />
-            <span className="metric-card__label">{label}</span>
-          </div>
-          <div className={loading ? 'metric-card__value--loading' : 'metric-card__value'}>
-            {loading ? '—' : (stats?.[key] ?? 0)}
-          </div>
-        </div>
+    <KpiCardGrid>
+      {cards.map(({ key, label, icon }) => (
+        <KpiCard
+          key={key}
+          icon={icon}
+          label={label}
+          value={stats?.[key] ?? 0}
+          loading={loading}
+        />
       ))}
-    </section>
+    </KpiCardGrid>
   );
 }
 

@@ -83,6 +83,8 @@ function PublicReservationForm({
   const [loadingVillas, setLoadingVillas] = useState(false);
   const [selectedVillaIds, setSelectedVillaIds] = useState([]);
   const [occupiedVillaIds, setOccupiedVillaIds] = useState([]);
+  const [blockedVillaIds, setBlockedVillaIds] = useState([]);
+  const [blockWarning, setBlockWarning] = useState('');
   const [dateError, setDateError] = useState('');
   const [addons, setAddons] = useState([]);
   const [selectedAddons, setSelectedAddons] = useState({});
@@ -158,6 +160,8 @@ function PublicReservationForm({
       setSelectedVillaIds([]);
       setSelectedAddons({});
       setOccupiedVillaIds([]);
+      setBlockedVillaIds([]);
+      setBlockWarning('');
       setDateError('');
       setError(null);
     }
@@ -165,7 +169,7 @@ function PublicReservationForm({
     loadCatalog();
   }, [isModal, isOpen, isEditMode, booking]);
 
-  // Availability check
+  // Availability check (bookings + admin date blocks)
   useEffect(() => {
     if ((isModal && !isOpen) || !checkInDate || !checkOutDate || dateError) return;
 
@@ -177,12 +181,29 @@ function PublicReservationForm({
         if (!response.ok) return;
         const data = await response.json();
         const occupied = data.occupiedVillaIds || [];
+        const blocked = data.blockedVillaIds || [];
         setOccupiedVillaIds(occupied);
+        setBlockedVillaIds(blocked);
+
+        const blockedNames = villas
+          .filter((v) => blocked.includes(v.id))
+          .map((v) => v.name);
+
+        if (blockedNames.length > 0) {
+          setBlockWarning(
+            `The following villas are unavailable for ${checkInDate} to ${checkOutDate} due to scheduled blocks: ${blockedNames.join(', ')}.`
+          );
+        } else {
+          setBlockWarning('');
+        }
+
         setSelectedVillaIds((prev) =>
           prev.filter((id) => {
-            if (isEditMode && (booking?.booking_villas || []).some(
+            if (blocked.includes(id)) return false;
+            const isOriginallyAssigned = isEditMode && (booking?.booking_villas || []).some(
               (row) => (row.villa_id || row.villas?.id) === id
-            )) return true;
+            );
+            if (isOriginallyAssigned) return true;
             return !occupied.includes(id);
           })
         );
@@ -192,7 +213,7 @@ function PublicReservationForm({
     };
 
     checkLiveAvailability();
-  }, [checkInDate, checkOutDate, dateError, isModal, isOpen, isEditMode, booking]);
+  }, [checkInDate, checkOutDate, dateError, isModal, isOpen, isEditMode, booking, villas]);
 
   // Date validation & pricing
   useEffect(() => {
@@ -242,11 +263,35 @@ function PublicReservationForm({
   if (isModal && !isOpen) return null;
   if (isEditMode && !booking) return null;
 
+  const isOriginallyAssignedVilla = (villaId) =>
+    isEditMode && (booking?.booking_villas || []).some(
+      (row) => (row.villa_id || row.villas?.id) === villaId
+    );
+
   const handleVillaCheckboxChange = (villaId) => {
-    if (cancelMode || occupiedVillaIds.includes(villaId)) return;
+    if (
+      cancelMode
+      || occupiedVillaIds.includes(villaId)
+      || blockedVillaIds.includes(villaId)
+    ) return;
     setSelectedVillaIds((prev) =>
       prev.includes(villaId) ? prev.filter((id) => id !== villaId) : [...prev, villaId]
     );
+  };
+
+  const validateBlockConflicts = () => {
+    const conflictIds = selectedVillaIds.filter((id) => blockedVillaIds.includes(id));
+    if (conflictIds.length === 0) return true;
+
+    const conflictNames = villas
+      .filter((v) => conflictIds.includes(v.id))
+      .map((v) => v.name)
+      .join(', ');
+
+    setError(
+      `${conflictNames} ${conflictIds.length === 1 ? 'is' : 'are'} unavailable for the selected dates due to a scheduled block. Please choose different dates or accommodations.`
+    );
+    return false;
   };
 
   const handleSubmit = async (e) => {
@@ -285,6 +330,7 @@ function PublicReservationForm({
         setError('Select at least one villa.');
         return;
       }
+      if (!validateBlockConflicts()) return;
       if (applyDiscount && !discountId) {
         setError('Select a discount to apply.');
         return;
@@ -326,6 +372,12 @@ function PublicReservationForm({
     }
 
     // Create flow
+    if (selectedVillaIds.length === 0) {
+      setError('Select at least one villa.');
+      return;
+    }
+    if (!validateBlockConflicts()) return;
+
     setIsSubmitting(true);
     setError(null);
     try {
@@ -487,6 +539,9 @@ function PublicReservationForm({
             </div>
 
             {dateError && <div className="date-error-banner">{dateError}</div>}
+            {blockWarning && !dateError && (
+              <div className="date-error-banner">{blockWarning}</div>
+            )}
 
             {!isEditMode ? (
               <div className="form-row">
@@ -540,26 +595,36 @@ function PublicReservationForm({
                   <span style={{ fontSize: '0.9rem', color: '#64748b' }}>No properties found in database</span>
                 ) : (
                   villas.map((villa) => {
-                    const isBooked = occupiedVillaIds.includes(villa.id);
+                    const isOccupied = occupiedVillaIds.includes(villa.id);
+                    const isBlocked = blockedVillaIds.includes(villa.id);
+                    const isOriginallyAssigned = isOriginallyAssignedVilla(villa.id);
+                    const isUnavailable = isBlocked || (isOccupied && !isOriginallyAssigned);
+                    const rowClass = [
+                      'checkbox-row',
+                      isUnavailable ? 'disabled-row' : '',
+                      isBlocked ? 'disabled-row--blocked' : '',
+                    ].filter(Boolean).join(' ');
+
                     return (
-                      <div key={villa.id} className={`checkbox-row${isBooked ? ' disabled-row' : ''}`}>
+                      <div key={villa.id} className={rowClass}>
                         <input
                           type="checkbox"
                           id={`villa-${villa.id}-${isEditMode ? 'edit' : 'new'}`}
                           checked={selectedVillaIds.includes(villa.id)}
-                          disabled={cancelMode || isBooked}
+                          disabled={cancelMode || isUnavailable}
                           onChange={() => handleVillaCheckboxChange(villa.id)}
                         />
                         <label htmlFor={`villa-${villa.id}-${isEditMode ? 'edit' : 'new'}`} className="checkbox-text">
-                          <span style={{ color: isBooked ? '#94a3b8' : 'inherit' }}>
+                          <span>
                             {villa.name}
-                            {isBooked && (
-                              <small style={{ color: '#ef4444', fontStyle: 'italic', marginLeft: '6px' }}>
-                                (Unavailable)
-                              </small>
+                            {isBlocked && (
+                              <small className="villa-unavailable-tag">(Dates blocked)</small>
+                            )}
+                            {isOccupied && !isBlocked && !isOriginallyAssigned && (
+                              <small className="villa-unavailable-tag">(Unavailable)</small>
                             )}
                           </span>
-                          <span className="villa-rate" style={{ color: isBooked ? '#cbd5e1' : '#64748b' }}>
+                          <span className="villa-rate">
                             Rp {Number(villa.base_rate_per_night || 0).toLocaleString('id-ID')}/night
                           </span>
                         </label>

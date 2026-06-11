@@ -15,12 +15,14 @@ import {
 import Badge from '../ui/Badge';
 import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
-import ReservationPaymentModal from './ReservationPaymentModal';
-import PublicReservationForm from './PublicReservationForm';
-import { Modal, Button, Alert, Textarea } from '../ui';
+import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
+import { PendingQueueCard, PendingQueueList } from '../ui/PendingQueueCard';
+import { Button, Modal, Alert, Textarea } from '../ui';
 import { downloadReservationInvoice } from '../../utils/invoiceUtils';
 import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../../utils/statusConfigs';
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
+import ReservationPaymentModal from './ReservationPaymentModal';
+import PublicReservationForm from './PublicReservationForm';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -33,22 +35,17 @@ function DashboardMetrics({ stats, loading }) {
   ];
 
   return (
-    <div className="stats-grid">
-      {metrics.map(({ label, value, icon: Icon }) => (
-        <div key={label} className="metric-card">
-          <div className="metric-card__icon-bg">
-            <Icon color="var(--navy)" />
-          </div>
-          <div className="metric-card__label-row">
-            <Icon color="var(--text-muted)" />
-            <span className="metric-card__label">{label}</span>
-          </div>
-          <div className={loading ? 'metric-card__value--loading' : 'metric-card__value'}>
-            {loading ? '—' : value}
-          </div>
-        </div>
+    <KpiCardGrid>
+      {metrics.map(({ label, value, icon }) => (
+        <KpiCard
+          key={label}
+          icon={icon}
+          label={label}
+          value={value}
+          loading={loading}
+        />
       ))}
-    </div>
+    </KpiCardGrid>
   );
 }
 
@@ -139,69 +136,78 @@ function DeclineRequestModal({ request, onClose, onConfirm, submitting, error })
 }
 
 function PendingRequestsTable({ requests, onApprove, onDecline, loading }) {
+  const [actionId, setActionId] = useState(null);
+
   if (loading) {
     return <div className="empty-state">Loading pending requests…</div>;
   }
 
   if (requests.length === 0) {
     return (
-      <div className="empty-state empty-state--dashed">
-        <CheckCircle size={32} color="var(--green)" style={{ marginBottom: 10, opacity: 0.7 }} />
-        <h3 className="section-card__title" style={{ marginBottom: 6 }}>All clear — no pending requests</h3>
-        <p className="text-muted" style={{ fontSize: '0.8rem' }}>All reservation requests have been processed.</p>
-      </div>
+      <PendingQueueList
+        empty
+        emptyMessage="No reservation requests awaiting approval."
+      />
     );
   }
 
+  const handleApprove = async (requestId) => {
+    setActionId(requestId);
+    try {
+      await onApprove(requestId);
+    } finally {
+      setActionId(null);
+    }
+  };
+
   return (
-    <div className="table-scroll-wrap" style={{ border: 'none', borderRadius: 0 }}>
-      <table className="pms-table">
-        <thead>
-          <tr>
-            <th>Guest</th>
-            <th>Check-In</th>
-            <th>Check-Out</th>
-            <th className="text-center">Adults / Children</th>
-            <th className="text-center">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {requests.map((request) => (
-            <tr key={request.id}>
-              <td className="cell-guest">{request.guest_full_name}</td>
-              <td>{request.check_in_date}</td>
-              <td>{request.check_out_date}</td>
-              <td className="text-center">{request.adults} / {request.children}</td>
-              <td className="text-center">
-                <div className="table-action-group">
-                  <TableActionButton
-                    title="View details"
-                    variant="default"
-                    onClick={() => alert(`Details for ${request.guest_full_name} — TBD`)}
-                  >
-                    <Eye size={13} />
-                  </TableActionButton>
-                  <TableActionButton
-                    title="Approve request"
-                    variant="success"
-                    onClick={() => onApprove(request.id)}
-                  >
-                    <CheckCircle size={13} />
-                  </TableActionButton>
-                  <TableActionButton
-                    title="Decline request"
-                    variant="danger"
-                    onClick={() => onDecline(request)}
-                  >
-                    <XCircle size={13} />
-                  </TableActionButton>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <PendingQueueList>
+      {requests.map((request) => (
+        <PendingQueueCard
+          key={request.id}
+          id={request.display_id || request.guest_full_name}
+          meta={(
+            <>
+              <span>{request.check_in_date}</span>
+              <span className="pending-queue-card__dot">→</span>
+              <span>{request.check_out_date}</span>
+              <span className="pending-queue-card__dot">·</span>
+              <span>{request.adults} adults, {request.children} children</span>
+            </>
+          )}
+          description={request.display_id ? request.guest_full_name : null}
+          actions={(
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Eye}
+                onClick={() => alert(`Details for ${request.guest_full_name} — TBD`)}
+              >
+                View
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                icon={CheckCircle}
+                loading={actionId === request.id}
+                onClick={() => handleApprove(request.id)}
+              >
+                Approve
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                icon={XCircle}
+                onClick={() => onDecline(request)}
+              >
+                Decline
+              </Button>
+            </>
+          )}
+        />
+      ))}
+    </PendingQueueList>
   );
 }
 
@@ -601,7 +607,7 @@ function ReservationPage() {
             </span>
           )}
         </div>
-        <div className="section-card__body--flush">
+        <div className="section-card__body">
           <PendingRequestsTable
             requests={pendingRequests}
             onApprove={handleApproveRequest}

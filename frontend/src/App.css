@@ -907,17 +907,27 @@ body {
 .badge-payment-partial  { background: var(--bg-subtle); color: var(--navy);        }
 .badge-payment-complete { background: var(--green-bg);  color: var(--green-text);  }
 
-/* — Gantt bar colours — */
-.status-pending   { background-color: var(--yellow) !important; }
-.status-confirmed { background-color: var(--green)  !important; }
-.status-checkedin { background-color: var(--blue)   !important; }
-.status-checkedout{ background-color: var(--text-muted) !important; }
+/* — Gantt bar colours (soft muted tones) — */
+.status-pending    { background-color: var(--amber-bg) !important; border: 1px solid var(--border) !important; }
+.status-confirmed  { background-color: var(--green-bg) !important; border: 1px solid #bbf7d0 !important; }
+.status-checkedin  { background-color: var(--blue-bg) !important; border: 1px solid var(--border) !important; }
+.status-checkedout { background-color: var(--slate-bg) !important; border: 1px solid var(--border) !important; }
 
 /* Legend dots */
-.legend-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-.legend-dot.status-pending   { background-color: var(--yellow); }
-.legend-dot.status-confirmed { background-color: var(--green);  }
-.legend-dot.status-checkedin { background-color: var(--blue);   }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1px solid var(--border); }
+.legend-dot.status-pending    { background-color: var(--amber-bg); }
+.legend-dot.status-confirmed  { background-color: var(--green-bg); }
+.legend-dot.status-checkedin  { background-color: var(--blue-bg); }
+.legend-dot.status-checkedout { background-color: var(--slate-bg); }
+.legend-dot.status-blocked    {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bg-subtle),
+    var(--bg-subtle) 2px,
+    var(--border) 2px,
+    var(--border) 3px
+  );
+}
 
 /* --------------------------------------------------------------------------
    10. BUTTON SYSTEM
@@ -1373,10 +1383,39 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   background: var(--bg-white);
   padding: 12px 20px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
+}
+
+.gantt-control-panel__group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.gantt-control-panel__nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gantt-control-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gantt-control-panel__filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
 }
 
 .today-btn {
@@ -1384,9 +1423,23 @@ body {
   background: var(--bg-white);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 0.8rem;
   cursor: pointer;
   font-family: var(--font-sans);
+  color: var(--text-mid);
+  transition: background-color var(--ease-fast), border-color var(--ease-fast), box-shadow var(--ease-fast);
+}
+
+.today-btn:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border-mid);
+}
+
+.today-btn:focus-visible {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.08);
 }
 
 .cal-nav-btn {
@@ -1397,9 +1450,28 @@ body {
   cursor: pointer;
   display: flex;
   align-items: center;
+  color: var(--text-mid);
+  transition: background-color var(--ease-fast), border-color var(--ease-fast), box-shadow var(--ease-fast);
 }
 
-.cal-month-label { font-weight: 600; min-width: 100px; text-align: center; }
+.cal-nav-btn:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border-mid);
+}
+
+.cal-nav-btn:focus-visible {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.08);
+}
+
+.cal-month-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  min-width: 100px;
+  text-align: center;
+  color: var(--text);
+}
 
 .filter-select {
   padding: 6px 12px;
@@ -1428,6 +1500,25 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-mid) transparent;
+}
+
+.gantt-chart-outer-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+.gantt-chart-outer-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.gantt-chart-outer-wrapper::-webkit-scrollbar-thumb {
+  background: var(--border-mid);
+  border-radius: 3px;
+}
+
+.gantt-chart-outer-wrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--text-light);
 }
 
 .gantt-chart-container {
@@ -1530,15 +1621,103 @@ body {
   display: flex;
   align-items: center;
   padding: 0 10px;
-  color: #fff !important;
-  font-size: 0.8rem;
-  font-weight: 600;
+  color: var(--text-mid);
+  font-size: 0.78rem;
+  font-weight: 400;
   margin: 0 1px;
   overflow: hidden;
   white-space: nowrap;
-  box-shadow: 0 2px 4px rgba(0,0,0,.06);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: box-shadow var(--ease-fast), transform var(--ease-fast);
 }
-.booking-bar-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.gantt-booking-bar:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.gantt-booking-bar:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.15);
+}
+
+.booking-bar-text {
+  font-weight: 400;
+  color: var(--text-mid);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.checkbox-row.disabled-row--blocked .checkbox-text > span:first-child {
+  text-decoration: line-through;
+  color: var(--text-light);
+}
+
+.villa-unavailable-tag {
+  color: var(--text-light);
+  font-style: italic;
+  margin-left: 6px;
+  font-size: 0.78rem;
+}
+
+.gantt-block-bar {
+  height: 36px;
+  border-radius: var(--radius-sm);
+  margin: 0 1px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bg-subtle),
+    var(--bg-subtle) 5px,
+    var(--border) 5px,
+    var(--border) 6px
+  );
+  border: 1px solid var(--border-mid);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.gantt-interaction-grid {
+  display: grid !important;
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  z-index: 2;
+}
+
+.gantt-interaction-cell {
+  height: 100%;
+  cursor: crosshair;
+  border-right: 1px solid transparent;
+}
+
+.gantt-interaction-cell--blocked,
+.gantt-interaction-cell--occupied {
+  cursor: not-allowed;
+}
+
+.gantt-drag-preview {
+  height: 36px;
+  border-radius: var(--radius-sm);
+  margin: 0 1px;
+  align-self: center;
+  background: rgba(30, 58, 138, 0.08);
+  border: 1px dashed var(--navy);
+  z-index: 6;
+  pointer-events: none;
+}
 
 /* --------------------------------------------------------------------------
    16. PUBLIC RESERVATION PAGE
@@ -1898,6 +2077,417 @@ body {
   padding: 8px 10px;
 }
 
+/* Financial dashboard — KPI cards, tabs, slide-over, expenses */
+.financial-dashboard__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.financial-dashboard__title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.financial-dashboard__subtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.financial-dashboard__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   KPI CARDS (shared editorial primitive)
+   -------------------------------------------------------------------------- */
+.kpi-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.kpi-card-grid--four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.kpi-card {
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.kpi-card__icon {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  opacity: 0.12;
+  color: var(--navy);
+}
+
+.kpi-card__label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.kpi-card__value {
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.kpi-card__value--loading {
+  font-size: 0.9rem;
+  color: var(--text-light);
+}
+
+.kpi-card__sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.65rem;
+  color: var(--text-light);
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+.kpi-card__trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.65rem;
+  font-weight: 500;
+}
+
+.kpi-card__trend--up { color: var(--green); }
+.kpi-card__trend--down { color: var(--red); }
+
+/* --------------------------------------------------------------------------
+   PAGE TABS (Dashboard source-of-truth tab switcher)
+   -------------------------------------------------------------------------- */
+.page-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 4px;
+  width: fit-content;
+  margin-bottom: 12px;
+}
+
+.page-tab-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+}
+
+.page-tab-btn:hover { color: var(--text); }
+
+.page-tab-btn--active {
+  background: var(--navy);
+  color: #fff;
+}
+
+.page-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.page-tab-btn:not(.page-tab-btn--active) .page-tab-badge {
+  background: var(--red-bg);
+  color: var(--red-text);
+}
+
+.page-tab-content {
+  min-height: 200px;
+}
+
+.financial-tab-content {
+  min-height: 200px;
+}
+
+.financial-expenses-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pms-table--financial td {
+  font-weight: 400;
+  color: var(--text-mid);
+}
+
+.pms-table--financial td.cell-guest {
+  font-weight: 500;
+}
+
+.cell-balance-due {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.filter-bar--expense-ledger {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* --------------------------------------------------------------------------
+   PENDING QUEUE CARDS (shared approval workflow)
+   -------------------------------------------------------------------------- */
+.pending-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pending-queue-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.pending-queue-card__id {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 4px;
+}
+
+.pending-queue-card__meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.pending-queue-card__dot {
+  margin: 0 4px;
+}
+
+.pending-queue-card__desc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-mid);
+  font-weight: 400;
+}
+
+.pending-queue-card__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pending-queue-card__amount {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.pending-queue-card__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pending-queue-empty {
+  padding: 20px;
+}
+
+.slide-over-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  z-index: 9998;
+}
+
+.slide-over-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(420px, 100vw);
+  background: var(--bg-white);
+  box-shadow: var(--shadow-xl);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  animation: slideOverIn 0.22s ease-out;
+}
+
+@keyframes slideOverIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.slide-over-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.slide-over-panel__title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--navy);
+}
+
+.slide-over-panel__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.slide-over-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.slide-over-panel__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  margin-top: auto;
+}
+
+.expense-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.expense-proof-meta {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.expense-proof-meta__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--text-mid);
+}
+
+.expense-proof-meta__row span:first-child {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.expense-proof-viewer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg);
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expense-proof-viewer__image {
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+  display: block;
+}
+
+.expense-proof-viewer__frame {
+  width: 100%;
+  height: 480px;
+  border: none;
+}
+
+@media (max-width: 900px) {
+  .kpi-card-grid--four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .financial-dashboard__header {
+    flex-direction: column;
+  }
+
+  .pending-queue-card {
+    flex-direction: column;
+  }
+
+  .pending-queue-card__side {
+    align-items: flex-start;
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .kpi-card-grid--four {
+    grid-template-columns: 1fr;
+  }
+}
+
 .payment-modal-body {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2015,67 +2605,6 @@ body {
 }
 
 .pricing-lock-banner svg { flex-shrink: 0; color: #d97706; }
-
-.pricing-tab-nav {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  background: var(--bg-white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: 8px;
-}
-
-.pricing-tab-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 10px 14px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-sans);
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-  color: var(--text-mid);
-}
-
-.pricing-tab-btn svg {
-  color: var(--text-light);
-  margin-bottom: 2px;
-  transition: color 0.15s;
-}
-
-.pricing-tab-btn:hover {
-  background: var(--bg-subtle);
-  border-color: var(--border);
-}
-
-.pricing-tab-btn.active {
-  background: var(--bg-subtle);
-  border-color: var(--navy);
-  color: var(--navy-dark);
-  box-shadow: inset 0 0 0 1px var(--navy);
-}
-
-.pricing-tab-btn.active svg { color: var(--navy); }
-
-.pricing-tab-label {
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.pricing-tab-desc {
-  font-size: 0.68rem;
-  color: var(--text-light);
-  font-weight: 400;
-  line-height: 1.3;
-}
-
-.pricing-tab-btn.active .pricing-tab-desc { color: var(--text-muted); }
 
 .pricing-tab-content {
   background: var(--bg-white);
@@ -2558,21 +3087,7 @@ body {
   margin-bottom: 0 !important;
 }
 
-@media (max-width: 900px) {
-  .pricing-tab-nav {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 @media (max-width: 600px) {
-  .pricing-tab-nav {
-    grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    padding: 5px;
-  }
-
-  .pricing-tab-desc { display: none; }
-
   .pricing-modal__form {
     grid-template-columns: 1fr;
   }
