@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react';
 import DashboardStats from './components/DashboardStats';
 import Overview from './components/Overview';
 import Sidebar from './components/SideBar';
-import CalendarPage from './components/CalendarPage';
+import CalendarPage from './components/calendar/CalendarPage';
 import ReservationPage from './components/reservations/ReservationPage';
 import FinancialDashboardPage from './components/financial/FinancialDashboardPage';
 import Pricing from './components/pricing/Pricing';
