@@ -4,15 +4,15 @@ import {
   RefreshCw, Search, X, Filter,
   CreditCard, AlertCircle, CheckCircle,
 } from 'lucide-react';
-import { Badge } from './ui';
-import TableActionButton from './TableActionButton';
-import TablePagination from './TablePagination';
+import { Badge } from '../ui';
+import TableActionButton from '../TableActionButton';
+import TablePagination from '../ui/TablePagination';
 import FinancialDetailsModal from './FinancialDetailsModal';
 import {
   PAYMENT_FILTER_OPTIONS,
   TIMEFRAME_FILTER_OPTIONS,
-} from '../utils/statusConfigs';
-import { matchesTimeframeFilter } from '../utils/tableFilters';
+} from '../../utils/statusConfigs';
+import { matchesTimeframeFilter } from '../../utils/tableFilters';
 
 function formatRp(amount) {
   return `Rp ${(Number(amount) || 0).toLocaleString()}`;

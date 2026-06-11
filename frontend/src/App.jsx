@@ -2,16 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import DashboardStats from './components/DashboardStats';
-import OperationsTable from './components/OperationsTable';
-import BookingFormModal from './components/BookingFormModal';
+import Overview from './components/Overview';
 import Sidebar from './components/SideBar';
 import CalendarPage from './components/CalendarPage';
-import ReservationPage from './components/ReservationPage';
-import FinancialDashboardPage from './components/FinancialDashboardPage';
+import ReservationPage from './components/reservations/ReservationPage';
+import FinancialDashboardPage from './components/financial/FinancialDashboardPage';
 import Pricing from './components/pricing/Pricing';
-import PublicReservationForm from './components/PublicReservationForm'; 
-import PublicSuccessMessage from './components/PublicSuccessMessage';
-import Dashboard from './components/Dashboard'; // ← ADD THIS
+import PublicReservationForm from './components/reservations/PublicReservationForm';
+import PublicSuccessMessage from './components/reservations/PublicSuccessMessage';
+import Dashboard from './components/Dashboard'; 
 import './App.css';
 
 function AdminPortal() {
@@ -81,8 +80,8 @@ function AdminPortal() {
       <main className="main-content">
         {activePage === 'dashboard' && (
           <div className="dashboard-container">
-            <DashboardStats stats={stats} loading={statsLoading} />
-            <OperationsTable
+            <DashboardStats stats={stats} loading={statsLoading} /> 
+            <Overview
               bookings={bookings}
               loading={loading}
               error={error}
@@ -112,7 +111,7 @@ function AdminPortal() {
                 <Plus size={16} /> New Reservation
               </button>
             </header>
-            <OperationsTable bookings={bookings} loading={loading} error={error} onRefresh={handleRefresh} />
+            <Overview bookings={bookings} loading={loading} error={error} onRefresh={handleRefresh} />
           </div>
         )}
 
@@ -141,7 +140,8 @@ function AdminPortal() {
         )}
       </main>
 
-      <BookingFormModal
+      <PublicReservationForm
+        variant="modal"
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleBookingSuccess}

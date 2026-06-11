@@ -10,15 +10,17 @@ import {
   Pencil,
   Download,
   CreditCard,
+  XCircle,
 } from 'lucide-react';
-import Badge from './ui/Badge';
-import TableActionButton from './TableActionButton';
-import TablePagination from './TablePagination';
-import EditReservationModal from './EditReservationModal';
+import Badge from '../ui/Badge';
+import TableActionButton from '../TableActionButton';
+import TablePagination from '../ui/TablePagination';
 import ReservationPaymentModal from './ReservationPaymentModal';
-import { downloadReservationInvoice } from '../utils/invoiceUtils';
-import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../utils/statusConfigs';
-import { matchesTimeframeFilter } from '../utils/tableFilters';
+import PublicReservationForm from './PublicReservationForm';
+import { Modal, Button, Alert, Textarea } from '../ui';
+import { downloadReservationInvoice } from '../../utils/invoiceUtils';
+import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../../utils/statusConfigs';
+import { matchesTimeframeFilter } from '../../utils/tableFilters';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -53,7 +55,90 @@ function DashboardMetrics({ stats, loading }) {
 // =====================================================
 // 📋 SECTION 2: PENDING REQUESTS TABLE
 // =====================================================
-function PendingRequestsTable({ requests, onApprove, loading }) {
+
+const DECLINE_REASONS = [
+  'Guest requested cancellation',
+  'Dates unavailable / overbooking',
+  'Incomplete or invalid guest information',
+  'Duplicate reservation request',
+  'Payment not received in time',
+  'Other',
+];
+
+function DeclineRequestModal({ request, onClose, onConfirm, submitting, error }) {
+  const [selectedReason, setSelectedReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+
+  useEffect(() => {
+    setSelectedReason('');
+    setCustomReason('');
+  }, [request?.id]);
+
+  if (!request) return null;
+
+  const resolvedReason =
+    selectedReason === 'Other'
+      ? customReason.trim()
+      : selectedReason;
+
+  const canSubmit = resolvedReason.length > 0;
+
+  return (
+    <Modal isOpen={!!request} onClose={onClose} size="md">
+      <Modal.Header
+        title="Decline Request"
+        icon={XCircle}
+        subtitle={request.guest_full_name}
+      />
+      <Modal.Body>
+        {error && <Alert type="error" message={error} />}
+        <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: 16 }}>
+          Select a reason for declining this reservation request. The booking and payment status will be set to cancelled.
+        </p>
+        <div className="decline-reason-list">
+          {DECLINE_REASONS.map((reason) => (
+            <label key={reason} className="decline-reason-option">
+              <input
+                type="radio"
+                name="decline-reason"
+                value={reason}
+                checked={selectedReason === reason}
+                onChange={() => setSelectedReason(reason)}
+              />
+              <span>{reason}</span>
+            </label>
+          ))}
+        </div>
+        {selectedReason === 'Other' && (
+          <Textarea
+            label="Custom reason"
+            placeholder="Describe why this request is being declined…"
+            value={customReason}
+            onChange={(e) => setCustomReason(e.target.value)}
+            rows={3}
+            required
+            style={{ marginTop: 12 }}
+          />
+        )}
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose} disabled={submitting}>
+          Back
+        </Button>
+        <Button
+          variant="danger"
+          loading={submitting}
+          disabled={!canSubmit}
+          onClick={() => onConfirm(resolvedReason)}
+        >
+          Decline Request
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
+function PendingRequestsTable({ requests, onApprove, onDecline, loading }) {
   if (loading) {
     return <div className="empty-state">Loading pending requests…</div>;
   }
@@ -102,6 +187,13 @@ function PendingRequestsTable({ requests, onApprove, loading }) {
                     onClick={() => onApprove(request.id)}
                   >
                     <CheckCircle size={13} />
+                  </TableActionButton>
+                  <TableActionButton
+                    title="Decline request"
+                    variant="danger"
+                    onClick={() => onDecline(request)}
+                  >
+                    <XCircle size={13} />
                   </TableActionButton>
                 </div>
               </td>
@@ -361,6 +453,9 @@ function ReservationPage() {
   const [editBooking, setEditBooking] = useState(null);
   const [paymentBooking, setPaymentBooking] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
+  const [declineTarget, setDeclineTarget] = useState(null);
+  const [declineSubmitting, setDeclineSubmitting] = useState(false);
+  const [declineError, setDeclineError] = useState(null);
 
   const processBookings = (bookingsData) => {
     const pending = bookingsData
@@ -428,6 +523,35 @@ function ReservationPage() {
     fetchData();
   };
 
+  const handleDeclineRequest = async (reason) => {
+    if (!declineTarget) return;
+
+    setDeclineSubmitting(true);
+    setDeclineError(null);
+    try {
+      const response = await fetch(`/api/bookings/${declineTarget.id}/cancel`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cancellation_reason: reason }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to decline request');
+      }
+
+      setPendingRequests((prev) => prev.filter((r) => r.id !== declineTarget.id));
+      setStats((prev) => ({
+        ...prev,
+        pendingApproval: Math.max(0, prev.pendingApproval - 1),
+      }));
+      setDeclineTarget(null);
+    } catch (err) {
+      setDeclineError(err.message);
+    } finally {
+      setDeclineSubmitting(false);
+    }
+  };
+
   const handleApproveRequest = async (requestId) => {
     try {
       const response = await fetch(
@@ -481,6 +605,10 @@ function ReservationPage() {
           <PendingRequestsTable
             requests={pendingRequests}
             onApprove={handleApproveRequest}
+            onDecline={(request) => {
+              setDeclineError(null);
+              setDeclineTarget(request);
+            }}
             loading={loading}
           />
         </div>
@@ -504,7 +632,8 @@ function ReservationPage() {
         </div>
       </div>
 
-      <EditReservationModal
+      <PublicReservationForm
+        variant="modal"
         isOpen={!!editBooking}
         booking={editBooking}
         onClose={() => setEditBooking(null)}
@@ -516,6 +645,19 @@ function ReservationPage() {
         booking={paymentBooking}
         onClose={() => setPaymentBooking(null)}
         onPaymentRecorded={handlePaymentRecorded}
+      />
+
+      <DeclineRequestModal
+        request={declineTarget}
+        onClose={() => {
+          if (!declineSubmitting) {
+            setDeclineTarget(null);
+            setDeclineError(null);
+          }
+        }}
+        onConfirm={handleDeclineRequest}
+        submitting={declineSubmitting}
+        error={declineError}
       />
     </div>
   );

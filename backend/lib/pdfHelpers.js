@@ -2,9 +2,24 @@
 
 import { generateBookingConfirmationPdf } from '../services/bookingConfirmationPdf.js';
 
+function addonUnitPrice(addon) {
+  return Number(addon?.price) || 0;
+}
+
+function stayNights(checkIn, checkOut) {
+  return Math.max(
+    Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24)),
+    1
+  );
+}
+
+function buildInvoiceId(booking) {
+  if (booking?.display_id) return booking.display_id;
+  return `UM-${String(booking?.id || '').slice(0, 8).toUpperCase()}`;
+}
+
 /**
- * Build financial summary from booking data
- * Format data to match bookingConfirmationPdf.js template expectations
+ * Build financial summary from booking data for PDF generation.
  */
 export async function buildFinancialSummary(bookingId, supabase) {
   try {
@@ -12,6 +27,7 @@ export async function buildFinancialSummary(bookingId, supabase) {
       .from('bookings')
       .select(`
         id,
+        display_id,
         check_in_date,
         check_out_date,
         total_guests,
@@ -19,16 +35,21 @@ export async function buildFinancialSummary(bookingId, supabase) {
         notes,
         payment_status,
         amount_paid,
+        discount_amount,
         created_at,
         guests (full_name, email, phone_number),
         booking_villas (
+          rate_per_night,
+          nights,
           villas (id, name, base_rate_per_night, base_breakfast)
         ),
         booking_addons (
           quantity,
-          addons (id, name, price_per_night, base_breakfast)
+          unit_price,
+          subtotal,
+          addons (id, name, price, is_per_night, base_breakfast)
         ),
-        discounts (id, code, name, type, value, scope)
+        discounts (id, code, name, type, value, scope, application_rule)
       `)
       .eq('id', bookingId)
       .single();
@@ -37,90 +58,104 @@ export async function buildFinancialSummary(bookingId, supabase) {
       throw new Error('Booking not found');
     }
 
-    // Calculate nights
-    const checkIn = new Date(booking.check_in_date);
-    const checkOut = new Date(booking.check_out_date);
-    const nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+    const nights = stayNights(booking.check_in_date, booking.check_out_date);
 
-    // Build villas array
-    const villas = booking.booking_villas?.map(bv => ({
-      name: bv.villas?.name || 'Villa Unit',
-      rate: bv.villas?.base_rate_per_night || 0,
-      nights: nights,
-      subtotal: (bv.villas?.base_rate_per_night || 0) * nights,
-    })) || [];
+    const accommodationLines = (booking.booking_villas || []).map((bv) => {
+      const rate = Number(bv.rate_per_night) || Number(bv.villas?.base_rate_per_night) || 0;
+      const lineNights = Number(bv.nights) || nights;
+      return {
+        type: 'accommodation',
+        name: bv.villas?.name || 'Villa Unit',
+        description: `${bv.villas?.name || 'Villa Unit'} — ${lineNights} night${lineNights !== 1 ? 's' : ''}`,
+        quantity: lineNights,
+        unitPrice: rate,
+        subtotal: rate * lineNights,
+      };
+    });
 
-    // Build addons array
-    const addons = booking.booking_addons?.map(ba => ({
-      name: ba.addons?.name || 'Add-on',
-      unitPrice: ba.addons?.price_per_night || 0,
-      quantity: ba.quantity || 1,
-      subtotal: (ba.addons?.price_per_night || 0) * (ba.quantity || 1),
-    })) || [];
+    const addonLines = (booking.booking_addons || []).map((ba) => {
+      const unitPrice = Number(ba.unit_price) || addonUnitPrice(ba.addons);
+      const quantity = ba.quantity || 1;
+      const multiplier = ba.addons?.is_per_night !== false ? nights : 1;
+      const billableQty = quantity * multiplier;
+      const subtotal = Number(ba.subtotal) || unitPrice * billableQty;
+      return {
+        type: 'addon',
+        name: ba.addons?.name || 'Add-on',
+        description: ba.addons?.name || 'Add-on',
+        quantity: billableQty,
+        unitPrice,
+        subtotal,
+      };
+    });
 
-    // Calculate totals
-    const villaSubtotal = villas.reduce((sum, v) => sum + (v.subtotal || 0), 0);
-    const addonSubtotal = addons.reduce((sum, a) => sum + (a.subtotal || 0), 0);
-    const subtotal = villaSubtotal + addonSubtotal;
+    const villas = accommodationLines.map((line) => ({
+      name: line.name,
+      rate: line.unitPrice,
+      nights: line.quantity,
+      subtotal: line.subtotal,
+    }));
 
-    // Calculate discount if applicable
-    let discountAmount = 0;
-    if (booking.discounts) {
+    const addons = addonLines.map((line) => ({
+      name: line.name,
+      unitPrice: line.unitPrice,
+      quantity: line.quantity,
+      subtotal: line.subtotal,
+    }));
+
+    const villaSubtotal = accommodationLines.reduce((sum, line) => sum + line.subtotal, 0);
+    const addonSubtotal = addonLines.reduce((sum, line) => sum + line.subtotal, 0);
+    const subtotalBeforeDiscount = villaSubtotal + addonSubtotal;
+
+    let discountAmount = Number(booking.discount_amount) || 0;
+    if (booking.discounts && discountAmount === 0) {
       const discount = booking.discounts;
       if (discount.type === 'percentage') {
-        discountAmount = (subtotal * discount.value) / 100;
+        discountAmount = (subtotalBeforeDiscount * Number(discount.value)) / 100;
       } else if (discount.type === 'fixed') {
-        discountAmount = discount.value;
+        discountAmount = Number(discount.value);
       }
     }
 
-    const totalAfterDiscount = Math.max(subtotal - discountAmount, 0);
-    const amountPaid = booking.amount_paid || 0;
-    const balanceDue = Math.max(totalAfterDiscount - amountPaid, 0);
+    const total = Math.max(subtotalBeforeDiscount - discountAmount, 0);
+    const amountPaid = Number(booking.amount_paid) || 0;
+    const balanceDue = Math.max(total - amountPaid, 0);
+    const displayId = buildInvoiceId(booking);
 
-    // Return summary object formatted for PDF template
     return {
-      // Invoice metadata
       id: booking.id,
-      displayId: `INV${booking.id.slice(0, 6).toUpperCase()}`,
+      displayId,
       created_at: booking.created_at,
-      
-      // Guest information
       guestName: booking.guests?.full_name || 'Valued Guest',
       guestEmail: booking.guests?.email || '',
       phone: booking.guests?.phone_number || '',
-      
-      // Stay details
+      checkIn: booking.check_in_date,
+      checkOut: booking.check_out_date,
       checkInDate: booking.check_in_date,
       checkOutDate: booking.check_out_date,
       totalGuests: booking.total_guests,
-      nights: nights,
-      
-      // Villa and addon details (for line items)
-      villas: villas,
-      addons: addons,
-      villa_names: villas.map(v => v.name).join(', ') || 'Villa Unit',
-      
-      // Financial details
-      subtotal: subtotal,
-      villaSubtotal: villaSubtotal,
-      addonSubtotal: addonSubtotal,
+      nights,
+      villas,
+      addons,
+      accommodationLines,
+      addonLines,
+      villa_names: villas.map((v) => v.name).join(', ') || 'Villa Unit',
+      villaNames: villas.map((v) => v.name).join(', ') || 'Villa Unit',
+      subtotalBeforeDiscount,
+      subtotal: subtotalBeforeDiscount,
+      villaSubtotal,
+      addonSubtotal,
       discountCode: booking.discounts?.code || null,
-      discountAmount: discountAmount,
-      total: totalAfterDiscount,
-      totalPrice: totalAfterDiscount,
-      
-      // Payment status
-      amountPaid: amountPaid,
-      balanceDue: balanceDue,
+      discountAmount,
+      total,
+      totalPrice: total,
+      amountPaid,
+      balanceDue,
       paymentStatus: booking.payment_status || 'pending',
-      
-      // Additional info
       notes: booking.notes || '',
-      
-      // Booking object (for template backwards compatibility)
       booking: {
         id: booking.id,
+        display_id: booking.display_id,
         check_in_date: booking.check_in_date,
         check_out_date: booking.check_out_date,
         total_guests: booking.total_guests,
@@ -140,7 +175,6 @@ export async function buildFinancialSummary(bookingId, supabase) {
  */
 export async function streamBookingConfirmationPdf(summary, res) {
   try {
-    // Call the PDF generation function
     const pdfBuffer = await generateBookingConfirmationPdf(summary);
     res.write(pdfBuffer);
     res.end();

@@ -6,7 +6,7 @@ import { Badge } from './ui';
 import FilterButtonGroup from './ui/FilterButtonGroup';
 import TableActionButton from './TableActionButton';
 import OrderModal from './OrderModal';
-import FinancialDetailsModal from './FinancialDetailsModal';
+import FinancialDetailsModal from './financial/FinancialDetailsModal';
 
 const FILTER_OPTIONS = [
   { key: 'today',      label: 'Today'       },
@@ -255,7 +255,7 @@ function useFilteredBookings(bookings, smartFilter, todayISO) {
   }, [bookings, todayISO, smartFilter]);
 }
 
-function OperationsTable({ bookings, loading, error, onRefresh }) {
+function Overview({ bookings, loading, error, onRefresh }) {
   const [smartFilter, setSmartFilter] = useState('today');
   const [orderModalBooking, setOrderModalBooking] = useState(null);
   const [detailsRow, setDetailsRow] = useState(null);
@@ -327,4 +327,4 @@ function OperationsTable({ bookings, loading, error, onRefresh }) {
   );
 }
 
-export default OperationsTable;
+export default Overview;
