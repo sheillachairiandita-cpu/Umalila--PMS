@@ -5,6 +5,16 @@ backend/node_modules/
 
 # Ignore sensitive info
 .env
+.env.local
+.env.*.local
 
 # Ignore system files
 .DS_Store
+Thumbs.db
+
+# Framework Build Outputs & Caches
+dist/
+build/
+.next/
+.cache/
+*.log

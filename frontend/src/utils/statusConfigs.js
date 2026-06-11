@@ -88,6 +88,7 @@ export const PAYMENT_FILTER_OPTIONS = [
   { key: 'pending', label: 'Pending' },
   { key: 'partial', label: 'Partial' },
   { key: 'complete', label: 'Complete' },
+  { key: 'cancelled', label: 'Cancelled' },
 ];
 
 export const TIMEFRAME_FILTER_OPTIONS = [
@@ -95,14 +96,6 @@ export const TIMEFRAME_FILTER_OPTIONS = [
   { key: 'today', label: 'Today' },
   { key: 'month', label: 'This Month' },
   { key: 'year', label: 'This Year' },
-];
-
-export const FINANCIAL_PAYMENT_FILTER_OPTIONS = [
-  { key: 'all', label: 'All Payments' },
-  { key: 'unpaid', label: 'Unpaid / Outstanding' },
-  { key: 'pending', label: 'No DP' },
-  { key: 'partial', label: 'DP Paid' },
-  { key: 'complete', label: 'All Paid' },
 ];
 
 /**
