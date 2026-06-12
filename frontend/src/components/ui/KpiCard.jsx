@@ -1,10 +1,11 @@
 import React from 'react';
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react';
+import MetricTooltip from './MetricTooltip';
 
 /**
  * Editorial KPI card — shared across financial, reservations, and dashboard views.
  */
-export function KpiCard({ icon: Icon, label, value, loading = false, sub, trend, mono = false }) {
+export function KpiCard({ icon: Icon, label, value, loading = false, sub, trend, mono = false, tooltip }) {
   const up = trend > 0;
 
   return (
@@ -14,7 +15,10 @@ export function KpiCard({ icon: Icon, label, value, loading = false, sub, trend,
           <Icon size={16} />
         </div>
       )}
-      <span className="kpi-card__label">{label}</span>
+      <span className="kpi-card__label">
+        {label}
+        {tooltip && <MetricTooltip text={tooltip} />}
+      </span>
       <span
         className={loading ? 'kpi-card__value kpi-card__value--loading' : 'kpi-card__value'}
         style={{ fontFamily: mono ? 'var(--font-mono)' : undefined }}

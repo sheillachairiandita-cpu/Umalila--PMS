@@ -9,6 +9,8 @@ export { default as Button } from './Button';
 export { default as Card } from './Card';
 export { default as FilterButtonGroup } from './FilterButtonGroup';
 export { default as KpiCard, KpiCardGrid } from './KpiCard';
+export { default as MetricTooltip } from './MetricTooltip';
+export { default as ChartCard } from './ChartCard';
 export { default as PageTabs } from './PageTabs';
 export { default as PendingQueueCard, PendingQueueList } from './PendingQueueCard';
 

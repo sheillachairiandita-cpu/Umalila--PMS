@@ -4,7 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Modal, Alert, Select } from '../ui';
 import { COLORS } from '../../styles/theme';
 import SubmittingOverlay from '../SubmittingOverlay';
+import {
+  computeStayRateBreakdown,
+  formatVillaRateForDates,
+} from '../../utils/villaRateUtils';
 import '../../App.css';
+
+function formatRp(amount) {
+  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
+}
 
 const API = '/api';
 
@@ -18,7 +26,7 @@ const EMPTY_FORM = {
   phoneNumber: '',
   checkInDate: '',
   checkOutDate: '',
-  adults: '2',
+  adults: '0',
   children: '0',
   totalGuests: '2',
   totalPrice: 0,
@@ -89,6 +97,7 @@ function PublicReservationForm({
   const [addons, setAddons] = useState([]);
   const [selectedAddons, setSelectedAddons] = useState({});
   const [discounts, setDiscounts] = useState([]);
+  const [pricingHolidays, setPricingHolidays] = useState([]);
   const [applyDiscount, setApplyDiscount] = useState(false);
   const [discountId, setDiscountId] = useState('');
   const [cancelMode, setCancelMode] = useState(false);
@@ -109,13 +118,15 @@ function PublicReservationForm({
         const requests = [
           fetch(`${API}/villas`).then((r) => (r.ok ? r.json() : [])),
           fetch(`${API}/addons`).then((r) => (r.ok ? r.json() : [])),
+          fetch(`${API}/pricing/holidays`).then((r) => (r.ok ? r.json() : [])),
         ];
         if (isEditMode) {
           requests.push(fetch(`${API}/discounts`).then((r) => (r.ok ? r.json() : [])));
         }
-        const [villaData, addonData, discountData] = await Promise.all(requests);
+        const [villaData, addonData, holidayData, discountData] = await Promise.all(requests);
         setVillas(villaData);
         setAddons(addonData);
+        setPricingHolidays(holidayData || []);
         if (isEditMode) {
           setDiscounts((discountData || []).filter((d) => d.is_active !== false && d.status !== 'inactive'));
         }
@@ -185,18 +196,6 @@ function PublicReservationForm({
         setOccupiedVillaIds(occupied);
         setBlockedVillaIds(blocked);
 
-        const blockedNames = villas
-          .filter((v) => blocked.includes(v.id))
-          .map((v) => v.name);
-
-        if (blockedNames.length > 0) {
-          setBlockWarning(
-            `The following villas are unavailable for ${checkInDate} to ${checkOutDate} due to scheduled blocks: ${blockedNames.join(', ')}.`
-          );
-        } else {
-          setBlockWarning('');
-        }
-
         setSelectedVillaIds((prev) =>
           prev.filter((id) => {
             if (blocked.includes(id)) return false;
@@ -215,47 +214,68 @@ function PublicReservationForm({
     checkLiveAvailability();
   }, [checkInDate, checkOutDate, dateError, isModal, isOpen, isEditMode, booking, villas]);
 
-  // Date validation & pricing
+  // Date validation
   useEffect(() => {
-    if (!checkInDate || !checkOutDate) return;
+    if (!checkInDate || !checkOutDate) {
+      setDateError('');
+      return;
+    }
 
-    const checkIn = new Date(checkInDate);
-    const checkOut = new Date(checkOutDate);
+    const checkIn = new Date(`${checkInDate}T12:00:00`);
+    const checkOut = new Date(`${checkOutDate}T12:00:00`);
 
     if (checkOut <= checkIn) {
       setDateError('⚠️ Checkout date must occur after the check-in timeline.');
-      setFormData((prev) => ({ ...prev, totalPrice: 0 }));
       return;
     }
 
     setDateError('');
-    const totalNights = Math.ceil((checkOut - checkIn) / (1000 * 3600 * 24));
+  }, [checkInDate, checkOutDate]);
 
-    const villaRate = villas
-      .filter((v) => selectedVillaIds.includes(v.id))
-      .reduce((sum, v) => sum + (Number(v.base_rate_per_night) || 0), 0);
+  const selectedVillas = useMemo(
+    () => villas.filter((v) => selectedVillaIds.includes(v.id)),
+    [villas, selectedVillaIds]
+  );
 
-    const addonRate = addons.reduce((sum, addon) => {
+  const emptyRateBreakdown = {
+    weekdayNights: 0,
+    weekendNights: 0,
+    holidayNights: 0,
+    weekdayTotal: 0,
+    weekendTotal: 0,
+    holidayTotal: 0,
+    villaTotal: 0,
+    nights: 0,
+  };
+
+  const rateBreakdown = useMemo(() => {
+    if (!checkInDate || !checkOutDate || dateError) return emptyRateBreakdown;
+
+    const checkIn = new Date(`${checkInDate}T12:00:00`);
+    const checkOut = new Date(`${checkOutDate}T12:00:00`);
+    if (checkOut <= checkIn) return emptyRateBreakdown;
+
+    return computeStayRateBreakdown(selectedVillas, checkInDate, checkOutDate, pricingHolidays);
+  }, [checkInDate, checkOutDate, dateError, selectedVillas, pricingHolidays]);
+
+  const nights = rateBreakdown.nights;
+  const hasValidDates = nights > 0;
+
+  const addonTotal = useMemo(() => {
+    if (!hasValidDates) return 0;
+    return addons.reduce((sum, addon) => {
       const qty = selectedAddons[addon.id] || 0;
       if (!qty) return sum;
       const unit = addonPrice(addon);
-      const multiplier = addon.is_per_night !== false ? totalNights : 1;
+      const multiplier = addon.is_per_night !== false ? nights : 1;
       return sum + unit * qty * multiplier;
     }, 0);
+  }, [hasValidDates, nights, addons, selectedAddons]);
 
-    setFormData((prev) => ({
-      ...prev,
-      totalPrice: totalNights * villaRate + addonRate,
-    }));
-  }, [checkInDate, checkOutDate, selectedVillaIds, selectedAddons, villas, addons]);
-
-  const nights = useMemo(() => {
-    if (!checkInDate || !checkOutDate || dateError) return 0;
-    return Math.max(
-      0,
-      Math.ceil((new Date(checkOutDate) - new Date(checkInDate)) / (1000 * 3600 * 24))
-    );
-  }, [checkInDate, checkOutDate, dateError]);
+  const estimatedTotal = useMemo(() => {
+    if (!hasValidDates) return 0;
+    return rateBreakdown.villaTotal + addonTotal;
+  }, [hasValidDates, rateBreakdown.villaTotal, addonTotal]);
 
   const selectedDiscount = discounts.find((d) => d.id === discountId);
   const guestName = formData.fullName || booking?.guests?.full_name || booking?.guest_full_name;
@@ -412,7 +432,7 @@ function PublicReservationForm({
           check_in_date: checkInDate,
           check_out_date: checkOutDate,
           total_guests: totalGuests,
-          total_price: formData.totalPrice,
+          total_price: estimatedTotal,
           notes: notesWithGuests,
           selected_addons,
         }),
@@ -625,7 +645,7 @@ function PublicReservationForm({
                             )}
                           </span>
                           <span className="villa-rate">
-                            Rp {Number(villa.base_rate_per_night || 0).toLocaleString('id-ID')}/night
+                            {formatVillaRateForDates(villa, checkInDate, checkOutDate, pricingHolidays)}
                           </span>
                         </label>
                       </div>
@@ -730,13 +750,55 @@ function PublicReservationForm({
               </div>
             )}
 
+            {hasValidDates && selectedVillaIds.length > 0 && (
+              <div className="reservation-price-breakdown">
+                <p className="reservation-price-breakdown__title">Accommodation breakdown</p>
+                <ul className="reservation-price-breakdown__list">
+                  {rateBreakdown.weekdayNights > 0 && (
+                    <li>
+                      <span>{rateBreakdown.weekdayNights} weekday night{rateBreakdown.weekdayNights !== 1 ? 's' : ''} (Mon–Thu)</span>
+                      <span>{formatRp(rateBreakdown.weekdayTotal)}</span>
+                    </li>
+                  )}
+                  {rateBreakdown.weekendNights > 0 && (
+                    <li>
+                      <span>{rateBreakdown.weekendNights} weekend night{rateBreakdown.weekendNights !== 1 ? 's' : ''} (Fri–Sun)</span>
+                      <span>{formatRp(rateBreakdown.weekendTotal)}</span>
+                    </li>
+                  )}
+                  {rateBreakdown.holidayNights > 0 && (
+                    <li>
+                      <span>{rateBreakdown.holidayNights} holiday night{rateBreakdown.holidayNights !== 1 ? 's' : ''}</span>
+                      <span>{formatRp(rateBreakdown.holidayTotal)}</span>
+                    </li>
+                  )}
+                  {selectedVillas.length > 1 && (
+                    <li className="reservation-price-breakdown__subtotal">
+                      <span>Villa subtotal ({selectedVillas.length} units)</span>
+                      <span>{formatRp(rateBreakdown.villaTotal)}</span>
+                    </li>
+                  )}
+                </ul>
+                {addonTotal > 0 && (
+                  <div className="reservation-price-breakdown__addon">
+                    <span>Add-ons</span>
+                    <span>{formatRp(addonTotal)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!hasValidDates && checkInDate && checkOutDate && !dateError && (
+              <p className="reservation-price-hint">Select valid check-in and check-out dates to see tiered pricing.</p>
+            )}
+
             <div className="form-row">
               <div className="form-group">
                 <label>Duration</label>
                 <input
                   type="text"
                   readOnly
-                  value={nights > 0 ? `${nights} night${nights !== 1 ? 's' : ''}` : '—'}
+                  value={rateBreakdown.nights > 0 ? `${rateBreakdown.nights} night${rateBreakdown.nights !== 1 ? 's' : ''}` : '—'}
                   style={{ backgroundColor: '#f8fafc', color: '#64748b' }}
                 />
               </div>
@@ -745,7 +807,7 @@ function PublicReservationForm({
                 <input
                   type="text"
                   readOnly
-                  value={`Rp ${formData.totalPrice.toLocaleString('id-ID')}`}
+                  value={hasValidDates ? formatRp(estimatedTotal) : '—'}
                   style={{ backgroundColor: '#f8fafc', fontWeight: 'bold', color: '#0f172a' }}
                 />
               </div>

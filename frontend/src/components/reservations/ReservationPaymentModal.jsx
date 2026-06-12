@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { DollarSign } from 'lucide-react';
 import { Modal, Button, Input, Alert, FileUpload } from '../ui';
-import { FinancialSummaryTable } from '../financial/FinancialSummaryTable';
+import SummaryModal from '../financial/SummaryModal';
 
 async function uploadReceipt(bookingId, proof, paymentType) {
   if (!proof?.dataUrl) return null;
@@ -134,15 +134,20 @@ function ReservationPaymentModal({
   const isPending = summary?.paymentStatus === 'pending';
   const isComplete = summary?.paymentStatus === 'complete';
   const bookingRef = displayId || summary?.displayId || summary?.invoiceNumber;
-  const titleSuffix = bookingRef ? `${guestName || 'Guest'} (${bookingRef})` : (guestName || 'Guest');
+  const titleSuffix = bookingRef ? `${guestName || 'Guest'}` : (guestName || 'Guest');
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="2xl">
-      <Modal.Header title={`Record Payment — ${titleSuffix}`} icon={DollarSign} />
+      <Modal.Header title={`Payment — ${titleSuffix}`} icon={DollarSign} />
 
       <Modal.Body className="payment-modal-body">
         <div className="payment-modal-summary">
-          <FinancialSummaryTable bookingId={bookingId} onDataLoaded={handleDataLoaded} />
+          <SummaryModal
+            embedded
+            isOpen={isOpen}
+            bookingId={bookingId}
+            onDataLoaded={handleDataLoaded}
+          />
         </div>
 
         <div className="payment-modal-form">

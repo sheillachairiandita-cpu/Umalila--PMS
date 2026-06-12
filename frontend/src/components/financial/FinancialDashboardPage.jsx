@@ -8,7 +8,7 @@ import ExpenseLedgerTable from './ExpenseLedgerTable';
 import AddExpensePanel from './AddExpensePanel';
 import ExpenseProofModal from './ExpenseProofModal';
 import EditExpenseModal from './EditExpenseModal';
-import FinancialDetailsModal from './FinancialDetailsModal';
+import SummaryModal from './SummaryModal';
 
 async function uploadExpenseProof(proof) {
   if (!proof?.dataUrl) return null;
@@ -264,7 +264,7 @@ function FinancialDashboardPage() {
         onSave={handleEditSave}
       />
 
-      <FinancialDetailsModal
+      <SummaryModal
         isOpen={!!detailsRow}
         bookingId={detailsRow?.bookingId}
         guestName={detailsRow?.guestName}

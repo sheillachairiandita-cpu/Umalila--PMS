@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Filter, Plus, Ban, X, CalendarOff } from 'lucide-react';
-import PublicReservationForm from '../reservations/PublicReservationForm';
+import SummaryModal from '../financial/SummaryModal';
 import { Button, Alert } from '../ui';
 import { STATUS_CONFIG, getStatusConfig } from '../../utils/statusConfigs';
 
@@ -208,7 +208,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
   const [selectedVillaFilter, setSelectedVillaFilter] = useState('All');
 
-  const [editBooking, setEditBooking] = useState(null);
+  const [selectedBooking, setSelectedBooking] = useState(null);
   const [dragState, setDragState] = useState(null);
   const [blockPanelOpen, setBlockPanelOpen] = useState(false);
   const [blockForm, setBlockForm] = useState({
@@ -386,16 +386,12 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     }
   };
 
-  const handleBookingClick = async (bookingId) => {
-    try {
-      const response = await fetch(`${API}/bookings`);
-      if (!response.ok) throw new Error('Failed to load booking details.');
-      const bookings = await response.json();
-      const booking = bookings.find((b) => b.id === bookingId);
-      if (booking) setEditBooking(booking);
-    } catch (err) {
-      console.error(err.message);
-    }
+  const handleBookingClick = (booking) => {
+    setSelectedBooking({
+      bookingId: booking.id,
+      guestName: booking.guest,
+      displayId: booking.displayId,
+    });
   };
 
   const getDragPreviewStyles = (villa) => {
@@ -616,11 +612,11 @@ const CalendarPage = ({ onOpenBookingModal }) => {
                           className="gantt-booking-bar"
                           style={{ ...gridSpanStyles, backgroundColor: statusBg }}
                           title={`${booking.guest} (${booking.checkIn} → ${booking.checkOut})`}
-                          onClick={() => handleBookingClick(booking.id)}
+                          onClick={() => handleBookingClick(booking)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
-                              handleBookingClick(booking.id);
+                              handleBookingClick(booking);
                             }
                           }}
                         >
@@ -651,12 +647,12 @@ const CalendarPage = ({ onOpenBookingModal }) => {
         error={blockError}
       />
 
-      <PublicReservationForm
-        variant="modal"
-        isOpen={!!editBooking}
-        booking={editBooking}
-        onClose={() => setEditBooking(null)}
-        onSaved={fetchGanttData}
+      <SummaryModal
+        isOpen={!!selectedBooking}
+        bookingId={selectedBooking?.bookingId}
+        guestName={selectedBooking?.guestName}
+        displayId={selectedBooking?.displayId}
+        onClose={() => setSelectedBooking(null)}
       />
     </div>
   );

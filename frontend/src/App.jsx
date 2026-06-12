@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
-import DashboardStats from './components/DashboardStats';
-import Overview from './components/Overview';
+import Overview from './components/overview/Overview';
 import Sidebar from './components/SideBar';
 import CalendarPage from './components/calendar/CalendarPage';
 import ReservationPage from './components/reservations/ReservationPage';
@@ -10,7 +9,7 @@ import FinancialDashboardPage from './components/financial/FinancialDashboardPag
 import Pricing from './components/pricing/Pricing';
 import PublicReservationForm from './components/reservations/PublicReservationForm';
 import PublicSuccessMessage from './components/reservations/PublicSuccessMessage';
-import Dashboard from './components/Dashboard'; 
+import Dashboard from './components/dashboard/Dashboard'; 
 import './App.css';
 
 function AdminPortal() {
@@ -20,9 +19,6 @@ function AdminPortal() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [stats, setStats] = useState(null);
-  const [statsLoading, setStatsLoading] = useState(true);
-
   const fetchBookings = async () => {
     setLoading(true);
     try {
@@ -38,34 +34,17 @@ function AdminPortal() {
     }
   };
 
-  const fetchStats = async () => {
-    setStatsLoading(true);
-    try {
-      const response = await fetch('http://localhost:5000/api/dashboard');
-      if (!response.ok) throw new Error('Failed to load dashboard stats.');
-      const data = await response.json();
-      setStats(data);
-    } catch (err) {
-      console.error('Dashboard stats error:', err.message);
-    } finally {
-      setStatsLoading(false);
-    }
-  };
-
   useEffect(() => {
     fetchBookings();
-    fetchStats();
   }, []);
 
   const handleBookingSuccess = () => {
     setIsModalOpen(false);
     fetchBookings();
-    fetchStats();
   };
 
   const handleRefresh = () => {
     fetchBookings();
-    fetchStats();
   };
 
   return (
@@ -80,7 +59,6 @@ function AdminPortal() {
       <main className="main-content">
         {activePage === 'dashboard' && (
           <div className="dashboard-container">
-            <DashboardStats stats={stats} loading={statsLoading} /> 
             <Overview
               bookings={bookings}
               loading={loading}

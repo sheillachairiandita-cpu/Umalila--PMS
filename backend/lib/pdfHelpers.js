@@ -1,6 +1,7 @@
 // backend/lib/pdfHelpers.js
 
 import { generateBookingConfirmationPdf } from '../services/bookingConfirmationPdf.js';
+import { calculateDiscountAmount, mapDiscountRow } from './discountUtils.js';
 
 function addonUnitPrice(addon) {
   return Number(addon?.price) || 0;
@@ -107,14 +108,29 @@ export async function buildFinancialSummary(bookingId, supabase) {
     const addonSubtotal = addonLines.reduce((sum, line) => sum + line.subtotal, 0);
     const subtotalBeforeDiscount = villaSubtotal + addonSubtotal;
 
-    let discountAmount = Number(booking.discount_amount) || 0;
-    if (booking.discounts && discountAmount === 0) {
-      const discount = booking.discounts;
-      if (discount.type === 'percentage') {
-        discountAmount = (subtotalBeforeDiscount * Number(discount.value)) / 100;
-      } else if (discount.type === 'fixed') {
-        discountAmount = Number(discount.value);
-      }
+    let discountAmount = 0;
+    let discountLines = [];
+    let discountMeta = null;
+
+    if (booking.discounts) {
+      const discountResult = calculateDiscountAmount(booking.discounts, {
+        villaLines: accommodationLines,
+        addonLines,
+        menuLines: [],
+      });
+      discountAmount = Number(booking.discount_amount) || discountResult.amount;
+      discountLines = discountResult.lines;
+      discountMeta = mapDiscountRow(booking.discounts);
+    } else if (Number(booking.discount_amount) > 0) {
+      discountAmount = Number(booking.discount_amount);
+      discountLines = [{
+        type: 'discount',
+        name: 'Discount',
+        description: 'Applied discount',
+        quantity: 1,
+        unitPrice: -discountAmount,
+        subtotal: -discountAmount,
+      }];
     }
 
     const total = Math.max(subtotalBeforeDiscount - discountAmount, 0);
@@ -145,7 +161,10 @@ export async function buildFinancialSummary(bookingId, supabase) {
       subtotal: subtotalBeforeDiscount,
       villaSubtotal,
       addonSubtotal,
-      discountCode: booking.discounts?.code || null,
+      discountLines,
+      discount: discountMeta,
+      discountCode: discountMeta?.code || booking.discounts?.code || null,
+      applicationRule: discountMeta?.application_rule || null,
       discountAmount,
       total,
       totalPrice: total,

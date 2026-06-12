@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import {
   RefreshCw, ClipboardList, LogIn, LogOut, ShoppingCart, Eye,
+  Users, CalendarClock,
 } from 'lucide-react';
-import { Badge } from './ui';
-import FilterButtonGroup from './ui/FilterButtonGroup';
-import TableActionButton from './TableActionButton';
+import { Badge } from '../ui';
+import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
+import { PHASE_CONFIG } from '../../utils/statusConfigs';
+import FilterButtonGroup from '../ui/FilterButtonGroup';
+import TableActionButton from '../TableActionButton';
 import OrderModal from './OrderModal';
-import FinancialDetailsModal from './financial/FinancialDetailsModal';
+import SummaryModal from '../financial/SummaryModal';
 
 const FILTER_OPTIONS = [
   { key: 'today',      label: 'Today'       },
@@ -15,6 +18,43 @@ const FILTER_OPTIONS = [
 ];
 
 const BASE_URL = '/api';
+
+const PHASE_CARD_CONFIG = [
+  { key: 'arrival',   label: PHASE_CONFIG.arrival.label,   icon: LogIn },
+  { key: 'in-house',  label: PHASE_CONFIG['in-house'].label, icon: Users },
+  { key: 'departure', label: PHASE_CONFIG.departure.label, icon: LogOut },
+  { key: 'upcoming',  label: PHASE_CONFIG.upcoming.label,  icon: CalendarClock },
+];
+
+function getBookingStatus(booking) {
+  return booking.booking_status || booking.status;
+}
+
+function computePhaseConfig(booking, todayISO) {
+  const bookingStatus = getBookingStatus(booking);
+  if (bookingStatus === 'cancelled') return 'cancelled';
+  if (bookingStatus === 'checked_in') return 'in-house';
+  if (booking.check_in_date === todayISO) return 'arrival';
+  if (booking.check_out_date === todayISO) return 'departure';
+  if (booking.check_in_date > todayISO) return 'upcoming';
+  return 'in-house';
+}
+
+function normalizeBooking(booking, todayISO) {
+  const bookingStatus = getBookingStatus(booking);
+  const isCancelled = bookingStatus === 'cancelled';
+
+  return {
+    ...booking,
+    booking_status: bookingStatus,
+    phase_config: isCancelled ? 'cancelled' : computePhaseConfig(booking, todayISO),
+    payment_status: isCancelled ? 'cancelled' : (booking.payment_status || 'pending'),
+  };
+}
+
+function isActiveBooking(booking) {
+  return getBookingStatus(booking) !== 'cancelled';
+}
 
 function BreakfastCell({ count }) {
   if (!count) return <span className="cell-empty">—</span>;
@@ -38,8 +78,8 @@ function BookingActions({
   checkingInId, checkingOutId,
   onOrder, onCheckIn, onCheckOut, onViewDetails,
 }) {
-  const canCheckIn  = booking.status === 'confirmed';
-  const canCheckOut = booking.status === 'checked_in' && booking.check_out_date === todayISO;
+  const canCheckIn  = booking.booking_status === 'confirmed';
+  const canCheckOut = booking.booking_status === 'checked_in' && booking.check_out_date === todayISO;
 
   return (
     <div className="table-action-group">
@@ -52,7 +92,7 @@ function BookingActions({
         <Eye size={13} />
       </TableActionButton>
 
-      {booking.status === 'checked_in' && (
+      {booking.booking_status === 'checked_in' && (
         <TableActionButton
           title="Add food & beverage order"
           variant="default"
@@ -110,11 +150,10 @@ function TableHead() {
 }
 
 function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, onCheckIn, onCheckOut, onViewDetails }) {
-  // Automation: If status is checked_in, force phase display to 'In House'
-  const computedPhase = booking.status === 'checked_in' ? 'in-house' : booking.stay_phase;
+  const phase = booking.phase_config;
 
   return (
-    <tr className={rowClassName(computedPhase)}>
+    <tr className={rowClassName(phase)}>
       <td className="cell-guest">
         {booking.guests?.full_name || 'Walk-in Guest'}
       </td>
@@ -127,15 +166,15 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
       <td className="text-center">
         <Badge type="payment" value={booking.payment_status || 'pending'} />
       </td>
-      <td><Badge type="status" value={booking.status} /></td>
+      <td><Badge type="status" value={booking.booking_status} /></td>
       <td>
         <Badge
           type="phase"
-          value={computedPhase}
+          value={phase}
           icon={
-            computedPhase === 'arrival'   ? '→' :
-            computedPhase === 'departure' ? '←' : 
-            computedPhase === 'In House'  ? '✓' : undefined
+            phase === 'arrival'   ? '→' :
+            phase === 'departure' ? '←' :
+            phase === 'in-house'  ? '✓' : undefined
           }
         />
       </td>
@@ -230,29 +269,68 @@ function useBookingActions(onRefresh) {
   return { checkingInId, checkingOutId, handleCheckIn, handleCheckOut };
 }
 
-function useFilteredBookings(bookings, smartFilter, todayISO) {
+function useActiveBookings(bookings, todayISO) {
+  return useMemo(
+    () => bookings
+      .filter(isActiveBooking)
+      .map(b => normalizeBooking(b, todayISO)),
+    [bookings, todayISO],
+  );
+}
+
+function usePhaseMetrics(activeBookings) {
+  return useMemo(() => {
+    const counts = { arrival: 0, 'in-house': 0, departure: 0, upcoming: 0 };
+    for (const booking of activeBookings) {
+      const phase = booking.phase_config;
+      if (phase && phase !== 'cancelled' && Object.hasOwn(counts, phase)) {
+        counts[phase] += 1;
+      }
+    }
+    return counts;
+  }, [activeBookings]);
+}
+
+function useFilteredBookings(activeBookings, smartFilter, todayISO) {
   return useMemo(() => {
     const sevenDaysLater = new Date(todayISO);
     sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
     const sevenDaysLaterISO = sevenDaysLater.toISOString().split('T')[0];
 
     if (smartFilter === 'today') {
-      return bookings.filter(b => {
+      return activeBookings.filter(b => {
         const isArrival   = b.check_in_date  === todayISO;
         const isDeparture = b.check_out_date === todayISO;
-        const isInHouse   = b.status === 'checked_in' || (b.check_in_date < todayISO && b.check_out_date > todayISO);
+        const isInHouse   = b.booking_status === 'checked_in'
+          || (b.check_in_date < todayISO && b.check_out_date > todayISO);
         return isArrival || isDeparture || isInHouse;
       });
     }
     if (smartFilter === 'upcoming-7') {
-      return bookings.filter(b =>
+      return activeBookings.filter(b =>
         b.check_in_date > todayISO &&
         b.check_in_date <= sevenDaysLaterISO &&
-        !['checked_out', 'cancelled'].includes(b.status)
+        !['checked_out', 'cancelled'].includes(b.booking_status),
       );
     }
-    return bookings.filter(b => b.status !== 'cancelled');
-  }, [bookings, todayISO, smartFilter]);
+    return activeBookings;
+  }, [activeBookings, todayISO, smartFilter]);
+}
+
+function PhaseMetricsCards({ metrics, loading }) {
+  return (
+    <KpiCardGrid className="kpi-card-grid--four">
+      {PHASE_CARD_CONFIG.map(({ key, label, icon }) => (
+        <KpiCard
+          key={key}
+          icon={icon}
+          label={label}
+          value={metrics[key] ?? 0}
+          loading={loading}
+        />
+      ))}
+    </KpiCardGrid>
+  );
 }
 
 function Overview({ bookings, loading, error, onRefresh }) {
@@ -264,10 +342,14 @@ function Overview({ bookings, loading, error, onRefresh }) {
   const todayISO = new Date().toISOString().split('T')[0];
 
   const { checkingInId, checkingOutId, handleCheckIn, handleCheckOut } = useBookingActions(onRefresh);
-  const filtered = useFilteredBookings(bookings, smartFilter, todayISO);
+  const activeBookings = useActiveBookings(bookings, todayISO);
+  const phaseMetrics = usePhaseMetrics(activeBookings);
+  const filtered = useFilteredBookings(activeBookings, smartFilter, todayISO);
 
   return (
     <>
+      <PhaseMetricsCards metrics={phaseMetrics} loading={loading} />
+
       <main className="data-section">
         <SectionHeader
           smartFilter={smartFilter}
@@ -300,7 +382,8 @@ function Overview({ bookings, loading, error, onRefresh }) {
                     onCheckOut={handleCheckOut}
                     onViewDetails={() => setDetailsRow({
                       bookingId: booking.id,
-                      guestName: booking.guests?.full_name || 'Walk-in Guest'
+                      guestName: booking.guests?.full_name || 'Walk-in Guest',
+                      displayId: booking.display_id,
                     })}
                   />
                 ))}
@@ -310,10 +393,11 @@ function Overview({ bookings, loading, error, onRefresh }) {
         )}
       </main>
 
-      <FinancialDetailsModal
+      <SummaryModal
         isOpen={!!detailsRow}
         bookingId={detailsRow?.bookingId}
         guestName={detailsRow?.guestName}
+        displayId={detailsRow?.displayId}
         onClose={() => setDetailsRow(null)}
       />
 

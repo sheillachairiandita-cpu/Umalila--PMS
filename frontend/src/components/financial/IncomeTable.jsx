@@ -149,6 +149,7 @@ function IncomeTable({ rows, loading, onViewDetails }) {
                 <th className="text-right">Accommodation</th>
                 <th className="text-right">F&B</th>
                 <th className="text-right">Add-ons</th>
+                <th className="text-right">Discount</th>
                 <th className="text-right">Total</th>
                 <th className="text-right">Paid</th>
                 <th className="text-right">Balance Due</th>
@@ -171,6 +172,13 @@ function IncomeTable({ rows, loading, onViewDetails }) {
                   </td>
                   <td className="text-right">
                     {row.totalAddons > 0 ? formatRp(row.totalAddons) : '—'}
+                  </td>
+                  <td className="text-right">
+                    {(row.discountAmount || 0) > 0 ? (
+                      <span className="financial-summary-discount">−{formatRp(row.discountAmount)}</span>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td className="text-right">{formatRp(row.total)}</td>
                   <td className="text-right">

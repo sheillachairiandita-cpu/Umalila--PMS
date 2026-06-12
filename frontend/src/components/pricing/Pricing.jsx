@@ -20,21 +20,7 @@ function Pricing() {
 
   return (
     <div className="pricing-page">
-      <div className="pricing-page__header">
-        <div>
-          <h2 className="pricing-page__title">Pricing Management</h2>
-          <p className="pricing-page__subtitle">
-            Configure rates, services, and discounts across all property units.
-          </p>
-        </div>
-        <div className="pricing-lock-banner">
-          <ShieldAlert size={14} />
-          <span>
-            Rate changes apply to <strong>future reservations only</strong> — confirmed bookings are locked.
-          </span>
-        </div>
-      </div>
-
+     
       <PageTabs
         ariaLabel="Pricing sections"
         activeTab={activeTab}

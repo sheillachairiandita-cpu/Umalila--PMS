@@ -13,14 +13,15 @@ import {
   formatRp,
 } from './pricingShared';
 
-const CATEGORIES = ['food', 'beverage', 'snack', 'dessert', 'other'];
+const CATEGORIES = ['food', 'beverage', 'snack', 'dessert','partner_kitchen', 'other'];
 
 const CATEGORY_META = {
   food:     { label: 'Food',            color: '#b45309', bg: '#fffbeb' },
   beverage: { label: 'Beverage',        color: '#1e40af', bg: '#eff6ff' },
   snack:    { label: 'Snack',           color: '#7c3aed', bg: '#f5f3ff' },
   dessert:  { label: 'Dessert',         color: '#be185d', bg: '#fdf2f8' },
-  other:    { label: 'Partner Kitchen', color: '#374151', bg: '#f9fafb' },
+  partner_kitchen:  { label: 'Partner Kitchen',  color: '#bc6c8d', bg: '#fdf2f8', border: '#fbcfe8' },
+  other:    { label: 'Other',           color: '#374151', bg: '#f9fafb' },
 };
 
 function MenuModal({ isOpen, onClose, onSaved, initialData }) {

@@ -1,0 +1,461 @@
+import {
+  computeVillasStayTotal,
+} from '../../utils/villaRateUtils';
+
+export function formatRp(v) {
+  const n = Number(v) || 0;
+  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1)}M`;
+  return `Rp ${n.toLocaleString('id-ID')}`;
+}
+
+export function formatPct(v) {
+  return `${(Number(v) || 0).toFixed(1)}%`;
+}
+
+export function formatNum(v) {
+  return (Number(v) || 0).toLocaleString('id-ID');
+}
+
+export function getISODate(d) {
+  return d.toISOString().split('T')[0];
+}
+
+export function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
+}
+
+export function startOf(unit, ref = new Date()) {
+  const d = new Date(ref);
+  if (unit === 'week') {
+    d.setDate(d.getDate() - d.getDay());
+    d.setHours(0, 0, 0, 0);
+  }
+  if (unit === 'month') {
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+  }
+  if (unit === 'year') {
+    d.setMonth(0, 1);
+    d.setHours(0, 0, 0, 0);
+  }
+  return d;
+}
+
+export const RANGE_PRESETS = [
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'This Month' },
+  { key: '3m', label: '3 Months' },
+  { key: 'mtd', label: 'Month-to-Date' },
+  { key: 'ytd', label: 'Year-to-Date' },
+  { key: 'custom', label: 'Custom Range' },
+];
+
+export function getRangeDates(preset) {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  let start;
+
+  if (preset === 'week') {
+    start = startOf('week');
+  } else if (preset === 'month' || preset === 'mtd') {
+    start = startOf('month');
+  } else if (preset === 'ytd') {
+    start = startOf('year');
+  } else if (preset === '3m') {
+    start = addDays(new Date(), -90);
+    start.setHours(0, 0, 0, 0);
+  } else {
+    start = startOf('month');
+  }
+
+  return { start, end: today };
+}
+
+function dateOnly(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function inDateRange(dateStr, rangeStart, rangeEnd) {
+  if (!dateStr) return false;
+  const d = dateOnly(dateStr);
+  return d >= dateOnly(rangeStart) && d <= dateOnly(rangeEnd);
+}
+
+function stayNights(checkIn, checkOut) {
+  const a = dateOnly(checkIn);
+  const b = dateOnly(checkOut);
+  return Math.max(0, Math.ceil((b - a) / 86400000));
+}
+
+function nightsInRange(checkIn, checkOut, rangeStart, rangeEnd) {
+  const total = stayNights(checkIn, checkOut);
+  if (!total) return 0;
+
+  let count = 0;
+  const cur = dateOnly(checkIn);
+  const end = dateOnly(checkOut);
+  const rs = dateOnly(rangeStart);
+  const re = dateOnly(rangeEnd);
+
+  while (cur < end) {
+    if (cur >= rs && cur <= re) count += 1;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+function stayOverlapsRange(checkIn, checkOut, rangeStart, rangeEnd) {
+  return nightsInRange(checkIn, checkOut, rangeStart, rangeEnd) > 0;
+}
+
+function prorateAmount(amount, checkIn, checkOut, rangeStart, rangeEnd) {
+  const totalNights = stayNights(checkIn, checkOut);
+  if (!totalNights) return 0;
+  const inRange = nightsInRange(checkIn, checkOut, rangeStart, rangeEnd);
+  if (!inRange) return 0;
+  return (Number(amount) || 0) * (inRange / totalNights);
+}
+
+function matchesVilla(villaNames, villaFilter) {
+  if (villaFilter === 'all') return true;
+  return (villaNames || '').includes(villaFilter);
+}
+
+function villaCount(villas, villaFilter) {
+  if (villaFilter === 'all') return Math.max(villas?.length || 1, 1);
+  return 1;
+}
+
+function monthKey(dateStr) {
+  return (dateStr || '').slice(0, 7);
+}
+
+function monthLabel(key) {
+  const [, mm] = key.split('-');
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return names[parseInt(mm, 10) - 1] || mm;
+}
+
+const EXPENSE_CATEGORIES = [
+  { key: 'operational', label: 'Operational', color: 'var(--navy)' },
+  { key: 'salary', label: 'Salary', color: '#6366f1' },
+  { key: 'f&b_cost', label: 'F&B Cost', color: 'var(--green)' },
+  { key: 'maintenance', label: 'Maintenance', color: '#d97706' },
+  { key: 'marketing', label: 'Marketing', color: '#7c3aed' },
+  { key: 'other_expense', label: 'Other', color: 'var(--text-light)' },
+];
+
+const REVENUE_SEGMENTS = [
+  { key: 'room_revenue', label: 'Room Revenue', color: 'var(--navy)' },
+  { key: 'order_revenue', label: 'Order Revenue', color: 'var(--green)' },
+  { key: 'addon_revenue', label: 'Add-on Revenue', color: '#7c3aed' },
+  { key: 'other_income', label: 'Other Income', color: 'var(--text-light)' },
+];
+
+function villaUnits(booking) {
+  return Math.max(booking?.booking_villas?.length || 1, 1);
+}
+
+function prorateTieredAccommodation(booking, rangeStart, rangeEnd, holidays = []) {
+  const villas = (booking.booking_villas || []).map((bv) => bv.villas).filter(Boolean);
+  if (!villas.length) return 0;
+  const fullTotal = computeVillasStayTotal(
+    villas,
+    booking.check_in_date,
+    booking.check_out_date,
+    holidays
+  );
+  return prorateAmount(fullTotal, booking.check_in_date, booking.check_out_date, rangeStart, rangeEnd);
+}
+
+export function processFinancialData({
+  bookings,
+  incomeRows,
+  transactions,
+  expenses,
+  rangeStart,
+  rangeEnd,
+  villaFilter,
+  villas,
+  pricingHolidays = [],
+}) {
+  const incomeMap = {};
+  (incomeRows || []).forEach((r) => {
+    incomeMap[r.bookingId] = r;
+  });
+
+  const bookingById = {};
+  (bookings || []).forEach((b) => { bookingById[b.id] = b; });
+
+  let grossRevenue = 0;
+  let roomRevenue = 0;
+  let orderRevenue = 0;
+  let addonRevenue = 0;
+  let totalDiscounts = 0;
+
+  (bookings || []).forEach((b) => {
+    if (b.status === 'cancelled') return;
+    if (!matchesVilla(b.villa_names, villaFilter)) return;
+    if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
+
+    const summary = incomeMap[b.id];
+    if (summary) {
+      const room = prorateAmount(summary.totalAccommodation, b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+      const addon = prorateAmount(summary.totalAddons, b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+      const order = prorateAmount(summary.totalMenuItems, b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+      const discount = prorateAmount(summary.discountAmount, b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+      roomRevenue += room;
+      addonRevenue += addon;
+      orderRevenue += order;
+      totalDiscounts += discount;
+      grossRevenue += room + addon + order;
+    } else {
+      const room = prorateTieredAccommodation(b, rangeStart, rangeEnd, pricingHolidays);
+      roomRevenue += room;
+      grossRevenue += room;
+      (b.booking_addons || []).forEach((ba) => {
+        const unit = Number(ba.unit_price) || Number(ba.addons?.price) || 0;
+        const qty = ba.quantity || 1;
+        const perNight = ba.addons?.is_per_night !== false;
+        const nights = nightsInRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+        const line = perNight ? unit * qty * nights : (nights > 0 ? Number(ba.subtotal) || unit * qty : 0);
+        addonRevenue += line;
+        grossRevenue += line;
+      });
+      const orderTotal = Number(b.order_total) || 0;
+      if (orderTotal > 0 && stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) {
+        const prorated = prorateAmount(orderTotal, b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+        orderRevenue += prorated;
+        grossRevenue += prorated;
+      }
+    }
+  });
+
+  const amountCollected = (transactions || [])
+    .filter((t) => t.type === 'income' && t.status === 'approved')
+    .filter((t) => inDateRange(t.transaction_date, rangeStart, rangeEnd))
+    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+  const pendingDeposit = (incomeRows || [])
+    .filter((r) => ['confirmed', 'checked_in'].includes(r.bookingStatus))
+    .filter((r) => matchesVilla(bookingById[r.bookingId]?.villa_names, villaFilter))
+    .reduce((s, r) => s + (Number(r.balanceDue) || 0), 0);
+
+  const expenseByCategory = {};
+  EXPENSE_CATEGORIES.forEach((c) => { expenseByCategory[c.key] = 0; });
+
+  const totalExpenses = (expenses || [])
+    .filter((e) => e.status === 'approved')
+    .filter((e) => inDateRange(e.transactionDate || e.transaction_date, rangeStart, rangeEnd))
+    .reduce((s, e) => {
+      const amt = Number(e.amount) || 0;
+      const cat = e.category || 'other_expense';
+      if (expenseByCategory[cat] !== undefined) expenseByCategory[cat] += amt;
+      else expenseByCategory.other_expense += amt;
+      return s + amt;
+    }, 0);
+
+  const netProfit = amountCollected - totalExpenses;
+
+  const rooms = villaCount(villas, villaFilter);
+  const rangeDays = Math.max(1, Math.ceil((dateOnly(rangeEnd) - dateOnly(rangeStart)) / 86400000) + 1);
+  const availableRoomNights = rooms * rangeDays;
+  const gop = grossRevenue - totalExpenses;
+  const goppar = availableRoomNights ? gop / availableRoomNights : 0;
+  const maxGoppar = Math.max(Math.abs(goppar) * 1.25, 100000);
+
+  const expenseSegments = EXPENSE_CATEGORIES.map((c) => ({
+    ...c,
+    value: expenseByCategory[c.key] || 0,
+  }));
+
+  const revenueSegments = REVENUE_SEGMENTS.map((c) => ({
+    ...c,
+    value: {
+      room_revenue: roomRevenue,
+      order_revenue: orderRevenue,
+      addon_revenue: addonRevenue,
+      other_income: 0,
+    }[c.key] || 0,
+  }));
+
+  const monthMap = {};
+  let cur = dateOnly(rangeStart);
+  const end = dateOnly(rangeEnd);
+  while (cur <= end) {
+    const mk = monthKey(getISODate(cur));
+    if (!monthMap[mk]) monthMap[mk] = { revenue: 0, expenses: 0 };
+    cur = addDays(cur, 1);
+  }
+
+  (bookings || []).forEach((b) => {
+    if (b.status === 'cancelled') return;
+    if (!matchesVilla(b.villa_names, villaFilter)) return;
+    if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
+    const summary = incomeMap[b.id];
+    const total = summary
+      ? prorateAmount(summary.total, b.check_in_date, b.check_out_date, rangeStart, rangeEnd)
+      : 0;
+    const mk = monthKey(b.check_in_date);
+    if (monthMap[mk]) monthMap[mk].revenue += total;
+  });
+
+  (expenses || [])
+    .filter((e) => e.status === 'approved')
+    .filter((e) => inDateRange(e.transactionDate || e.transaction_date, rangeStart, rangeEnd))
+    .forEach((e) => {
+      const mk = monthKey(e.transactionDate || e.transaction_date);
+      if (monthMap[mk]) monthMap[mk].expenses += Number(e.amount) || 0;
+    });
+
+  const monthlyComparison = Object.entries(monthMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, val]) => ({
+      label: monthLabel(key),
+      revenue: val.revenue,
+      expenses: val.expenses,
+    }));
+
+  return {
+    grossRevenue,
+    netRevenue: Math.max(grossRevenue - totalDiscounts, 0),
+    amountCollected,
+    pendingDeposit,
+    totalExpenses,
+    totalDiscounts,
+    netProfit,
+    goppar,
+    maxGoppar,
+    expenseSegments,
+    revenueSegments,
+    monthlyComparison,
+  };
+}
+
+export function processHospitalityData({
+  bookings,
+  incomeRows,
+  rangeStart,
+  rangeEnd,
+  villaFilter,
+  villas,
+  pricingHolidays = [],
+}) {
+  const incomeMap = {};
+  (incomeRows || []).forEach((r) => {
+    incomeMap[r.bookingId] = r;
+  });
+
+  let roomNightsSold = 0;
+  let roomRevenue = 0;
+
+  const bookingById = {};
+  (bookings || []).forEach((b) => { bookingById[b.id] = b; });
+
+  const filtered = (bookings || []).filter((b) => {
+    if (b.status === 'cancelled') return false;
+    if (!matchesVilla(b.villa_names, villaFilter)) return false;
+    return stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+  });
+
+  filtered.forEach((b) => {
+    const nights = nightsInRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+    roomNightsSold += nights * villaUnits(b);
+
+    const summary = incomeMap[b.id];
+    if (summary) {
+      roomRevenue += prorateAmount(summary.totalAccommodation, b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+    } else {
+      roomRevenue += prorateTieredAccommodation(b, rangeStart, rangeEnd, pricingHolidays);
+    }
+  });
+
+  const rooms = villaCount(villas, villaFilter);
+  const rangeDays = Math.max(1, Math.ceil((dateOnly(rangeEnd) - dateOnly(rangeStart)) / 86400000) + 1);
+  const availableRoomNights = rooms * rangeDays;
+
+  const occupancyRate = availableRoomNights ? (roomNightsSold / availableRoomNights) * 100 : 0;
+  const adr = roomNightsSold ? roomRevenue / roomNightsSold : 0;
+  const revpar = availableRoomNights ? roomRevenue / availableRoomNights : 0;
+
+  const leadTimeBuckets = [
+    { label: '0–3 days', min: 0, max: 3, value: 0 },
+    { label: '4–7 days', min: 4, max: 7, value: 0 },
+    { label: '8–30 days', min: 8, max: 30, value: 0 },
+    { label: '>30 days', min: 31, max: Infinity, value: 0 },
+  ];
+
+  filtered.forEach((b) => {
+    const created = dateOnly(b.created_at);
+    const checkIn = dateOnly(b.check_in_date);
+    const leadDays = Math.max(0, Math.round((checkIn - created) / 86400000));
+    const bucket = leadTimeBuckets.find((bk) => leadDays >= bk.min && leadDays <= bk.max);
+    if (bucket) bucket.value += 1;
+  });
+
+  const useWeekly = rangeDays > 14;
+  const trendMap = {};
+
+  if (useWeekly) {
+    let wStart = dateOnly(rangeStart);
+    while (wStart <= dateOnly(rangeEnd)) {
+      const wEnd = addDays(wStart, 6);
+      const label = `${wStart.getDate()}/${wStart.getMonth() + 1}`;
+      trendMap[label] = { label, start: new Date(wStart), end: wEnd, occupancy: 0, revpar: 0, roomNights: 0, roomRev: 0 };
+      wStart = addDays(wStart, 7);
+    }
+  } else {
+    let d = dateOnly(rangeStart);
+    while (d <= dateOnly(rangeEnd)) {
+      const key = getISODate(d);
+      trendMap[key] = { label: key.slice(5), start: new Date(d), end: new Date(d), occupancy: 0, revpar: 0, roomNights: 0, roomRev: 0 };
+      d = addDays(d, 1);
+    }
+  }
+
+  filtered.forEach((b) => {
+    const summary = incomeMap[b.id];
+    const units = villaUnits(b);
+    let cur = dateOnly(b.check_in_date);
+    const end = dateOnly(b.check_out_date);
+    while (cur < end) {
+      if (cur >= dateOnly(rangeStart) && cur <= dateOnly(rangeEnd)) {
+        const bucket = Object.values(trendMap).find((t) => cur >= dateOnly(t.start) && cur <= dateOnly(t.end));
+        if (bucket) {
+          bucket.roomNights += units;
+          const stayN = Math.max(stayNights(b.check_in_date, b.check_out_date), 1);
+          const nightlyRoom = summary
+            ? (summary.totalAccommodation / stayN) * units
+            : (prorateTieredAccommodation(b, b.check_in_date, b.check_out_date, pricingHolidays) / stayN);
+          bucket.roomRev += nightlyRoom;
+        }
+      }
+      cur = addDays(cur, 1);
+    }
+  });
+
+  const trendData = Object.values(trendMap).map((t) => {
+    const bucketDays = Math.ceil((dateOnly(t.end) - dateOnly(t.start)) / 86400000) + 1;
+    const avail = rooms * bucketDays;
+    return {
+      label: t.label,
+      occupancy: avail ? (t.roomNights / avail) * 100 : 0,
+      revpar: avail ? t.roomRev / avail : 0,
+    };
+  });
+
+  return {
+    occupancyRate,
+    adr,
+    revpar,
+    roomNightsSold,
+    trendData,
+    leadTimeBuckets: leadTimeBuckets.map(({ label, value }) => ({ label, value })),
+    bookingSource: [{ label: 'WhatsApp (WA)', value: filtered.length || 1, color: '#25D366' }],
+  };
+}

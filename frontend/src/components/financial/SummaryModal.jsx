@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Modal, Button } from '../ui';
 import Alert from '../ui/Alert';
 import Badge from '../ui/Badge';
 
@@ -6,70 +7,64 @@ function formatRp(amount) {
   return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
 }
 
-export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const onDataLoadedRef = useRef(onDataLoaded);
+function formatMetaValue(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return value;
+}
 
-  useEffect(() => {
-    onDataLoadedRef.current = onDataLoaded;
-  }, [onDataLoaded]);
+function ChargeSection({ title, lines }) {
+  if (!lines?.length) return null;
 
-  useEffect(() => {
-    if (!bookingId) {
-      setData(null);
-      return;
-    }
+  return (
+    <>
+      <tr className="financial-summary-section-row">
+        <td colSpan={4}>{title}</td>
+      </tr>
+      {lines.map((line, idx) => (
+        <tr key={`${title}-${line.name || line.description}-${idx}`}>
+          <td className="financial-summary-item">{line.description || line.name}</td>
+          <td className="text-center">{line.quantity}</td>
+          <td className="text-right">{formatRp(line.unitPrice ?? line.unit_price)}</td>
+          <td className="text-right financial-summary-subtotal">{formatRp(line.subtotal)}</td>
+        </tr>
+      ))}
+    </>
+  );
+}
 
-    let cancelled = false;
-
-    const fetchDetails = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/bookings/${bookingId}/invoice`);
-        if (!res.ok) throw new Error('Failed to load financial details');
-        const summaryData = await res.json();
-        if (cancelled) return;
-        setData(summaryData);
-        onDataLoadedRef.current?.(summaryData);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    fetchDetails();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bookingId]);
-
-  if (loading) {
-    return <div className="financial-summary-loading">Loading summary ledger…</div>;
-  }
-
-  if (error) {
-    return <Alert type="error" message={error} />;
-  }
-
-  if (!data) return null;
-
+function SummaryContent({ data }) {
   const bookingRef = data.displayId || data.invoiceNumber;
-  const chargeLines = (data.lineItems || []).filter((line) => line.type !== 'discount' && (line.subtotal ?? 0) >= 0);
+
+  const accommodationLines = data.accommodationLines?.length
+    ? data.accommodationLines
+    : (data.lineItems || []).filter((line) => line.type === 'accommodation');
+
+  const addonLines = data.addonLines?.length
+    ? data.addonLines
+    : (data.lineItems || []).filter((line) => line.type === 'addon');
+
+  const menuLines = data.menuLines?.length
+    ? data.menuLines
+    : (data.lineItems || []).filter((line) => line.type === 'menu');
+
+  const chargeLines = [...accommodationLines, ...addonLines, ...menuLines].filter(
+    (line) => (line.subtotal ?? 0) >= 0
+  );
+
   const discountLines = data.discountLines?.length
     ? data.discountLines
     : (data.lineItems || []).filter((line) => line.type === 'discount' || (line.subtotal ?? 0) < 0);
+
   const discountAmount = Number(data.discountAmount) || discountLines.reduce(
     (sum, line) => sum + Math.abs(Number(line.subtotal) || 0),
     0
   );
+
   const subtotalBeforeDiscount = Number(data.subtotalBeforeDiscount) || (
     chargeLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0)
   );
+
+  const hasSections = accommodationLines.length > 0 || addonLines.length > 0 || menuLines.length > 0;
 
   return (
     <div className="financial-summary-container">
@@ -89,6 +84,11 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
           <span className="financial-meta-value">
             {data.checkIn && data.checkOut ? `${data.checkIn} → ${data.checkOut}` : '—'}
           </span>
+        </div>
+
+        <div className="financial-meta-row">
+          <span className="financial-meta-label">Number of Guest</span>
+          <span className="financial-meta-value">{formatMetaValue(data.totalGuests)}</span>
         </div>
 
         {data.discountCode && (
@@ -121,6 +121,12 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
                   No lines attached to this booking.
                 </td>
               </tr>
+            ) : hasSections ? (
+              <>
+                <ChargeSection title="Accommodation" lines={accommodationLines} />
+                <ChargeSection title="Add-ons" lines={addonLines} />
+                <ChargeSection title="Menu & Orders" lines={menuLines} />
+              </>
             ) : (
               chargeLines.map((line, idx) => (
                 <tr key={`${line.name || line.description}-${idx}`}>
@@ -168,3 +174,92 @@ export function FinancialSummaryTable({ bookingId, onDataLoaded }) {
     </div>
   );
 }
+
+function SummaryModal({
+  isOpen,
+  bookingId,
+  guestName,
+  displayId,
+  onClose,
+  embedded = false,
+  onDataLoaded,
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const onDataLoadedRef = useRef(onDataLoaded);
+
+  useEffect(() => {
+    onDataLoadedRef.current = onDataLoaded;
+  }, [onDataLoaded]);
+
+  useEffect(() => {
+    const shouldFetch = embedded ? (isOpen && !!bookingId) : (isOpen && !!bookingId);
+
+    if (!shouldFetch) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const fetchDetails = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/bookings/${bookingId}/invoice`);
+        if (!res.ok) throw new Error('Failed to load financial details');
+        const summaryData = await res.json();
+        if (cancelled) return;
+        setData(summaryData);
+        onDataLoadedRef.current?.(summaryData);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    fetchDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId, isOpen, embedded]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setData(null);
+      setError(null);
+      setLoading(false);
+    }
+  }, [isOpen]);
+
+  let body = null;
+  if (loading) {
+    body = <div className="financial-summary-loading">Loading summary ledger…</div>;
+  } else if (error) {
+    body = <Alert type="error" message={error} />;
+  } else if (data) {
+    body = <SummaryContent data={data} />;
+  }
+
+  if (embedded) {
+    return body;
+  }
+
+  if (!isOpen) return null;
+
+  const titleSuffix = guestName || 'Guest';
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      <Modal.Header title={`Booking Details — ${titleSuffix}`} />
+      <Modal.Body>{body}</Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose}>Close</Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
+export default SummaryModal;

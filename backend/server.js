@@ -6,8 +6,14 @@ import {
   calculateDiscountAmount,
   mapDiscountRow,
   discountPayloadFromBody,
+  validateDiscountPayload,
+  isDiscountEligible,
+  buildDiscountBookingContext,
+  resolveDiscountApplication,
+  normalizeStatus,
 } from './lib/discountUtils.js';
 import { streamBookingConfirmationPdf } from './lib/pdfHelpers.js';
+import { computeVillaStayCharges, buildTieredAccommodationLines } from './lib/villaRateUtils.js';
 
 dotenv.config();
 
@@ -58,7 +64,15 @@ app.get('/api/bookings', async (req, res) => {
           villa_id,
           rate_per_night,
           nights,
-          villas (id, name, base_rate_per_night, base_breakfast, display_id)
+          villas (
+            id,
+            name,
+            base_rate_per_night,
+            weekend_rate_per_night,
+            holiday_rate_per_night,
+            base_breakfast,
+            display_id
+          )
         ),
         booking_addons (
           addon_id,
@@ -144,6 +158,8 @@ app.post('/api/bookings', async (req, res) => {
     discount_id,
   } = req.body;
 
+  let createdBookingId = null;
+
   try {
     const { data: conflictingBookings, error: checkError } = await supabase
       .from('booking_villas')
@@ -172,14 +188,26 @@ app.post('/api/bookings', async (req, res) => {
       check_out_date,
     });
 
+    const discountContext = buildDiscountBookingContext({
+      checkInDate: check_in_date,
+      checkOutDate: check_out_date,
+      nights: stayNights(check_in_date, check_out_date),
+      bookingAmount: charges.accommodationTotal,
+      villaIds: villa_ids,
+      guestId: guest_id,
+    });
+
     const { discount, discount_id: resolvedDiscountId } = await resolveDiscountForBooking({
       apply_discount: !!apply_discount,
       discount_id,
+      context: discountContext,
+      charges,
     });
 
     let discountAmount = 0;
     if (discount) {
       const result = calculateDiscountAmount(discount, {
+        ...discountContext,
         villaLines: charges.villaLines,
         addonLines: charges.addonLines,
         menuLines: [],
@@ -206,15 +234,25 @@ app.post('/api/bookings', async (req, res) => {
       .single();
 
     if (bookingError) throw bookingError;
+    createdBookingId = bookingData.id;
 
-    const nights = stayNights(check_in_date, check_out_date);
+    const nights = charges.nights;
+
+    const holidays = await fetchPricingHolidays();
     const { data: villaCatalog, error: villaFetchError } = await supabase
       .from('villas')
-      .select('id, base_rate_per_night')
+      .select('id, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night')
       .in('id', villa_ids);
     if (villaFetchError) throw villaFetchError;
 
-    const bridgeRows = buildBookingVillaRows(bookingData.id, villa_ids, villaCatalog, nights);
+    const bridgeRows = buildBookingVillaRows(
+      bookingData.id,
+      villa_ids,
+      villaCatalog,
+      check_in_date,
+      check_out_date,
+      holidays
+    );
     const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
     if (bridgeError) throw bridgeError;
 
@@ -237,6 +275,11 @@ app.post('/api/bookings', async (req, res) => {
 
     res.status(201).json(bookingData);
   } catch (error) {
+    if (createdBookingId) {
+      await supabase.from('booking_addons').delete().eq('booking_id', createdBookingId);
+      await supabase.from('booking_villas').delete().eq('booking_id', createdBookingId);
+      await supabase.from('bookings').delete().eq('id', createdBookingId);
+    }
     res.status(400).json({ error: error.message });
   }
 });
@@ -336,6 +379,13 @@ app.patch('/api/bookings/:id', async (req, res) => {
       check_out_date !== undefined;
 
     if (shouldRecalculate) {
+      const { data: bookingMeta, error: bookingMetaError } = await supabase
+        .from('bookings')
+        .select('guest_id')
+        .eq('id', id)
+        .single();
+      if (bookingMetaError) throw bookingMetaError;
+
       let resolvedVillaIds = villa_ids;
       if (!Array.isArray(resolvedVillaIds)) {
         const { data: currentVillas, error: villaFetchError } = await supabase
@@ -366,9 +416,20 @@ app.patch('/api/bookings/:id', async (req, res) => {
         check_out_date: nextCheckOut,
       });
 
+      const discountContext = buildDiscountBookingContext({
+        checkInDate: nextCheckIn,
+        checkOutDate: nextCheckOut,
+        nights: stayNights(nextCheckIn, nextCheckOut),
+        bookingAmount: charges.accommodationTotal,
+        villaIds: resolvedVillaIds,
+        guestId: bookingMeta.guest_id,
+      });
+
       const { discount } = await resolveDiscountForBooking({
         apply_discount: apply_discount === true,
         discount_id: apply_discount === true ? discount_id : undefined,
+        context: discountContext,
+        charges,
       });
 
       let discountAmount = 0;
@@ -393,7 +454,15 @@ app.patch('/api/bookings/:id', async (req, res) => {
         }
 
         if (discountToApply) {
+          const eligibility = isDiscountEligible(discountToApply, discountContext);
+          if (!eligibility.eligible) {
+            discountToApply = null;
+          }
+        }
+
+        if (discountToApply) {
           const result = calculateDiscountAmount(discountToApply, {
+            ...discountContext,
             villaLines: charges.villaLines,
             addonLines: charges.addonLines,
             menuLines: [],
@@ -414,13 +483,21 @@ app.patch('/api/bookings/:id', async (req, res) => {
       if (Array.isArray(villa_ids)) {
         await supabase.from('booking_villas').delete().eq('booking_id', id);
         if (villa_ids.length > 0) {
+          const holidays = await fetchPricingHolidays();
           const { data: villaCatalog, error: villaCatalogError } = await supabase
             .from('villas')
-            .select('id, base_rate_per_night')
+            .select('id, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night')
             .in('id', villa_ids);
           if (villaCatalogError) throw villaCatalogError;
 
-          const bridgeRows = buildBookingVillaRows(id, villa_ids, villaCatalog, patchNights);
+          const bridgeRows = buildBookingVillaRows(
+            id,
+            villa_ids,
+            villaCatalog,
+            nextCheckIn,
+            nextCheckOut,
+            holidays
+          );
           const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
           if (bridgeError) throw bridgeError;
         }
@@ -960,22 +1037,33 @@ app.get('/api/villas', async (req, res) => {
 });
 
 app.post('/api/villas', async (req, res) => {
-  const { name, capacity = 1, base_rate_per_night, description = '', base_breakfast = 0 } = req.body;
+  const {
+    name,
+    capacity = 1,
+    base_rate_per_night,
+    weekend_rate_per_night,
+    holiday_rate_per_night,
+    description = '',
+    base_breakfast = 0,
+  } = req.body;
   if (!name?.trim() || base_rate_per_night === undefined) {
-    return res.status(400).json({ error: 'Name and base rate are required.' });
+    return res.status(400).json({ error: 'Name and weekday rate are required.' });
   }
   try {
-    const { data, error } = await supabase
-      .from('villas')
-      .insert([{
-        name: name.trim(),
-        capacity: Number(capacity) || 1,
-        base_rate_per_night: Number(base_rate_per_night),
-        description,
-        base_breakfast: Number(base_breakfast) || 0,
-      }])
-      .select()
-      .single();
+    const row = {
+      name: name.trim(),
+      capacity: Number(capacity) || 1,
+      base_rate_per_night: Number(base_rate_per_night),
+      description,
+      base_breakfast: Number(base_breakfast) || 0,
+    };
+    if (weekend_rate_per_night !== undefined && weekend_rate_per_night !== '') {
+      row.weekend_rate_per_night = Number(weekend_rate_per_night);
+    }
+    if (holiday_rate_per_night !== undefined && holiday_rate_per_night !== '') {
+      row.holiday_rate_per_night = Number(holiday_rate_per_night);
+    }
+    const { data, error } = await supabase.from('villas').insert([row]).select().single();
     if (error) throw error;
     res.status(201).json(data);
   } catch (error) {
@@ -989,12 +1077,62 @@ app.patch('/api/villas/:id', async (req, res) => {
   if (req.body.name !== undefined) payload.name = req.body.name.trim();
   if (req.body.capacity !== undefined) payload.capacity = Number(req.body.capacity);
   if (req.body.base_rate_per_night !== undefined) payload.base_rate_per_night = Number(req.body.base_rate_per_night);
+  if (req.body.weekend_rate_per_night !== undefined) {
+    payload.weekend_rate_per_night = req.body.weekend_rate_per_night === '' || req.body.weekend_rate_per_night == null
+      ? null
+      : Number(req.body.weekend_rate_per_night);
+  }
+  if (req.body.holiday_rate_per_night !== undefined) {
+    payload.holiday_rate_per_night = req.body.holiday_rate_per_night === '' || req.body.holiday_rate_per_night == null
+      ? null
+      : Number(req.body.holiday_rate_per_night);
+  }
   if (req.body.description !== undefined) payload.description = req.body.description;
   if (req.body.base_breakfast !== undefined) payload.base_breakfast = Number(req.body.base_breakfast) || 0;
   try {
     const { data, error } = await supabase.from('villas').update(payload).eq('id', id).select().single();
     if (error) throw error;
     res.json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/pricing/holidays', async (req, res) => {
+  try {
+    const data = await fetchPricingHolidays();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/pricing/holidays', async (req, res) => {
+  const { name, start_date, end_date } = req.body;
+  if (!name?.trim() || !start_date || !end_date) {
+    return res.status(400).json({ error: 'Name, start date, and end date are required.' });
+  }
+  if (end_date < start_date) {
+    return res.status(400).json({ error: 'End date must be on or after start date.' });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('pricing_holidays')
+      .insert([{ name: name.trim(), start_date, end_date }])
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/pricing/holidays/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('pricing_holidays').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ message: 'Holiday period deleted.' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1121,10 +1259,22 @@ app.get('/api/discounts', async (req, res) => {
 
 app.post('/api/discounts', async (req, res) => {
   const payload = discountPayloadFromBody(req.body);
-  if (!payload.code || !payload.name || payload.value === undefined || Number.isNaN(payload.value)) {
-    return res.status(400).json({ error: 'Promo code, name, and value are required.' });
+  const validation = validateDiscountPayload(payload);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.errors[0] });
   }
+
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('discounts')
+      .select('id')
+      .eq('code', payload.code)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing) {
+      return res.status(400).json({ error: 'Promo code must be unique.' });
+    }
+
     const { data, error } = await supabase.from('discounts').insert([payload]).select().single();
     if (error) throw error;
     res.status(201).json(mapDiscountRow(data));
@@ -1134,12 +1284,36 @@ app.post('/api/discounts', async (req, res) => {
 });
 
 app.patch('/api/discounts/:id', async (req, res) => {
-  const payload = discountPayloadFromBody(req.body, { partial: true });
+  const payload = discountPayloadFromBody(req.body, { partial: true, forUpdate: true });
   if (Object.keys(payload).length === 0) {
     return res.status(400).json({ error: 'No valid fields to update.' });
   }
+
+  const validation = validateDiscountPayload(payload, { partial: true });
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.errors[0] });
+  }
+
   try {
-    const { data, error } = await supabase.from('discounts').update(payload).eq('id', req.params.id).select().single();
+    if (payload.code) {
+      const { data: existing, error: existingError } = await supabase
+        .from('discounts')
+        .select('id')
+        .eq('code', payload.code)
+        .neq('id', req.params.id)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing) {
+        return res.status(400).json({ error: 'Promo code must be unique.' });
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('discounts')
+      .update(payload)
+      .eq('id', req.params.id)
+      .select()
+      .single();
     if (error) throw error;
     res.json(mapDiscountRow(data));
   } catch (error) {
@@ -1149,9 +1323,17 @@ app.patch('/api/discounts/:id', async (req, res) => {
 
 app.delete('/api/discounts/:id', async (req, res) => {
   try {
-    const { error } = await supabase.from('discounts').delete().eq('id', req.params.id);
+    const { data, error } = await supabase
+      .from('discounts')
+      .update({
+        status: 'archived',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
     if (error) throw error;
-    res.json({ message: 'Discount deleted.' });
+    res.json({ message: 'Discount archived.', discount: mapDiscountRow(data) });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1220,15 +1402,27 @@ function mapAddonRow(row) {
   return { ...row, price, price_per_night: price };
 }
 
-function buildBookingVillaRows(bookingId, villaIds, villaCatalog, nights) {
+async function fetchPricingHolidays() {
+  const { data, error } = await supabase
+    .from('pricing_holidays')
+    .select('id, name, start_date, end_date')
+    .order('start_date');
+  if (error) {
+    if (error.code === '42P01') return [];
+    throw error;
+  }
+  return data || [];
+}
+
+function buildBookingVillaRows(bookingId, villaIds, villaCatalog, checkIn, checkOut, holidays = []) {
   const villaMap = Object.fromEntries((villaCatalog || []).map((v) => [v.id, v]));
   return villaIds.map((villaId) => {
     const villa = villaMap[villaId];
-    const rate = Number(villa?.base_rate_per_night) || 0;
+    const { avgRate, nights } = computeVillaStayCharges(villa || {}, checkIn, checkOut, holidays);
     return {
       booking_id: bookingId,
       villa_id: villaId,
-      rate_per_night: rate,
+      rate_per_night: avgRate,
       nights,
     };
   });
@@ -1260,21 +1454,22 @@ async function computeBookingCharges({ villa_ids = [], selected_addons = [], che
   const nights = stayNights(check_in_date, check_out_date);
   let villaTotal = 0;
   const villaLines = [];
+  const holidays = await fetchPricingHolidays();
 
   if (villa_ids.length > 0) {
     const { data: villas, error } = await supabase.from('villas').select('*').in('id', villa_ids);
     if (error) throw error;
     (villas || []).forEach((villa) => {
-      const rate = Number(villa.base_rate_per_night) || 0;
-      const subtotal = rate * nights;
-      villaTotal += subtotal;
+      const { total, avgRate } = computeVillaStayCharges(villa, check_in_date, check_out_date, holidays);
+      villaTotal += total;
       villaLines.push({
         type: 'accommodation',
         name: villa.name,
         description: `${villa.name} — ${nights} night${nights !== 1 ? 's' : ''}`,
         quantity: nights,
-        unitPrice: rate,
-        subtotal,
+        unitPrice: avgRate,
+        subtotal: total,
+        villa_id: villa.id,
       });
     });
   }
@@ -1317,7 +1512,7 @@ async function computeBookingCharges({ villa_ids = [], selected_addons = [], che
   };
 }
 
-async function resolveDiscountForBooking({ apply_discount, discount_id }) {
+async function resolveDiscountForBooking({ apply_discount, discount_id, context = {}, charges = null }) {
   if (!apply_discount) {
     return { discount: null, discount_id: null, discount_amount: 0 };
   }
@@ -1325,19 +1520,36 @@ async function resolveDiscountForBooking({ apply_discount, discount_id }) {
   let discount = null;
   if (discount_id) {
     discount = await fetchDiscountById(discount_id);
+    if (discount) {
+      const eligibility = isDiscountEligible(discount, context);
+      if (!eligibility.eligible) {
+        return { discount: null, discount_id: null, discount_amount: 0 };
+      }
+    }
   } else {
     const { data, error } = await supabase
       .from('discounts')
       .select('*')
       .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false });
     if (error) throw error;
-    discount = data;
+
+    const eligible = (data || []).filter((row) => isDiscountEligible(row, context).eligible);
+    if (eligible.length > 0 && charges) {
+      const resolved = resolveDiscountApplication(eligible, {
+        ...context,
+        villaLines: charges.villaLines,
+        addonLines: charges.addonLines,
+        menuLines: [],
+      });
+      discount = resolved.discount;
+    } else if (eligible.length > 0) {
+      discount = eligible[0];
+    }
   }
 
-  if (!discount || discount.status !== 'active') {
+  if (!discount || normalizeStatus(discount.status) !== 'active') {
     return { discount: null, discount_id: null, discount_amount: 0 };
   }
 
@@ -1359,7 +1571,19 @@ async function buildFinancialSummary(bookingId) {
       *,
       discounts (id, code, name, type, value, scope, status, application_rule),
       guests (full_name, phone_number),
-      booking_villas (rate_per_night, nights, villas (name, base_rate_per_night)),
+      booking_villas (
+        rate_per_night,
+        nights,
+        villa_id,
+        villas (
+          id,
+          name,
+          base_rate_per_night,
+          weekend_rate_per_night,
+          holiday_rate_per_night,
+          base_breakfast
+        )
+      ),
       booking_addons (
         quantity,
         unit_price,
@@ -1392,25 +1616,44 @@ async function buildFinancialSummary(bookingId) {
   if (orderError) throw orderError;
 
   const nights = stayNights(booking.check_in_date, booking.check_out_date);
-  const accommodationLines = [];
+  const holidays = await fetchPricingHolidays();
+  const villaCatalog = (booking.booking_villas || [])
+    .map((bv) => bv.villas)
+    .filter(Boolean);
+
+  let accommodationLines = [];
   let calculatedAccommodation = 0;
 
-  (booking.booking_villas || []).forEach((bv) => {
-    const rate = Number(bv.rate_per_night) || Number(bv.villas?.base_rate_per_night) || 0;
-    const lineNights = Number(bv.nights) || nights;
-    const subtotal = rate > 0 ? rate * lineNights : 0;
-    if (rate > 0) {
-      calculatedAccommodation += subtotal;
-      accommodationLines.push({
-        type: 'accommodation',
-        name: bv.villas?.name || 'Villa',
-        description: `${bv.villas?.name || 'Villa'} — ${lineNights} night${lineNights !== 1 ? 's' : ''}`,
-        quantity: lineNights,
-        unitPrice: rate,
-        subtotal,
-      });
-    }
-  });
+  if (villaCatalog.length > 0) {
+    const tiered = buildTieredAccommodationLines(
+      villaCatalog,
+      booking.check_in_date,
+      booking.check_out_date,
+      holidays
+    );
+    accommodationLines = tiered.lines;
+    calculatedAccommodation = tiered.total;
+  }
+
+  if (accommodationLines.length === 0) {
+    (booking.booking_villas || []).forEach((bv) => {
+      const rate = Number(bv.rate_per_night) || Number(bv.villas?.base_rate_per_night) || 0;
+      const lineNights = Number(bv.nights) || nights;
+      const subtotal = rate > 0 ? rate * lineNights : 0;
+      if (rate > 0) {
+        calculatedAccommodation += subtotal;
+        accommodationLines.push({
+          type: 'accommodation',
+          name: bv.villas?.name || 'Villa',
+          description: `${bv.villas?.name || 'Villa'} — ${lineNights} night${lineNights !== 1 ? 's' : ''}`,
+          quantity: lineNights,
+          unitPrice: rate,
+          subtotal,
+          villa_id: bv.villa_id,
+        });
+      }
+    });
+  }
 
   const accommodation = calculatedAccommodation > 0
     ? calculatedAccommodation
@@ -1505,12 +1748,28 @@ async function buildFinancialSummary(bookingId) {
 
   if (booking.discount_id && booking.discounts) {
     const discountResult = calculateDiscountAmount(booking.discounts, {
+      checkInDate: booking.check_in_date,
+      checkOutDate: booking.check_out_date,
+      nights,
+      bookingAmount: subtotalBeforeDiscount,
+      villaIds: (booking.booking_villas || []).map((bv) => bv.villa_id).filter(Boolean),
       villaLines: accommodationLines,
       addonLines,
       menuLines,
     });
-    discountAmount = discountResult.amount;
-    discountLines = discountResult.lines;
+    discountAmount = discountResult.amount > 0
+      ? discountResult.amount
+      : Number(booking.discount_amount) || 0;
+    discountLines = discountResult.lines.length > 0
+      ? discountResult.lines
+      : (discountAmount > 0 ? [{
+          type: 'discount',
+          name: booking.discounts.name || booking.discounts.code || 'Discount',
+          description: `Discount (${booking.discounts.code})`,
+          quantity: 1,
+          unitPrice: -discountAmount,
+          subtotal: -discountAmount,
+        }] : []);
     discountMeta = mapDiscountRow(booking.discounts);
   } else if (Number(booking.discount_amount) > 0) {
     discountAmount = Number(booking.discount_amount);
@@ -1665,6 +1924,9 @@ app.get('/api/financial/income', async (req, res) => {
           totalAccommodation: summary.totalAccommodation,
           totalAddons: summary.totalAddons,
           totalMenuItems: summary.totalMenuItems,
+          subtotalBeforeDiscount: summary.subtotalBeforeDiscount,
+          discountAmount: summary.discountAmount,
+          discountCode: summary.discountCode,
           total: summary.total,
           amountPaid: summary.amountPaid,
           balanceDue: summary.balanceDue,
@@ -1746,6 +2008,21 @@ app.get('/api/financial/kpis', async (req, res) => {
       pendingDeposits,
       totalExpenses,
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/financial/transactions', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('finances')
+      .select('id, type, amount, category, transaction_date, status, booking_id')
+      .eq('status', 'approved')
+      .order('transaction_date', { ascending: false });
+
+    if (error) throw error;
+    res.json(data || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1916,13 +2193,32 @@ app.get('/api/bookings/:bookingId/invoice', async (req, res) => {
     const summary = await buildFinancialSummary(bookingId);
     const displayId = summary.displayId;
 
+    const booking = summary.booking;
+    const villaBreakfast = (booking.booking_villas || []).reduce(
+      (sum, bv) => sum + (bv.villas?.base_breakfast || 0),
+      0
+    );
+    const addonBreakfast = (booking.booking_addons || []).reduce(
+      (sum, ba) => sum + ((ba.addons?.base_breakfast || 0) * (ba.quantity || 1)),
+      0
+    );
+    const adultsMatch = booking.notes?.match(/Adults:\s*(\d+)/);
+    const childrenMatch = booking.notes?.match(/Children:\s*(\d+)/);
+    const parsedAdults = adultsMatch ? parseInt(adultsMatch[1], 10) : 0;
+    const parsedChildren = childrenMatch ? parseInt(childrenMatch[1], 10) : 0;
+    const totalGuests = booking.total_guests ?? (
+      (parsedAdults || parsedChildren) ? parsedAdults + parsedChildren : null
+    );
+
     res.json({
       invoiceNumber: displayId,
       displayId,
-      guestName: summary.booking.guests?.full_name || 'Guest',
-      checkIn: summary.booking.check_in_date,
-      checkOut: summary.booking.check_out_date,
+      guestName: booking.guests?.full_name || 'Guest',
+      checkIn: booking.check_in_date,
+      checkOut: booking.check_out_date,
       villaNames: summary.villaNames,
+      totalGuests,
+      totalBreakfast: villaBreakfast + addonBreakfast,
       lineItems: summary.lineItems,
       accommodationLines: summary.accommodationLines,
       addonLines: summary.addonLines,

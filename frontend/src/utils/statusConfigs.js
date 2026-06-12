@@ -25,6 +25,11 @@ export const PHASE_CONFIG = {
     color: '#374151',
     bg: '#f3f4f6',
   },
+  cancelled: { 
+    label: 'Cancelled', 
+    color: '#991b1b', 
+    bg: '#fee2e2' 
+  },
 };
 
 export const STATUS_CONFIG = {

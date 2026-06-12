@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, ShoppingCart, Plus, Minus, Trash2, ChefHat, Coffee, UtensilsCrossed, CheckCircle, ClipboardList } from 'lucide-react';
-import { Modal } from './ui'; // Adjusted to extract Modal cleanly
+import { Modal } from '../ui'; // Adjusted to extract Modal cleanly
 
 // ─── category meta ────────────────────────────────────────────
 const CATEGORY_META = {
@@ -8,7 +8,8 @@ const CATEGORY_META = {
   beverage: { label: 'Beverage', icon: Coffee,          color: '#1e40af', bg: '#eff6ff', border: '#bfdbfe' },
   snack:    { label: 'Snack',    icon: ChefHat,         color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
   dessert:  { label: 'Dessert',  icon: ChefHat,         color: '#be185d', bg: '#fdf2f8', border: '#fbcfe8' },
-  other:    { label: 'Partner Kitchen',    icon: ChefHat,         color: '#374151', bg: '#f9fafb', border: '#e5e7eb' },
+  partner_kitchen:  { label: 'Partner Kitchen',  icon: ChefHat,         color: '#bc6c8d', bg: '#fdf2f8', border: '#fbcfe8' },
+  other:    { label: 'Other',    icon: ChefHat,         color: '#374151', bg: '#f9fafb', border: '#e5e7eb' },
 };
 
 // ─── Qty stepper ──────────────────────────────────────────────

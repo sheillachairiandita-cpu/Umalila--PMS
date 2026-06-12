@@ -395,7 +395,7 @@ function AllReservationsTable({
                     <td>{res.check_in_date}</td>
                     <td>{res.check_out_date}</td>
                     <td className="text-right cell-amount">
-                      Rp {res.total_price?.toLocaleString() || '0'}
+                      Rp {(Number(res.ledger_total ?? res.total_price) || 0).toLocaleString('id-ID')}
                     </td>
                     <td className="text-center">
                       <Badge type="payment" value={res.payment_status || 'pending'} />
@@ -493,10 +493,22 @@ function ReservationPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const bookingsRes = await fetch('/api/bookings');
+      const [bookingsRes, incomeRes] = await Promise.all([
+        fetch('/api/bookings'),
+        fetch('/api/financial/income'),
+      ]);
       if (!bookingsRes.ok) throw new Error('Failed to fetch bookings');
       const bookingsData = await bookingsRes.json();
-      processBookings(bookingsData);
+      const incomeData = incomeRes.ok ? await incomeRes.json() : [];
+      const ledgerById = Object.fromEntries(
+        (incomeData || []).map((row) => [row.bookingId, row])
+      );
+      const enriched = bookingsData.map((b) => ({
+        ...b,
+        ledger_total: ledgerById[b.id]?.total ?? b.total_price,
+        ledger_discount: ledgerById[b.id]?.discountAmount ?? 0,
+      }));
+      processBookings(enriched);
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {

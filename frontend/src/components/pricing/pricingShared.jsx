@@ -88,9 +88,11 @@ export function PricingActionCell({ onEdit, onDelete, editTitle = 'Edit', delete
       <TableActionButton title={editTitle} variant="default" onClick={onEdit}>
         <Pencil size={12} />
       </TableActionButton>
-      <TableActionButton title={deleteTitle} variant="danger" onClick={onDelete}>
-        <Trash2 size={12} />
-      </TableActionButton>
+      {onDelete && (
+        <TableActionButton title={deleteTitle} variant="danger" onClick={onDelete}>
+          <Trash2 size={12} />
+        </TableActionButton>
+      )}
     </div>
   );
 }
