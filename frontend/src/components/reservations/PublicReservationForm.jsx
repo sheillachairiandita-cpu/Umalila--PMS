@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Modal, Alert, Select } from '../ui';
 import { COLORS } from '../../styles/theme';
 import SubmittingOverlay from '../SubmittingOverlay';
+import { useNotification } from '../../context/NotificationProvider';
+import { parseCancellationReason } from '../../utils/bookingUtils';
 import {
   computeStayRateBreakdown,
   formatVillaRateForDates,
@@ -82,6 +84,7 @@ function PublicReservationForm({
   onSaved,
 }) {
   const navigate = useNavigate();
+  const notify = useNotification();
   const isEditMode = Boolean(booking);
   const isModal = variant === 'modal';
   const isCancelled = isEditMode && booking?.status === 'cancelled';
@@ -335,6 +338,7 @@ function PublicReservationForm({
           const data = await response.json().catch(() => ({}));
           throw new Error(data.error || 'Failed to cancel reservation');
         }
+        notify.success('Reservation cancelled successfully.');
         onSaved?.();
         onClose?.();
       } catch (err) {
@@ -381,6 +385,7 @@ function PublicReservationForm({
           const data = await response.json().catch(() => ({}));
           throw new Error(data.error || 'Failed to update reservation');
         }
+        notify.success('Reservation updated successfully.');
         onSaved?.();
         onClose?.();
       } catch (err) {
@@ -477,11 +482,19 @@ function PublicReservationForm({
       {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
 
       {isCancelled ? (
-        <Alert
-          type="warning"
-          title="Cancelled Booking"
-          message="This reservation has been cancelled and can no longer be edited."
-        />
+        <>
+          <Alert
+            type="warning"
+            title="Cancelled Booking"
+            message="This reservation has been cancelled and can no longer be edited."
+          />
+          <div className="form-section">
+            <h4><AlertTriangle size={14} /> Cancellation Reason</h4>
+            <p className="cancellation-reason-display">
+              {parseCancellationReason(booking?.notes) || 'No cancellation reason recorded.'}
+            </p>
+          </div>
+        </>
       ) : (
         <>
           {!isEditMode && (

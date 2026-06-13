@@ -14,6 +14,16 @@ import {
 } from './lib/discountUtils.js';
 import { streamBookingConfirmationPdf } from './lib/pdfHelpers.js';
 import { computeVillaStayCharges, buildTieredAccommodationLines } from './lib/villaRateUtils.js';
+import {
+  findBlockingReservationsForBlock,
+  formatBlockConflictError,
+} from './lib/blockUtils.js';
+import {
+  hashPassword,
+  createAuthHandlers,
+  createAuthMiddleware,
+  rbacMiddleware,
+} from './lib/auth.js';
 
 dotenv.config();
 
@@ -24,8 +34,19 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '20mb' }));
+
+const authMiddleware = createAuthMiddleware(supabase);
+const { login, logout, me, changePassword } = createAuthHandlers(supabase);
+
+app.use(authMiddleware);
+app.use(rbacMiddleware);
+
+app.post('/api/auth/login', login);
+app.post('/api/auth/logout', logout);
+app.get('/api/auth/me', me);
+app.patch('/api/auth/change-password', changePassword);
 
 /** Allowed values for orders.status (matches Supabase orders_status_check) */
 const ORDER_STATUSES = ['open', 'served', 'billed'];
@@ -920,7 +941,7 @@ app.get('/api/villas/gantt', async (req, res) => {
 
     const { data: blocks } = await supabase
       .from('villa_date_blocks')
-      .select('id, villa_id, start_date, end_date, reason');
+      .select('id, villa_id, start_date, end_date, reason, created_at, created_by, users:created_by (name)');
 
     const ganttData = villas.map(villa => {
       const villaBookings = bookings
@@ -941,6 +962,8 @@ app.get('/api/villas/gantt', async (req, res) => {
           startDate: blk.start_date,
           endDate: blk.end_date,
           reason: blk.reason,
+          createdAt: blk.created_at,
+          createdBy: blk.users?.name || null,
         }));
 
       return { id: villa.id, name: villa.name, bookings: villaBookings, blocks: villaBlocks };
@@ -961,15 +984,33 @@ app.post('/api/villas/blocks', async (req, res) => {
     return res.status(400).json({ error: 'End date must be on or after start date.' });
   }
   try {
+    const conflicts = await findBlockingReservationsForBlock(
+      supabase,
+      villa_id,
+      start_date,
+      end_date,
+    );
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        error: formatBlockConflictError(conflicts),
+        conflicts,
+      });
+    }
+
+    const insertPayload = {
+      villa_id,
+      start_date,
+      end_date,
+      reason: reason.trim(),
+    };
+    if (req.user?.id) {
+      insertPayload.created_by = req.user.id;
+    }
+
     const { data, error } = await supabase
       .from('villa_date_blocks')
-      .insert([{
-        villa_id,
-        start_date,
-        end_date,
-        reason: reason.trim(),
-      }])
-      .select()
+      .insert([insertPayload])
+      .select('id, villa_id, start_date, end_date, reason, created_at, created_by, users:created_by (name)')
       .single();
     if (error) throw error;
     res.status(201).json({
@@ -978,6 +1019,8 @@ app.post('/api/villas/blocks', async (req, res) => {
       startDate: data.start_date,
       endDate: data.end_date,
       reason: data.reason,
+      createdAt: data.created_at,
+      createdBy: data.users?.name || null,
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -2474,6 +2517,177 @@ app.get('/api/dashboard', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 👤 USERS
+// ─────────────────────────────────────────────────────────────
+
+const USER_ROLES = ['staff', 'owner', 'admin'];
+const USER_STATUSES = ['active', 'deactivated'];
+
+function mapUserRow(row, fallbackIndex = null) {
+  const displayId = row.display_id
+    || (fallbackIndex != null ? `UID-${String(fallbackIndex).padStart(4, '0')}` : null);
+
+  return {
+    id: row.id,
+    display_id: displayId,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    status: row.status || 'active',
+    created_at: row.created_at,
+  };
+}
+
+async function generateNextUserDisplayId() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('display_id')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  let maxNum = 0;
+  for (const row of data || []) {
+    const match = row.display_id?.match(/^UID-(\d+)$/i);
+    if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+  }
+
+  return `UID-${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+app.get('/api/users', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, email, name, role, created_at, display_id, status')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    res.json((data || []).map((row, index) => mapUserRow(row, index + 1)));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  const { name, email, password, role = 'staff' } = req.body;
+
+  if (!name?.trim() || !email?.trim() || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
+  }
+
+  if (!USER_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Invalid role.' });
+  }
+
+  try {
+    const { data: existing, error: existingError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (existing) {
+      return res.status(409).json({ error: 'A user with this email already exists.' });
+    }
+
+    const display_id = await generateNextUserDisplayId();
+
+    const { data, error } = await supabase
+      .from('users')
+      .insert([{
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password_hash: hashPassword(password),
+        role,
+        display_id,
+        status: 'active',
+      }])
+      .select('id, email, name, role, created_at, display_id, status')
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(mapUserRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const payload = {};
+
+  if (req.body.name !== undefined) payload.name = req.body.name.trim();
+  if (req.body.email !== undefined) payload.email = req.body.email.trim().toLowerCase();
+  if (req.body.role !== undefined) {
+    if (!USER_ROLES.includes(req.body.role)) {
+      return res.status(400).json({ error: 'Invalid role.' });
+    }
+    payload.role = req.body.role;
+  }
+  if (req.body.password) {
+    payload.password_hash = hashPassword(req.body.password);
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update.' });
+  }
+
+  try {
+    if (payload.email) {
+      const { data: existing, error: existingError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', payload.email)
+        .neq('id', id)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+      if (existing) {
+        return res.status(409).json({ error: 'A user with this email already exists.' });
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(payload)
+      .eq('id', id)
+      .select('id, email, name, role, created_at, display_id, status')
+      .single();
+
+    if (error) throw error;
+    res.json(mapUserRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/users/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!USER_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'Status must be active or deactivated.' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .update({ status })
+      .eq('id', id)
+      .select('id, email, name, role, created_at, display_id, status')
+      .single();
+
+    if (error) throw error;
+    res.json(mapUserRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

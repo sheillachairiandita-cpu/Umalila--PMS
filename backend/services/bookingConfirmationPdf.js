@@ -615,7 +615,7 @@ function drawInvoicePage(doc, summary) {
   rightY += 14;
   drawColonField(doc, 'Contact', phone, col2X, rightY, billColonX, { size: 9 });
 
-  y = Math.max(leftY, rightY) + 24;
+  y = Math.max(leftY, rightY) + 26;
 
   y = invoiceTable(doc, tableRows, total, y);
   y += 12;

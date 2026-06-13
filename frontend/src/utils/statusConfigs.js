@@ -96,6 +96,19 @@ export const PAYMENT_FILTER_OPTIONS = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
+export const USER_STATUS_CONFIG = {
+  active: {
+    label: 'Active',
+    color: '#065f46',
+    bg: '#d1fae5',
+  },
+  deactivated: {
+    label: 'Deactivated',
+    color: '#374151',
+    bg: '#f3f4f6',
+  },
+};
+
 export const EXPENSE_STATUS_CONFIG = {
   pending: {
     label: 'Pending',
@@ -147,6 +160,8 @@ export function getStatusConfig(key, type = 'status') {
     return PAYMENT_STATUS_CONFIG[key] || PAYMENT_STATUS_CONFIG['pending'];
   } else if (type === 'expense') {
     return EXPENSE_STATUS_CONFIG[key] || EXPENSE_STATUS_CONFIG.pending;
+  } else if (type === 'user') {
+    return USER_STATUS_CONFIG[key] || USER_STATUS_CONFIG.active;
   }
   return STATUS_CONFIG[key] || STATUS_CONFIG[Object.keys(STATUS_CONFIG)[0]];
 }

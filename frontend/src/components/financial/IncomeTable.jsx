@@ -175,7 +175,7 @@ function IncomeTable({ rows, loading, onViewDetails }) {
                   </td>
                   <td className="text-right">
                     {(row.discountAmount || 0) > 0 ? (
-                      <span className="financial-summary-discount">−{formatRp(row.discountAmount)}</span>
+                      <span className="income-table-discount">−{formatRp(row.discountAmount)}</span>
                     ) : (
                       '—'
                     )}

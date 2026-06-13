@@ -1,8 +1,19 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Filter, Plus, Ban, X, CalendarOff } from 'lucide-react';
+import { Filter, Plus, Ban, X, CalendarOff, Unlock } from 'lucide-react';
 import SummaryModal from '../financial/SummaryModal';
-import { Button, Alert } from '../ui';
+import { Button, Alert, Modal } from '../ui';
 import { STATUS_CONFIG, getStatusConfig } from '../../utils/statusConfigs';
+import { useMutation } from '../../context/MutationProvider';
+import { usePermission } from '../../auth/usePermission';
+import { PERMISSIONS } from '../../auth/permissions';
+import RequirePermission from '../auth/RequirePermission';
+import {
+  findBlockingConflicts,
+  formatBlockConflictError,
+  formatDisplayDate,
+  formatCreatedAt,
+  isBlockingBookingStatus,
+} from '../../utils/blockUtils';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -197,7 +208,82 @@ function BlockDatesPanel({
   );
 }
 
+function BlockDetailsModal({ block, villaName, onClose, onUnblock, canUnblock }) {
+  if (!block) return null;
+
+  return (
+    <Modal isOpen={!!block} onClose={onClose} size="md">
+      <Modal.Header
+        title="Blocked Date Details"
+        icon={CalendarOff}
+        subtitle={villaName}
+        onClose={onClose}
+      />
+      <Modal.Body>
+        <div className="block-details-meta">
+          <div className="block-details-meta__row">
+            <span className="block-details-meta__label">Date Range</span>
+            <span className="block-details-meta__value">
+              {formatDisplayDate(block.startDate)} — {formatDisplayDate(block.endDate)}
+            </span>
+          </div>
+          <div className="block-details-meta__row">
+            <span className="block-details-meta__label">Reason</span>
+            <span className="block-details-meta__value">{block.reason || '—'}</span>
+          </div>
+          <div className="block-details-meta__row">
+            <span className="block-details-meta__label">Created</span>
+            <span className="block-details-meta__value">{formatCreatedAt(block.createdAt)}</span>
+          </div>
+          <div className="block-details-meta__row">
+            <span className="block-details-meta__label">Created By</span>
+            <span className="block-details-meta__value">{block.createdBy || '—'}</span>
+          </div>
+        </div>
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+        {canUnblock && (
+          <Button variant="danger" icon={Unlock} onClick={onUnblock}>
+            Unblock Date
+          </Button>
+        )}
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
+function UnblockConfirmModal({ block, villaName, isOpen, onClose, onConfirm, submitting }) {
+  if (!block) return null;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="sm">
+      <Modal.Header title="Unblock Dates" icon={Ban} onClose={onClose} />
+      <Modal.Body>
+        <p className="pms-text-muted" style={{ fontSize: '0.88rem', margin: 0 }}>
+          Remove the block for <strong>{villaName}</strong> from{' '}
+          <strong>{formatDisplayDate(block.startDate)}</strong> to{' '}
+          <strong>{formatDisplayDate(block.endDate)}</strong>?
+          These dates will become available for reservation again.
+        </p>
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button variant="danger" loading={submitting} onClick={onConfirm}>
+          Unblock
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+}
+
 const CalendarPage = ({ onOpenBookingModal }) => {
+  const { runMutation, isMutating } = useMutation();
+  const canBlockDates = usePermission(PERMISSIONS.CALENDAR_BLOCK);
   const today = useMemo(() => new Date(), []);
 
   const [villasData, setVillasData] = useState([]);
@@ -217,17 +303,18 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     endDate: '',
     reason: BLOCK_REASONS[0],
   });
-  const [blockSubmitting, setBlockSubmitting] = useState(false);
   const [blockError, setBlockError] = useState('');
+  const [selectedBlock, setSelectedBlock] = useState(null);
+  const [unblockConfirmOpen, setUnblockConfirmOpen] = useState(false);
 
   const yearOptions = useMemo(() => {
     const base = today.getFullYear();
     return Array.from({ length: 7 }, (_, i) => base - 2 + i);
   }, [today]);
 
-  const fetchGanttData = useCallback(async () => {
+  const fetchGanttData = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await fetch(`${API}/villas/gantt`);
       if (!response.ok) throw new Error('Failed to fetch timeline data.');
       const data = await response.json();
@@ -236,7 +323,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -263,24 +350,6 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     setCurrentMonth(now.getMonth());
   };
 
-  const handlePrevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear((prev) => prev - 1);
-    } else {
-      setCurrentMonth((prev) => prev - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear((prev) => prev + 1);
-    } else {
-      setCurrentMonth((prev) => prev + 1);
-    }
-  };
-
   const displayedVillas = selectedVillaFilter === 'All'
     ? villasData
     : villasData.filter((v) => v.name === selectedVillaFilter);
@@ -289,10 +358,16 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     return (villa.blocks || []).some((block) => dayOverlapsBlock(block, currentYear, currentMonth, dayNum));
   }, [currentYear, currentMonth]);
 
+  const hasBlockingBookingOnDay = useCallback((villa, dayNum) => {
+    return (villa.bookings || []).some(
+      (b) => isBlockingBookingStatus(b.status)
+        && dayOverlapsBooking(b, currentYear, currentMonth, dayNum),
+    );
+  }, [currentYear, currentMonth]);
+
   const isCellOccupied = useCallback((villa, dayNum) => {
-    const hasBooking = (villa.bookings || []).some((b) => dayOverlapsBooking(b, currentYear, currentMonth, dayNum));
-    return hasBooking || isCellBlocked(villa, dayNum);
-  }, [currentYear, currentMonth, isCellBlocked]);
+    return isCellBlocked(villa, dayNum) || hasBlockingBookingOnDay(villa, dayNum);
+  }, [currentYear, currentMonth, isCellBlocked, hasBlockingBookingOnDay]);
 
   const openBlockPanel = useCallback((villaId, startDate, endDate) => {
     setBlockForm({
@@ -306,6 +381,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   }, []);
 
   const handleCellMouseDown = (villa, dayNum) => {
+    if (!canBlockDates) return;
     if (isCellOccupied(villa, dayNum)) return;
     setDragState({
       villaId: villa.id,
@@ -321,6 +397,8 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   };
 
   useEffect(() => {
+    if (!canBlockDates) return undefined;
+
     const handleMouseUp = () => {
       if (!dragState) return;
 
@@ -336,7 +414,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, [dragState, currentYear, currentMonth, openBlockPanel]);
+  }, [dragState, currentYear, currentMonth, openBlockPanel, canBlockDates]);
 
   const handleOpenBlockPanel = () => {
     const defaultVilla = displayedVillas[0];
@@ -361,28 +439,40 @@ const CalendarPage = ({ onOpenBookingModal }) => {
       return;
     }
 
-    setBlockSubmitting(true);
-    try {
-      const response = await fetch(`${API}/villas/blocks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          villa_id: blockForm.villaId,
-          start_date: blockForm.startDate,
-          end_date: blockForm.endDate,
-          reason: blockForm.reason,
-        }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to save date block.');
-      }
+    const villa = villasData.find((v) => v.id === blockForm.villaId);
+    const conflicts = findBlockingConflicts(villa, blockForm.startDate, blockForm.endDate);
+    if (conflicts.length > 0) {
+      setBlockError(formatBlockConflictError(conflicts));
+      return;
+    }
+
+    const result = await runMutation({
+      mutation: async () => {
+        const response = await fetch(`${API}/villas/blocks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            villa_id: blockForm.villaId,
+            start_date: blockForm.startDate,
+            end_date: blockForm.endDate,
+            reason: blockForm.reason,
+          }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to save date block.');
+        }
+        return response.json();
+      },
+      refresh: () => fetchGanttData({ silent: true }),
+      successMessage: 'Date block saved successfully.',
+      overlayMessage: 'Saving date block…',
+    });
+
+    if (result.ok) {
       setBlockPanelOpen(false);
-      await fetchGanttData();
-    } catch (err) {
-      setBlockError(err.message);
-    } finally {
-      setBlockSubmitting(false);
+    } else {
+      setBlockError(result.error?.message || 'Failed to save date block.');
     }
   };
 
@@ -392,6 +482,43 @@ const CalendarPage = ({ onOpenBookingModal }) => {
       guestName: booking.guest,
       displayId: booking.displayId,
     });
+  };
+
+  const handleBlockClick = (block, villa) => {
+    setSelectedBlock({
+      ...block,
+      villaName: villa.name,
+      villaId: villa.id,
+    });
+  };
+
+  const handleUnblockRequest = () => {
+    setUnblockConfirmOpen(true);
+  };
+
+  const handleUnblockConfirm = async () => {
+    if (!selectedBlock?.id) return;
+
+    const blockId = selectedBlock.id;
+    const result = await runMutation({
+      mutation: async () => {
+        const response = await fetch(`${API}/villas/blocks/${blockId}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to remove date block.');
+        }
+      },
+      refresh: () => fetchGanttData({ silent: true }),
+      successMessage: 'Date block removed successfully.',
+      overlayMessage: 'Removing date block…',
+    });
+
+    if (result.ok) {
+      setUnblockConfirmOpen(false);
+      setSelectedBlock(null);
+    }
   };
 
   const getDragPreviewStyles = (villa) => {
@@ -433,16 +560,6 @@ const CalendarPage = ({ onOpenBookingModal }) => {
             Today
           </button>
 
-          <div className="gantt-control-panel__nav">
-            <button type="button" className="cal-nav-btn" onClick={handlePrevMonth} title="Previous month">
-              <ChevronLeft size={16} />
-            </button>
-            <span className="cal-month-label">{MONTHS[currentMonth]} {currentYear}</span>
-            <button type="button" className="cal-nav-btn" onClick={handleNextMonth} title="Next month">
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
           <select
             className="filter-select"
             value={currentMonth}
@@ -482,13 +599,17 @@ const CalendarPage = ({ onOpenBookingModal }) => {
             </select>
           </div>
 
-          <button type="button" className="btn secondary sm" onClick={handleOpenBlockPanel}>
-            <Ban size={14} /> Block Dates
-          </button>
+          <RequirePermission permission={PERMISSIONS.CALENDAR_BLOCK}>
+            <button type="button" className="btn secondary sm" onClick={handleOpenBlockPanel}>
+              <Ban size={14} /> Block Dates
+            </button>
+          </RequirePermission>
 
-          <button type="button" className="btn primary sm" onClick={onOpenBookingModal}>
-            <Plus size={14} /> New Booking
-          </button>
+          <RequirePermission permission={PERMISSIONS.CALENDAR_BOOK}>
+            <button type="button" className="btn primary sm" onClick={onOpenBookingModal}>
+              <Plus size={14} /> New Booking
+            </button>
+          </RequirePermission>
         </div>
       </div>
 
@@ -582,9 +703,21 @@ const CalendarPage = ({ onOpenBookingModal }) => {
                       return (
                         <div
                           key={block.id}
+                          role="button"
+                          tabIndex={0}
                           className="gantt-block-bar"
                           style={gridSpanStyles}
                           title={`Blocked: ${block.reason} (${block.startDate} – ${block.endDate})`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleBlockClick(block, villa);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleBlockClick(block, villa);
+                            }
+                          }}
                         >
                           {block.reason}
                         </div>
@@ -643,8 +776,28 @@ const CalendarPage = ({ onOpenBookingModal }) => {
         form={blockForm}
         onChange={setBlockForm}
         onSubmit={handleBlockSubmit}
-        submitting={blockSubmitting}
+        submitting={isMutating}
         error={blockError}
+      />
+
+      <BlockDetailsModal
+        block={selectedBlock && !unblockConfirmOpen ? selectedBlock : null}
+        villaName={selectedBlock?.villaName}
+        onClose={() => {
+          setSelectedBlock(null);
+          setUnblockConfirmOpen(false);
+        }}
+        onUnblock={handleUnblockRequest}
+        canUnblock={canBlockDates}
+      />
+
+      <UnblockConfirmModal
+        block={selectedBlock}
+        villaName={selectedBlock?.villaName}
+        isOpen={unblockConfirmOpen}
+        onClose={() => setUnblockConfirmOpen(false)}
+        onConfirm={handleUnblockConfirm}
+        submitting={isMutating}
       />
 
       <SummaryModal

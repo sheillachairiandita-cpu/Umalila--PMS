@@ -9,6 +9,9 @@ import {
   PricingActionCell,
   PricingLoadingState,
   PricingErrorState,
+  usePaginatedRows,
+  PricingTablePagination,
+  usePricingMutation,
   formatRp,
 } from './pricingShared';
 import { Button } from '../ui';
@@ -40,8 +43,8 @@ function RateCell({ value, fallback, fallbackLabel }) {
 
 function VillaModal({ isOpen, onClose, onSaved, initialData }) {
   const isEdit = !!initialData;
+  const { saveItem, isMutating } = usePricingMutation();
   const [form, setForm] = useState(EMPTY_VILLA_FORM);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -71,36 +74,36 @@ function VillaModal({ isOpen, onClose, onSaved, initialData }) {
       setError('Name and weekday rate are required.');
       return;
     }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        base_rate_per_night: Number(form.base_rate_per_night),
-        weekend_rate_per_night: form.weekend_rate_per_night === '' ? null : Number(form.weekend_rate_per_night),
-        holiday_rate_per_night: form.holiday_rate_per_night === '' ? null : Number(form.holiday_rate_per_night),
-        base_breakfast: Number(form.base_breakfast) || 0,
-        capacity: Number(form.capacity) || 1,
-        description: form.description.trim(),
-      };
-      const url = isEdit ? `/api/villas/${initialData.id}` : '/api/villas';
-      const method = isEdit ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Failed to save villa');
-      }
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+    await saveItem({
+      isEdit,
+      entityName: 'Villa',
+      setError,
+      onClose,
+      refresh: onSaved,
+      execute: async () => {
+        const payload = {
+          name: form.name.trim(),
+          base_rate_per_night: Number(form.base_rate_per_night),
+          weekend_rate_per_night: form.weekend_rate_per_night === '' ? null : Number(form.weekend_rate_per_night),
+          holiday_rate_per_night: form.holiday_rate_per_night === '' ? null : Number(form.holiday_rate_per_night),
+          base_breakfast: Number(form.base_breakfast) || 0,
+          capacity: Number(form.capacity) || 1,
+          description: form.description.trim(),
+        };
+        const url = isEdit ? `/api/villas/${initialData.id}` : '/api/villas';
+        const method = isEdit ? 'PATCH' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || 'Failed to save villa');
+        }
+        return res.json();
+      },
+    });
   };
 
   return (
@@ -209,8 +212,8 @@ function VillaModal({ isOpen, onClose, onSaved, initialData }) {
 
           <PricingFormFooter
             onCancel={onClose}
-            submitting={submitting}
-            submitLabel={submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Villa'}
+            submitting={isMutating}
+            submitLabel={isMutating ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Villa'}
           />
         </form>
       </div>
@@ -219,8 +222,8 @@ function VillaModal({ isOpen, onClose, onSaved, initialData }) {
 }
 
 function HolidayModal({ isOpen, onClose, onSaved }) {
+  const { saveItem, isMutating } = usePricingMutation();
   const [form, setForm] = useState({ name: '', start_date: '', end_date: '' });
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -242,25 +245,27 @@ function HolidayModal({ isOpen, onClose, onSaved }) {
       setError('End date must be on or after start date.');
       return;
     }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/pricing/holidays', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Failed to save holiday period');
-      }
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+    await saveItem({
+      isEdit: false,
+      entityName: 'Holiday period',
+      setError,
+      onClose,
+      refresh: onSaved,
+      overlayMessage: 'Adding holiday period…',
+      successMessage: 'Holiday period added successfully.',
+      execute: async () => {
+        const res = await fetch('/api/pricing/holidays', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || 'Failed to save holiday period');
+        }
+        return res.json();
+      },
+    });
   };
 
   return (
@@ -311,8 +316,8 @@ function HolidayModal({ isOpen, onClose, onSaved }) {
 
           <PricingFormFooter
             onCancel={onClose}
-            submitting={submitting}
-            submitLabel={submitting ? 'Saving…' : 'Add Holiday'}
+            submitting={isMutating}
+            submitLabel={isMutating ? 'Saving…' : 'Add Holiday'}
           />
         </form>
       </div>
@@ -321,6 +326,7 @@ function HolidayModal({ isOpen, onClose, onSaved }) {
 }
 
 function VillaPricing() {
+  const { deleteItem } = usePricingMutation();
   const [villas, setVillas] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -359,36 +365,39 @@ function VillaPricing() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    try {
-      const res = await fetch(`/api/villas/${deleteTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete');
-      await fetchData();
-      setDeleteTarget(null);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setDeleting(false);
-    }
+    await deleteItem({
+      entityName: 'Villa',
+      refresh: fetchData,
+      onDone: () => setDeleteTarget(null),
+      execute: async () => {
+        const res = await fetch(`/api/villas/${deleteTarget.id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+      },
+    });
+    setDeleting(false);
   };
 
   const handleDeleteHoliday = async () => {
     if (!deleteHolidayTarget) return;
     setDeleting(true);
-    try {
-      const res = await fetch(`/api/pricing/holidays/${deleteHolidayTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete holiday period');
-      await fetchData();
-      setDeleteHolidayTarget(null);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setDeleting(false);
-    }
+    await deleteItem({
+      entityName: 'Holiday period',
+      refresh: fetchData,
+      onDone: () => setDeleteHolidayTarget(null),
+      execute: async () => {
+        const res = await fetch(`/api/pricing/holidays/${deleteHolidayTarget.id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete holiday period');
+      },
+    });
+    setDeleting(false);
   };
 
   const openCreate = () => { setEditVilla(null); setModalOpen(true); };
   const openEdit = (villa) => { setEditVilla(villa); setModalOpen(true); };
   const closeModal = () => { setModalOpen(false); setEditVilla(null); };
+
+  const villaPagination = usePaginatedRows(villas);
+  const holidayPagination = usePaginatedRows(holidays);
 
   return (
     <div className="pricing-pane">
@@ -422,7 +431,7 @@ function VillaPricing() {
               {villas.length === 0 && (
                 <tr><td colSpan={9} className="pricing-empty">No villas found. Create one to get started.</td></tr>
               )}
-              {villas.map((v) => (
+              {villaPagination.paginatedRows.map((v) => (
                 <tr key={v.id}>
                   <td><span className="pricing-id-pill">{v.display_id || v.id?.slice(0, 8)}</span></td>
                   <td className="pricing-name-cell">{v.name}</td>
@@ -464,6 +473,7 @@ function VillaPricing() {
               ))}
             </tbody>
           </table>
+          <PricingTablePagination rows={villas} pagination={villaPagination} />
         </div>
       )}
 
@@ -499,7 +509,7 @@ function VillaPricing() {
                     </td>
                   </tr>
                 )}
-                {holidays.map((h) => (
+                {holidayPagination.paginatedRows.map((h) => (
                   <tr key={h.id}>
                     <td className="pricing-name-cell">{h.name}</td>
                     <td>{h.start_date}</td>
@@ -517,6 +527,7 @@ function VillaPricing() {
                 ))}
               </tbody>
             </table>
+            <PricingTablePagination rows={holidays} pagination={holidayPagination} />
           </div>
         )}
       </div>

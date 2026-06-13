@@ -9,6 +9,7 @@ import AddExpensePanel from './AddExpensePanel';
 import ExpenseProofModal from './ExpenseProofModal';
 import EditExpenseModal from './EditExpenseModal';
 import SummaryModal from './SummaryModal';
+import { useMutation } from '../../context/MutationProvider';
 
 async function uploadExpenseProof(proof) {
   if (!proof?.dataUrl) return null;
@@ -33,6 +34,7 @@ async function uploadExpenseProof(proof) {
 }
 
 function FinancialDashboardPage() {
+  const { runMutation } = useMutation();
   const [activeTab, setActiveTab] = useState('incomes');
 
   const [kpis, setKpis] = useState(null);
@@ -106,50 +108,71 @@ function FinancialDashboardPage() {
     refreshAll();
   }, [refreshAll]);
 
-  const patchExpense = async (expenseId, body) => {
-    const res = await fetch(`/api/financial/expenses/${expenseId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+  const patchExpense = async (expenseId, body, successMessage) => {
+    const result = await runMutation({
+      mutation: async () => {
+        const res = await fetch(`/api/financial/expenses/${expenseId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to update expense.');
+        }
+        return res.json();
+      },
+      refresh: async () => {
+        await Promise.all([fetchExpenses(), fetchKpis()]);
+      },
+      successMessage,
+      overlayMessage: 'Updating expense…',
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to update expense.');
+
+    if (!result.ok) {
+      throw result.error || new Error('Failed to update expense.');
     }
-    const updated = await res.json();
-    setExpenses((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-    await fetchKpis();
-    return updated;
   };
 
-  const handleApprove = (expenseId) => patchExpense(expenseId, { status: 'approved' });
-  const handleReject = (expenseId) => patchExpense(expenseId, { status: 'rejected' });
+  const handleApprove = (expenseId) => patchExpense(expenseId, { status: 'approved' }, 'Expense approved.');
+  const handleReject = (expenseId) => patchExpense(expenseId, { status: 'rejected' }, 'Expense rejected.');
 
-  const handleEditSave = (expenseId, payload) => patchExpense(expenseId, payload);
+  const handleEditSave = (expenseId, payload) => patchExpense(expenseId, payload, 'Expense updated successfully.');
 
-  const handleAddExpense = async ({ category, description, amount, transactionDate, proof }) => {
-    const proofUrl = await uploadExpenseProof(proof);
+  const handleAddExpense = async (payload) => {
+    const result = await runMutation({
+      mutation: async () => {
+        const proofUrl = await uploadExpenseProof(payload.proof);
 
-    const res = await fetch('/api/financial/expenses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        category,
-        description,
-        amount,
-        transactionDate,
-        proofUrl,
-      }),
+        const res = await fetch('/api/financial/expenses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category: payload.category,
+            description: payload.description,
+            amount: payload.amount,
+            transactionDate: payload.transactionDate,
+            proofUrl,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to create expense.');
+        }
+
+        return res.json();
+      },
+      refresh: async () => {
+        await Promise.all([fetchExpenses(), fetchKpis()]);
+      },
+      successMessage: 'Expense submitted successfully.',
+      overlayMessage: 'Submitting expense…',
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to create expense.');
+    if (!result.ok) {
+      throw result.error || new Error('Failed to create expense.');
     }
-
-    const created = await res.json();
-    setExpenses((prev) => [created, ...prev]);
-    await fetchKpis();
   };
 
   const pendingCount = expenses.filter((e) => e.status === 'pending').length;

@@ -10,6 +10,8 @@ import FilterButtonGroup from '../ui/FilterButtonGroup';
 import TableActionButton from '../TableActionButton';
 import OrderModal from './OrderModal';
 import SummaryModal from '../financial/SummaryModal';
+import { isInHouseToday } from '../../utils/bookingUtils';
+import { useMutation } from '../../context/MutationProvider';
 
 const FILTER_OPTIONS = [
   { key: 'today',      label: 'Today'       },
@@ -33,11 +35,18 @@ function getBookingStatus(booking) {
 function computePhaseConfig(booking, todayISO) {
   const bookingStatus = getBookingStatus(booking);
   if (bookingStatus === 'cancelled') return 'cancelled';
-  if (bookingStatus === 'checked_in') return 'in-house';
+  if (bookingStatus === 'checked_in') {
+    if (isInHouseToday({ ...booking, booking_status: bookingStatus }, todayISO)) {
+      return 'in-house';
+    }
+    if (booking.check_in_date > todayISO) return 'upcoming';
+    return 'departure';
+  }
   if (booking.check_in_date === todayISO) return 'arrival';
   if (booking.check_out_date === todayISO) return 'departure';
   if (booking.check_in_date > todayISO) return 'upcoming';
-  return 'in-house';
+  if (booking.check_in_date < todayISO && booking.check_out_date > todayISO) return 'in-house';
+  return 'upcoming';
 }
 
 function normalizeBooking(booking, todayISO) {
@@ -225,45 +234,50 @@ function SectionHeader({ smartFilter, setSmartFilter, loading, onRefresh, today 
 }
 
 function useBookingActions(onRefresh) {
+  const { runMutation } = useMutation();
   const [checkingInId,  setCheckingInId]  = useState(null);
   const [checkingOutId, setCheckingOutId] = useState(null);
 
   const handleCheckIn = async (bookingId) => {
     setCheckingInId(bookingId);
-    try {
-      const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-in`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Check-in failed');
-      }
-      onRefresh();
-    } catch (err) {
-      alert('Error checking in: ' + err.message);
-    } finally {
-      setCheckingInId(null);
-    }
+    await runMutation({
+      mutation: async () => {
+        const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-in`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Check-in failed');
+        }
+        return res.json();
+      },
+      refresh: onRefresh,
+      successMessage: 'Guest checked in successfully.',
+      overlayMessage: 'Checking in guest…',
+    });
+    setCheckingInId(null);
   };
 
   const handleCheckOut = async (bookingId) => {
     setCheckingOutId(bookingId);
-    try {
-      const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-out`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Check-out failed');
-      }
-      onRefresh();
-    } catch (err) {
-      alert('Error checking out: ' + err.message);
-    } finally {
-      setCheckingOutId(null);
-    }
+    await runMutation({
+      mutation: async () => {
+        const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-out`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Check-out failed');
+        }
+        return res.json();
+      },
+      refresh: onRefresh,
+      successMessage: 'Guest checked out successfully.',
+      overlayMessage: 'Checking out guest…',
+    });
+    setCheckingOutId(null);
   };
 
   return { checkingInId, checkingOutId, handleCheckIn, handleCheckOut };
@@ -278,17 +292,22 @@ function useActiveBookings(bookings, todayISO) {
   );
 }
 
-function usePhaseMetrics(activeBookings) {
+function usePhaseMetrics(activeBookings, todayISO) {
   return useMemo(() => {
     const counts = { arrival: 0, 'in-house': 0, departure: 0, upcoming: 0 };
     for (const booking of activeBookings) {
+      if (isInHouseToday(booking, todayISO)) {
+        counts['in-house'] += 1;
+        continue;
+      }
       const phase = booking.phase_config;
+      if (phase === 'in-house') continue;
       if (phase && phase !== 'cancelled' && Object.hasOwn(counts, phase)) {
         counts[phase] += 1;
       }
     }
     return counts;
-  }, [activeBookings]);
+  }, [activeBookings, todayISO]);
 }
 
 function useFilteredBookings(activeBookings, smartFilter, todayISO) {
@@ -301,8 +320,7 @@ function useFilteredBookings(activeBookings, smartFilter, todayISO) {
       return activeBookings.filter(b => {
         const isArrival   = b.check_in_date  === todayISO;
         const isDeparture = b.check_out_date === todayISO;
-        const isInHouse   = b.booking_status === 'checked_in'
-          || (b.check_in_date < todayISO && b.check_out_date > todayISO);
+        const isInHouse   = isInHouseToday(b, todayISO);
         return isArrival || isDeparture || isInHouse;
       });
     }
@@ -343,7 +361,7 @@ function Overview({ bookings, loading, error, onRefresh }) {
 
   const { checkingInId, checkingOutId, handleCheckIn, handleCheckOut } = useBookingActions(onRefresh);
   const activeBookings = useActiveBookings(bookings, todayISO);
-  const phaseMetrics = usePhaseMetrics(activeBookings);
+  const phaseMetrics = usePhaseMetrics(activeBookings, todayISO);
   const filtered = useFilteredBookings(activeBookings, smartFilter, todayISO);
 
   return (

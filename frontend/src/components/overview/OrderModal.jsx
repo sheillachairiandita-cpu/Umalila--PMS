@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, ShoppingCart, Plus, Minus, Trash2, ChefHat, Coffee, UtensilsCrossed, CheckCircle, ClipboardList } from 'lucide-react';
-import { Modal } from '../ui'; // Adjusted to extract Modal cleanly
+import { Modal } from '../ui';
+import { useMutation } from '../../context/MutationProvider';
 
 // ─── category meta ────────────────────────────────────────────
 const CATEGORY_META = {
@@ -45,6 +46,7 @@ function QtyStepper({ qty, onIncrease, onDecrease }) {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────
 function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
+  const { runMutation } = useMutation();
   const [tab, setTab] = useState('menu'); // 'menu' | 'cart' | 'history'
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(false);
@@ -137,43 +139,45 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
     setSubmitting(true);
     setError(null);
 
-    try {
-      const itemsPayload = cartItems.map(c => ({
-        menu_item_id: c.item.id,
-        quantity: c.qty,
-        price_at_order: c.item.price,
-        notes: c.notes || ''
-      }));
+    const result = await runMutation({
+      mutation: async () => {
+        const itemsPayload = cartItems.map(c => ({
+          menu_item_id: c.item.id,
+          quantity: c.qty,
+          price_at_order: c.item.price,
+          notes: c.notes || ''
+        }));
 
-      const response = await fetch(`/api/bookings/${booking.id}/food-orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: itemsPayload }),
-      });
+        const response = await fetch(`/api/bookings/${booking.id}/food-orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: itemsPayload }),
+        });
 
-      // Fetch structural error text directly from server if response fails
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to submit order to server.');
-      }
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to submit order to server.');
+        }
 
-      // Clear the local state shopping cart
+        return response.json();
+      },
+      refresh: async () => {
+        if (typeof onOrderSaved === 'function') {
+          await onOrderSaved();
+        }
+        await fetchOrderHistory();
+      },
+      successMessage: 'Food order placed successfully.',
+      overlayMessage: 'Placing order…',
+    });
+
+    setSubmitting(false);
+
+    if (result.ok) {
       setCart({});
-      
-      // FIX: Triggers parent layout state updates cleanly
-      if (typeof onOrderSaved === 'function') {
-        onOrderSaved();
-      } else if (typeof onOrderPlaced === 'function') {
-        onOrderPlaced(); // Fallback safety catch
-      }
-      
-      await fetchOrderHistory();
       setTab('history');
-    } catch (err) {
-      console.error("Frontend Order Placement Error:", err);
-      setError(err.message || '⚠️ Failed to submit order');
-    } finally {
-      setSubmitting(false);
+    } else {
+      setError(result.error?.message || 'Failed to submit order');
     }
   };
 

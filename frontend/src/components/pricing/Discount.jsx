@@ -7,6 +7,9 @@ import {
   PricingFormFooter,
   PricingDeleteModal,
   PricingActionCell,
+  usePaginatedRows,
+  PricingTablePagination,
+  usePricingMutation,
   formatRp,
 } from './pricingShared';
 
@@ -166,9 +169,9 @@ function FormSection({ title, children }) {
 
 function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
   const isEdit = !!initialData;
+  const { saveItem, isMutating } = usePricingMutation();
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -196,30 +199,30 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
       return;
     }
 
-    setSubmitting(true);
-    setError(null);
-    try {
-      const payload = buildPayload(form);
-      const url = isEdit ? `/api/discounts/${initialData.id}` : '/api/discounts';
-      const method = isEdit ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+    await saveItem({
+      isEdit,
+      entityName: 'Discount',
+      setError,
+      onClose,
+      refresh: onSaved,
+      execute: async () => {
+        const payload = buildPayload(form);
+        const url = isEdit ? `/api/discounts/${initialData.id}` : '/api/discounts';
+        const method = isEdit ? 'PATCH' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to save discount');
-      }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to save discount');
+        }
 
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+        return res.json();
+      },
+    });
   };
 
   return (
@@ -508,8 +511,8 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
 
           <PricingFormFooter
             onCancel={onClose}
-            submitting={submitting}
-            submitLabel={submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Discount'}
+            submitting={isMutating}
+            submitLabel={isMutating ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Discount'}
           />
         </form>
       </div>
@@ -524,6 +527,7 @@ function statusMeta(status) {
 }
 
 function Discount() {
+  const { deleteItem } = usePricingMutation();
   const [discounts, setDiscounts] = useState([]);
   const [villas, setVillas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -564,16 +568,18 @@ function Discount() {
   const handleArchive = async () => {
     if (!archiveTarget) return;
     setArchiving(true);
-    try {
-      const res = await fetch(`/api/discounts/${archiveTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to archive discount');
-      await fetchDiscounts();
-      setArchiveTarget(null);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setArchiving(false);
-    }
+    await deleteItem({
+      entityName: 'Discount',
+      successMessage: 'Discount archived successfully.',
+      overlayMessage: 'Archiving discount…',
+      refresh: fetchDiscounts,
+      onDone: () => setArchiveTarget(null),
+      execute: async () => {
+        const res = await fetch(`/api/discounts/${archiveTarget.id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to archive discount');
+      },
+    });
+    setArchiving(false);
   };
 
   const scopeLabel = (scope) => SCOPE_OPTIONS.find((s) => s.value === (scope === 'global' ? 'all_items' : scope))?.label || scope;
@@ -585,6 +591,8 @@ function Discount() {
     }
     return 'Always';
   };
+
+  const pagination = usePaginatedRows(discounts);
 
   return (
     <div className="pricing-pane">
@@ -623,7 +631,7 @@ function Discount() {
                   </td>
                 </tr>
               )}
-              {discounts.map((d) => {
+              {pagination.paginatedRows.map((d) => {
                 const status = statusMeta(d.status);
                 return (
                   <tr key={d.id}>
@@ -675,6 +683,7 @@ function Discount() {
               })}
             </tbody>
           </table>
+          <PricingTablePagination rows={discounts} pagination={pagination} />
         </div>
       )}
 

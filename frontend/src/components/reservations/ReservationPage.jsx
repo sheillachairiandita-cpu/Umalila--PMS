@@ -23,6 +23,9 @@ import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../../utils/st
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
 import ReservationPaymentModal from './ReservationPaymentModal';
 import PublicReservationForm from './PublicReservationForm';
+import SummaryModal from '../financial/SummaryModal';
+import { useMutation } from '../../context/MutationProvider';
+import { sortReservationsByRecency } from '../../utils/bookingUtils';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -135,7 +138,7 @@ function DeclineRequestModal({ request, onClose, onConfirm, submitting, error })
   );
 }
 
-function PendingRequestsTable({ requests, onApprove, onDecline, loading }) {
+function PendingRequestsTable({ requests, onApprove, onDecline, onView, loading }) {
   const [actionId, setActionId] = useState(null);
 
   if (loading) {
@@ -182,7 +185,7 @@ function PendingRequestsTable({ requests, onApprove, onDecline, loading }) {
                 variant="secondary"
                 size="sm"
                 icon={Eye}
-                onClick={() => alert(`Details for ${request.guest_full_name} — TBD`)}
+                onClick={() => onView(request)}
               >
                 View
               </Button>
@@ -451,6 +454,7 @@ function AllReservationsTable({
 // 🎯 MAIN COMPONENT: RESERVATION PAGE
 // =====================================================
 function ReservationPage() {
+  const { runMutation } = useMutation();
   const [pendingRequests, setPendingRequests] = useState([]);
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -458,41 +462,47 @@ function ReservationPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [editBooking, setEditBooking] = useState(null);
   const [paymentBooking, setPaymentBooking] = useState(null);
+  const [viewRequest, setViewRequest] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [declineTarget, setDeclineTarget] = useState(null);
   const [declineSubmitting, setDeclineSubmitting] = useState(false);
   const [declineError, setDeclineError] = useState(null);
+  const [prioritizeId, setPrioritizeId] = useState(null);
 
-  const processBookings = (bookingsData) => {
+  const processBookings = (bookingsData, topId = null) => {
     const pending = bookingsData
       .filter((b) => b.status === 'pending')
       .map((b) => ({
         ...b,
         guest_full_name: b.guests?.full_name || 'Unknown Guest',
-        adults: parseInt(b.notes?.match(/Adults:\s*(\d+)/)?.[1] || '0'),
-        children: parseInt(b.notes?.match(/Children:\s*(\d+)/)?.[1] || '0'),
+        adults: parseInt(b.notes?.match(/Adults:\s*(\d+)/)?.[1] || '0', 10),
+        children: parseInt(b.notes?.match(/Children:\s*(\d+)/)?.[1] || '0', 10),
       }));
 
-    const approved = bookingsData
-      .filter((b) => b.status !== 'pending')
-      .map((b) => ({
-        ...b,
-        guest_full_name: b.guests?.full_name || 'Unknown Guest',
-        payment_status: b.payment_status || 'pending',
-      }));
+    const reservations = sortReservationsByRecency(
+      bookingsData
+        .filter((b) => b.status !== 'pending')
+        .map((b) => ({
+          ...b,
+          guest_full_name: b.guests?.full_name || 'Unknown Guest',
+          payment_status: b.status === 'cancelled' ? 'cancelled' : (b.payment_status || 'pending'),
+          phase_status: b.status === 'cancelled' ? 'cancelled' : (b.stay_phase || b.status),
+        })),
+      topId || prioritizeId,
+    );
 
     setPendingRequests(pending);
-    setAllReservations(approved);
+    setAllReservations(reservations);
     setStats({
       totalBookings: bookingsData.length,
       pendingApproval: pending.length,
-      confirmedBookings: approved.filter((b) => b.status === 'confirmed').length,
+      confirmedBookings: reservations.filter((b) => b.status === 'confirmed').length,
     });
   };
 
-  const fetchData = async () => {
+  const fetchData = async ({ silent = false, topId = null } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [bookingsRes, incomeRes] = await Promise.all([
         fetch('/api/bookings'),
         fetch('/api/financial/income'),
@@ -508,11 +518,12 @@ function ReservationPage() {
         ledger_total: ledgerById[b.id]?.total ?? b.total_price,
         ledger_discount: ledgerById[b.id]?.discountAmount ?? 0,
       }));
-      processBookings(enriched);
+      processBookings(enriched, topId);
     } catch (err) {
       console.error('Error fetching data:', err);
+      throw err;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
       setStatsLoading(false);
     }
   };
@@ -533,76 +544,71 @@ function ReservationPage() {
     }
   };
 
-  const handlePaymentRecorded = () => {
-    fetchData();
-  };
+  const handlePaymentRecorded = () => runMutation({
+    mutation: async () => {},
+    refresh: () => fetchData({ silent: true }),
+    showSuccess: false,
+    overlayMessage: 'Refreshing reservations…',
+  });
 
-  const handleReservationSaved = () => {
-    fetchData();
-  };
+  const handleReservationSaved = () => runMutation({
+    mutation: async () => {},
+    refresh: () => fetchData({ silent: true }),
+    showSuccess: false,
+    overlayMessage: 'Refreshing reservations…',
+  });
 
   const handleDeclineRequest = async (reason) => {
     if (!declineTarget) return;
 
     setDeclineSubmitting(true);
     setDeclineError(null);
-    try {
-      const response = await fetch(`/api/bookings/${declineTarget.id}/cancel`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancellation_reason: reason }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to decline request');
-      }
 
-      setPendingRequests((prev) => prev.filter((r) => r.id !== declineTarget.id));
-      setStats((prev) => ({
-        ...prev,
-        pendingApproval: Math.max(0, prev.pendingApproval - 1),
-      }));
+    const result = await runMutation({
+      mutation: async () => {
+        const response = await fetch(`/api/bookings/${declineTarget.id}/cancel`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cancellation_reason: reason }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to decline request');
+        }
+        return response.json();
+      },
+      refresh: () => fetchData({ silent: true, topId: declineTarget.id }),
+      successMessage: 'Reservation request declined.',
+      errorMessage: null,
+      overlayMessage: 'Declining request…',
+    });
+
+    setDeclineSubmitting(false);
+
+    if (result.ok) {
       setDeclineTarget(null);
-    } catch (err) {
-      setDeclineError(err.message);
-    } finally {
-      setDeclineSubmitting(false);
+      setPrioritizeId(declineTarget.id);
+    } else {
+      setDeclineError(result.error?.message || 'Failed to decline request');
     }
   };
 
   const handleApproveRequest = async (requestId) => {
-    try {
-      const response = await fetch(
-        `/api/bookings/${requestId}/status`,
-        {
+    await runMutation({
+      mutation: async () => {
+        const response = await fetch(`/api/bookings/${requestId}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'confirmed' }),
-        }
-      );
-      if (!response.ok) throw new Error('Failed to approve request');
-
-      const approvedRequest = pendingRequests.find((r) => r.id === requestId);
-      if (approvedRequest) {
-        setPendingRequests(pendingRequests.filter((r) => r.id !== requestId));
-        setAllReservations([
-          ...allReservations,
-          {
-            ...approvedRequest,
-            status: 'confirmed',
-            payment_status: 'pending',
-          },
-        ]);
-        setStats((prev) => ({
-          ...prev,
-          pendingApproval: prev.pendingApproval - 1,
-          confirmedBookings: prev.confirmedBookings + 1,
-        }));
-      }
-    } catch (err) {
-      console.error('Error approving request:', err);
-      alert('Failed to approve request');
-    }
+        });
+        if (!response.ok) throw new Error('Failed to approve request');
+        return response.json();
+      },
+      refresh: () => fetchData({ silent: true, topId: requestId }),
+      successMessage: 'Reservation approved successfully.',
+      overlayMessage: 'Approving reservation…',
+    });
+    setPrioritizeId(requestId);
   };
 
   return (
@@ -623,6 +629,7 @@ function ReservationPage() {
           <PendingRequestsTable
             requests={pendingRequests}
             onApprove={handleApproveRequest}
+            onView={setViewRequest}
             onDecline={(request) => {
               setDeclineError(null);
               setDeclineTarget(request);
@@ -676,6 +683,14 @@ function ReservationPage() {
         onConfirm={handleDeclineRequest}
         submitting={declineSubmitting}
         error={declineError}
+      />
+
+      <SummaryModal
+        isOpen={!!viewRequest}
+        bookingId={viewRequest?.id}
+        guestName={viewRequest?.guest_full_name}
+        displayId={viewRequest?.display_id}
+        onClose={() => setViewRequest(null)}
       />
     </div>
   );

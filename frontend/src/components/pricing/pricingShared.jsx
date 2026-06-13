@@ -1,8 +1,108 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Button, Alert } from '../ui';
 import Modal from '../ui/Modal';
 import TableActionButton from '../TableActionButton';
+import TablePagination from '../ui/TablePagination';
+import { useMutation } from '../../context/MutationProvider';
+
+export const PRICING_PAGE_SIZE = 10;
+
+export function usePaginatedRows(rows, pageSize = PRICING_PAGE_SIZE) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const startIdx = (currentPage - 1) * pageSize;
+  const paginatedRows = rows.slice(startIdx, startIdx + pageSize);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [rows.length, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  return {
+    paginatedRows,
+    currentPage,
+    totalPages,
+    setCurrentPage,
+    startIdx,
+    pageSize,
+  };
+}
+
+export function PricingTablePagination({ rows, pagination }) {
+  const { currentPage, totalPages, setCurrentPage, startIdx, pageSize } = pagination;
+
+  return (
+    <>
+      {rows.length > 0 && (
+        <div className="pricing-table-result-count">
+          {`Showing ${startIdx + 1}–${Math.min(startIdx + pageSize, rows.length)} of ${rows.length} record${rows.length !== 1 ? 's' : ''}`}
+        </div>
+      )}
+      <TablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+      />
+    </>
+  );
+}
+
+export function usePricingMutation() {
+  const { runMutation, isMutating } = useMutation();
+
+  const saveItem = useCallback(async ({
+    isEdit,
+    entityName,
+    execute,
+    refresh,
+    onClose,
+    setError,
+    successMessage,
+    overlayMessage,
+  }) => {
+    setError?.(null);
+    const result = await runMutation({
+      mutation: execute,
+      refresh,
+      successMessage: successMessage || (isEdit
+        ? `${entityName} updated successfully.`
+        : `${entityName} created successfully.`),
+      overlayMessage: overlayMessage || (isEdit ? 'Saving changes…' : 'Creating…'),
+    });
+    if (result.ok) {
+      onClose?.();
+    } else {
+      setError?.(result.error?.message || `Failed to save ${entityName.toLowerCase()}.`);
+    }
+    return result;
+  }, [runMutation]);
+
+  const deleteItem = useCallback(async ({
+    entityName,
+    execute,
+    refresh,
+    onDone,
+    successMessage,
+    overlayMessage,
+  }) => {
+    const result = await runMutation({
+      mutation: execute,
+      refresh,
+      successMessage: successMessage || `${entityName} deleted successfully.`,
+      overlayMessage: overlayMessage || `Deleting ${entityName.toLowerCase()}…`,
+    });
+    if (result.ok) onDone?.();
+    return result;
+  }, [runMutation]);
+
+  return { saveItem, deleteItem, isMutating, runMutation };
+}
 
 export function formatRp(amount) {
   return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;

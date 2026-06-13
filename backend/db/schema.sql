@@ -1,7 +1,7 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
-CREATE TABLE public.users (email text NOT NULL, password_hash text NOT NULL, name text NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), role USER-DEFINED DEFAULT 'staff'::user_role NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL);
+CREATE TABLE public.users (display_id text, password_hash text NOT NULL, name text NOT NULL, email text NOT NULL, status text DEFAULT 'active'::text NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), role USER-DEFINED DEFAULT 'staff'::user_role NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL);
 CREATE TABLE public.villas (description text, id uuid DEFAULT gen_random_uuid() NOT NULL, base_breakfast smallint DEFAULT '0'::smallint NOT NULL, display_id text, weekend_rate_per_night numeric, holiday_rate_per_night numeric, base_rate_per_night numeric NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), name text NOT NULL, capacity integer NOT NULL);
 CREATE TABLE public.guests (email text, full_name text NOT NULL, display_id text, id_card_number text, phone_number text NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()));
 CREATE TABLE public.bookings (discount_amount numeric DEFAULT 0.00, display_id text, payment_status text DEFAULT 'pending'::text NOT NULL, notes text, id uuid DEFAULT gen_random_uuid() NOT NULL, guest_id uuid, check_in_date date NOT NULL, total_guests integer NOT NULL, check_out_date date NOT NULL, total_price numeric NOT NULL, status USER-DEFINED DEFAULT 'pending'::booking_status NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), amount_paid numeric DEFAULT 0.00, discount_id uuid);
@@ -32,6 +32,8 @@ CREATE TABLE public.users (
   password_hash text NOT NULL,
   role USER-DEFINED NOT NULL DEFAULT 'staff'::user_role,
   name text NOT NULL,
+  display_id text UNIQUE,
+  status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'deactivated'::text])),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
@@ -205,6 +207,8 @@ CREATE TABLE public.villa_date_blocks (
   end_date date NOT NULL,
   reason text NOT NULL,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  created_by uuid,
   CONSTRAINT villa_date_blocks_pkey PRIMARY KEY (id),
-  CONSTRAINT villa_date_blocks_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id)
+  CONSTRAINT villa_date_blocks_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id),
+  CONSTRAINT villa_date_blocks_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );

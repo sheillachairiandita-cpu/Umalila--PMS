@@ -1,27 +1,59 @@
-import React from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  CalendarDays,
-  BedDouble,
-  Users,
-  Sliders,
-  LogOut,
-  Calendar,
-  ClipboardList,
   ChevronLeft,
   ChevronRight,
-  Wallet,
-  PieChart,
-  Tags,
+  User,
+  Settings,
+  LogOut,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthProvider';
+import { hasPermission } from '../auth/permissions';
+import { getNavItemsForRole } from '../auth/navConfig';
 
-const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
+const Sidebar = ({ activePage, collapsed, onToggle, onLogout }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef(null);
+
+  const navGroups = useMemo(
+    () => getNavItemsForRole(user?.role, hasPermission),
+    [user?.role],
+  );
+
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+
+    const handleClickOutside = (event) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setSettingsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [settingsOpen]);
+
+  const handleNavClick = (path) => {
+    navigate(path);
+  };
+
+  const handleProfileClick = () => {
+    setSettingsOpen(false);
+    navigate('/admin/profile');
+  };
+
+  const handleSignOut = () => {
+    setSettingsOpen(false);
+    onLogout();
+  };
+
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-brand">
           <h2 className="brand-title">Umalila</h2>
-          <span className="brand-subtitle">Alahan Panjang</span>
         </div>
         <button
           type="button"
@@ -35,95 +67,68 @@ const Sidebar = ({ activePage, setActivePage, collapsed, onToggle }) => {
       </div>
 
       <nav className="sidebar-nav">
-        <div className="nav-group-title">Operations</div>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`}
-          onClick={() => setActivePage('dashboard')}
-          title="Overview"
-        >
-          <LayoutDashboard size={15} />
-          <span>Overview</span>
-        </button>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'calendar' ? 'active' : ''}`}
-          onClick={() => setActivePage('calendar')}
-          title="Calendar"
-        >
-          <Calendar size={15} />
-          <span>Calendar</span>
-        </button>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'reservations' ? 'active' : ''}`}
-          onClick={() => setActivePage('reservations')}
-          title="Reservations"
-        >
-          <ClipboardList size={15} />
-          <span>Reservations</span>
-        </button>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'financial' ? 'active' : ''}`}
-          onClick={() => setActivePage('financial')}
-          title="Financial"
-        >
-          <Wallet size={15} />
-          <span>Financial</span>
-        </button>
-
-        <div className="sidebar-divider" />
-        <div className="nav-group-title">Analytics</div>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'insights' ? 'active' : ''}`}
-          onClick={() => setActivePage('insights')}
-          title="Dashboard & Insights"
-        >
-          <PieChart size={15} />
-          <span>Dashboard</span>
-        </button>
-
-        <div className="sidebar-divider" />
-        <div className="nav-group-title">System</div>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'pricing' ? 'active' : ''}`}
-          onClick={() => setActivePage('pricing')}
-          title="Pricing"
-        >
-          <Tags size={15} />
-          <span>Pricing</span>
-        </button>
-
-        <button
-          type="button"
-          className={`nav-item ${activePage === 'settings' ? 'active' : ''}`}
-          onClick={() => setActivePage('settings')}
-          title="Settings"
-        >
-          <Sliders size={15} />
-          <span>Settings</span>
-        </button>
+        {navGroups.map((group, groupIdx) => (
+          <React.Fragment key={group.group}>
+            {groupIdx > 0 && <div className="sidebar-divider" />}
+            <div className="nav-group-title">{group.group}</div>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.page}
+                  type="button"
+                  className={`nav-item ${activePage === item.page ? 'active' : ''}`}
+                  onClick={() => handleNavClick(item.path)}
+                  title={item.label}
+                >
+                  <Icon size={15} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </React.Fragment>
+        ))}
       </nav>
 
       <div className="sidebar-footer">
-        <button
-          type="button"
-          className="nav-item logout-btn"
-          onClick={() => console.log('Logging out...')}
-          title="Sign Out"
-        >
-          <LogOut size={15} />
-          <span>Sign Out</span>
-        </button>
+        <div className="sidebar-footer-actions">
+          <button
+            type="button"
+            className={`sidebar-footer-icon-btn ${activePage === 'profile' ? 'sidebar-footer-icon-btn--active' : ''}`}
+            onClick={handleProfileClick}
+            title="Profile"
+            aria-label="Profile"
+          >
+            <User size={18} />
+          </button>
+
+          <div className="sidebar-footer-settings" ref={settingsRef}>
+            <button
+              type="button"
+              className={`sidebar-footer-icon-btn ${settingsOpen ? 'sidebar-footer-icon-btn--active' : ''}`}
+              onClick={() => setSettingsOpen((open) => !open)}
+              title="Settings"
+              aria-label="Settings"
+              aria-expanded={settingsOpen}
+            >
+              <Settings size={18} />
+            </button>
+
+            {settingsOpen && (
+              <div className="sidebar-settings-menu" role="menu">
+                <button
+                  type="button"
+                  className="sidebar-settings-menu__item sidebar-settings-menu__item--danger"
+                  role="menuitem"
+                  onClick={handleSignOut}
+                >
+                  <LogOut size={14} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </aside>
   );

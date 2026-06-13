@@ -15,6 +15,7 @@ export { default as PageTabs } from './PageTabs';
 export { default as PendingQueueCard, PendingQueueList } from './PendingQueueCard';
 
 export { default as Input } from './Input';
+export { default as PasswordInput } from './PasswordInput';
 export { default as Textarea } from './Textarea';
 export { default as FileUpload } from './FileUpload';
 export { default as Modal } from './Modal';
