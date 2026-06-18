@@ -1,14 +1,21 @@
 import React from 'react';
 
 /**
- * Combo chart — bar columns for revenue, line overlay for expenses.
+ * Combo chart — bar columns for revenue, line overlays for expenses and net profit.
  */
-export default function ComboBarLineChart({ data, formatValue, barKey = 'revenue', lineKey = 'expenses' }) {
+export default function ComboBarLineChart({
+  data,
+  formatValue,
+  barKey = 'revenue',
+  lineKey = 'expenses',
+  lineKey2 = null,
+}) {
   if (!data?.length) {
     return <div className="combo-chart combo-chart--empty">No monthly data in range</div>;
   }
 
-  const maxVal = Math.max(...data.flatMap((d) => [d[barKey] || 0, d[lineKey] || 0]), 1);
+  const keys = [barKey, lineKey, ...(lineKey2 ? [lineKey2] : [])];
+  const maxVal = Math.max(...data.flatMap((d) => keys.map((k) => Math.abs(d[k] || 0))), 1);
   const w = 100 / data.length;
   const pad = Math.min(w * 0.25, 4);
 
@@ -17,6 +24,15 @@ export default function ComboBarLineChart({ data, formatValue, barKey = 'revenue
     const y = 100 - ((d[lineKey] || 0) / maxVal) * 88 - 6;
     return `${x},${y}`;
   }).join(' ');
+
+  const line2Points = lineKey2
+    ? data.map((d, i) => {
+      const x = i * w + w / 2;
+      const val = Math.max(d[lineKey2] || 0, 0);
+      const y = 100 - (val / maxVal) * 88 - 6;
+      return `${x},${y}`;
+    }).join(' ')
+    : null;
 
   return (
     <div className="combo-chart">
@@ -58,6 +74,32 @@ export default function ComboBarLineChart({ data, formatValue, barKey = 'revenue
             />
           );
         })}
+        {lineKey2 && line2Points && (
+          <>
+            <polyline
+              points={line2Points}
+              fill="none"
+              stroke="var(--green)"
+              strokeWidth={1.2}
+              strokeDasharray="3 2"
+              vectorEffect="non-scaling-stroke"
+            />
+            {data.map((d, i) => {
+              const x = i * w + w / 2;
+              const val = Math.max(d[lineKey2] || 0, 0);
+              const y = 100 - (val / maxVal) * 88 - 6;
+              return (
+                <circle
+                  key={`dot2-${d.label}`}
+                  cx={x}
+                  cy={y}
+                  r={1.2}
+                  fill="var(--green)"
+                />
+              );
+            })}
+          </>
+        )}
       </svg>
       <div className="combo-chart__labels">
         {data.map((d) => (
@@ -73,6 +115,12 @@ export default function ComboBarLineChart({ data, formatValue, barKey = 'revenue
           <span className="combo-chart__swatch combo-chart__swatch--line" />
           Expenses
         </span>
+        {lineKey2 && (
+          <span className="combo-chart__legend-item">
+            <span className="combo-chart__swatch combo-chart__swatch--line2" />
+            Net Profit
+          </span>
+        )}
       </div>
     </div>
   );

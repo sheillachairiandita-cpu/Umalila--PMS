@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Pencil, Trash2, AlertTriangle, HelpCircle } from 'lucide-react';
 import { Button, Alert } from '../ui';
 import Modal from '../ui/Modal';
 import TableActionButton from '../TableActionButton';
@@ -104,18 +104,29 @@ export function usePricingMutation() {
   return { saveItem, deleteItem, isMutating, runMutation };
 }
 
-export function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
-}
+export { formatRp } from '../../utils/formatCurrency';
 
-export function PricingPaneToolbar({ title, description, actionLabel, onAction, actionIcon }) {
+export function PricingPaneToolbar({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  actionIcon,
+  actionVariant = 'primary',
+}) {
   return (
     <div className="pricing-pane__toolbar">
-      <div>
-        <h4 className="pricing-pane__subtitle">{title}</h4>
-        <p className="pricing-pane__desc">{description}</p>
+      <div className="pricing-pane__title-wrap">
+        <h4 className="pricing-pane__subtitle">
+          {title}
+          {description && (
+            <span className="pricing-pane__info-tip" title={description}>
+              <HelpCircle size={14} aria-label={description} />
+            </span>
+          )}
+        </h4>
       </div>
-      <Button variant="primary" size="sm" icon={actionIcon} onClick={onAction}>
+      <Button variant={actionVariant} size="sm" icon={actionIcon} onClick={onAction}>
         {actionLabel}
       </Button>
     </div>

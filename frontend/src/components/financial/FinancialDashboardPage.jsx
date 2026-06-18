@@ -1,129 +1,71 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
-import { Button, PageTabs } from '../ui';
+import React, { useCallback, useState } from 'react';
+import { Plus, RefreshCw, TrendingDown, TrendingUp, Calculator } from 'lucide-react';
+import { PageTabs } from '../ui';
 import FinancialKpiCards from './FinancialKpiCards';
 import IncomeTable from './IncomeTable';
 import ExpensePendingQueue from './ExpensePendingQueue';
 import ExpenseLedgerTable from './ExpenseLedgerTable';
+import CogsTab from './COGS/CogsTab';
+import CogsProfileModal from './COGS/CogsProfileModal';
 import AddExpensePanel from './AddExpensePanel';
 import ExpenseProofModal from './ExpenseProofModal';
 import EditExpenseModal from './EditExpenseModal';
 import SummaryModal from './SummaryModal';
 import { useMutation } from '../../context/MutationProvider';
-
-async function uploadExpenseProof(proof) {
-  if (!proof?.dataUrl) return null;
-
-  const res = await fetch('/api/financial/expenses/upload-proof', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fileData: proof.dataUrl,
-      fileName: proof.name,
-      fileType: proof.type,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to upload proof of payment.');
-  }
-
-  const data = await res.json();
-  return data.publicUrl;
-}
+import {
+  useFinancialKpis,
+  useFinancialIncome,
+  useFinancialExpenses,
+  useCogsData,
+  useInvalidateFinancial,
+} from '../../hooks/api/useFinancial';
+import { financialApi } from '../../api';
+import { apiJson } from '../../api/client';
 
 function FinancialDashboardPage() {
   const { runMutation } = useMutation();
+  const invalidateFinancial = useInvalidateFinancial();
   const [activeTab, setActiveTab] = useState('incomes');
 
-  const [kpis, setKpis] = useState(null);
-  const [kpisLoading, setKpisLoading] = useState(true);
+  const { data: kpis, isLoading: kpisLoading, refetch: refetchKpis } = useFinancialKpis();
+  const { data: incomeRows = [], isLoading: incomeLoading, refetch: refetchIncome } = useFinancialIncome({
+    enabled: activeTab === 'incomes',
+  });
+  const { data: expenses = [], isLoading: expensesLoading, refetch: refetchExpenses } = useFinancialExpenses({
+    enabled: activeTab === 'incomes' || activeTab === 'expenses',
+  });
+  const { data: cogsData, isLoading: cogsLoading, refetch: refetchCogs } = useCogsData({
+    enabled: activeTab === 'cogs',
+  });
 
-  const [incomeRows, setIncomeRows] = useState([]);
-  const [incomeLoading, setIncomeLoading] = useState(true);
-
-  const [expenses, setExpenses] = useState([]);
-  const [expensesLoading, setExpensesLoading] = useState(true);
-
+  const [cogsModal, setCogsModal] = useState(null);
   const [detailsRow, setDetailsRow] = useState(null);
   const [proofExpense, setProofExpense] = useState(null);
   const [editExpense, setEditExpense] = useState(null);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
 
-  const fetchKpis = useCallback(async () => {
-    setKpisLoading(true);
-    try {
-      const res = await fetch('/api/financial/kpis');
-      if (!res.ok) throw new Error('Failed to load KPI metrics');
-      setKpis(await res.json());
-    } catch (err) {
-      console.error(err);
-      setKpis({ totalRevenue: 0, upcomingRevenue: 0, pendingDeposits: 0, totalExpenses: 0 });
-    } finally {
-      setKpisLoading(false);
-    }
-  }, []);
-
-  const fetchIncome = useCallback(async () => {
-    setIncomeLoading(true);
-    try {
-      const res = await fetch('/api/financial/income');
-      if (!res.ok) throw new Error('Failed to load income data');
-      const data = await res.json();
-      const sorted = [...data].sort((a, b) => {
-        const order = { pending: 0, partial: 1, complete: 2 };
-        const diff = (order[a.paymentStatus] ?? 1) - (order[b.paymentStatus] ?? 1);
-        if (diff !== 0) return diff;
-        return (b.checkIn || '').localeCompare(a.checkIn || '');
-      });
-      setIncomeRows(sorted);
-    } catch (err) {
-      console.error(err);
-      setIncomeRows([]);
-    } finally {
-      setIncomeLoading(false);
-    }
-  }, []);
-
-  const fetchExpenses = useCallback(async () => {
-    setExpensesLoading(true);
-    try {
-      const res = await fetch('/api/financial/expenses');
-      if (!res.ok) throw new Error('Failed to load expenses');
-      setExpenses(await res.json());
-    } catch (err) {
-      console.error(err);
-      setExpenses([]);
-    } finally {
-      setExpensesLoading(false);
-    }
-  }, []);
+  const sortedIncome = [...incomeRows].sort((a, b) => {
+    const order = { pending: 0, partial: 1, complete: 2 };
+    const diff = (order[a.paymentStatus] ?? 1) - (order[b.paymentStatus] ?? 1);
+    if (diff !== 0) return diff;
+    return (b.checkIn || '').localeCompare(a.checkIn || '');
+  });
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([fetchKpis(), fetchIncome(), fetchExpenses()]);
-  }, [fetchKpis, fetchIncome, fetchExpenses]);
-
-  useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
+    await Promise.all([
+      refetchKpis(),
+      activeTab === 'incomes' ? refetchIncome() : Promise.resolve(),
+      activeTab !== 'cogs' ? refetchExpenses() : Promise.resolve(),
+      activeTab === 'cogs' ? refetchCogs() : Promise.resolve(),
+    ]);
+    await invalidateFinancial();
+  }, [activeTab, refetchKpis, refetchIncome, refetchExpenses, refetchCogs, invalidateFinancial]);
 
   const patchExpense = async (expenseId, body, successMessage) => {
     const result = await runMutation({
-      mutation: async () => {
-        const res = await fetch(`/api/financial/expenses/${expenseId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Failed to update expense.');
-        }
-        return res.json();
-      },
+      mutation: () => financialApi.patchExpense(expenseId, body),
       refresh: async () => {
-        await Promise.all([fetchExpenses(), fetchKpis()]);
+        await Promise.all([refetchExpenses(), refetchKpis()]);
       },
       successMessage,
       overlayMessage: 'Updating expense…',
@@ -136,35 +78,22 @@ function FinancialDashboardPage() {
 
   const handleApprove = (expenseId) => patchExpense(expenseId, { status: 'approved' }, 'Expense approved.');
   const handleReject = (expenseId) => patchExpense(expenseId, { status: 'rejected' }, 'Expense rejected.');
-
   const handleEditSave = (expenseId, payload) => patchExpense(expenseId, payload, 'Expense updated successfully.');
 
   const handleAddExpense = async (payload) => {
     const result = await runMutation({
       mutation: async () => {
-        const proofUrl = await uploadExpenseProof(payload.proof);
-
-        const res = await fetch('/api/financial/expenses', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            category: payload.category,
-            description: payload.description,
-            amount: payload.amount,
-            transactionDate: payload.transactionDate,
-            proofUrl,
-          }),
+        const proofUrl = await financialApi.uploadExpenseProof(payload.proof);
+        return financialApi.createExpense({
+          category: payload.category,
+          description: payload.description,
+          amount: payload.amount,
+          transactionDate: payload.transactionDate,
+          proofUrl,
         });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Failed to create expense.');
-        }
-
-        return res.json();
       },
       refresh: async () => {
-        await Promise.all([fetchExpenses(), fetchKpis()]);
+        await Promise.all([refetchExpenses(), refetchKpis()]);
       },
       successMessage: 'Expense submitted successfully.',
       overlayMessage: 'Submitting expense…',
@@ -175,117 +104,115 @@ function FinancialDashboardPage() {
     }
   };
 
+  const saveCogsProfile = async (payload) => {
+    const isEdit = !!cogsModal?.id;
+    const url = isEdit
+      ? `/api/financial/cogs/profiles/${cogsModal.id}`
+      : '/api/financial/cogs/profiles';
+
+    const result = await runMutation({
+      mutation: () => apiJson(url, {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+      refresh: refetchCogs,
+      successMessage: isEdit ? 'Cost profile updated.' : 'Cost profile created.',
+      overlayMessage: 'Saving cost profile…',
+    });
+
+    if (!result.ok) {
+      throw result.error || new Error('Failed to save cost profile.');
+    }
+  };
+
+  const deleteCogsProfile = async (profile) => {
+    if (!window.confirm(`Delete cost profile for ${profile.villaName}?`)) return;
+
+    const result = await runMutation({
+      mutation: () => apiJson(`/api/financial/cogs/profiles/${profile.id}`, { method: 'DELETE' }),
+      refresh: refetchCogs,
+      successMessage: 'Cost profile deleted.',
+      overlayMessage: 'Deleting cost profile…',
+    });
+
+    if (!result.ok) {
+      throw result.error || new Error('Failed to delete cost profile.');
+    }
+  };
+
   const pendingCount = expenses.filter((e) => e.status === 'pending').length;
+  const isRefreshing = kpisLoading || incomeLoading || expensesLoading || cogsLoading;
 
   return (
     <div className="reservation-page financial-dashboard">
-      <div className="financial-dashboard__header">
-        <div>
-          <h2 className="financial-dashboard__title">Financial Overview</h2>
-          <p className="financial-dashboard__subtitle">Revenue, deposits, and expense workflows</p>
-        </div>
-        <div className="financial-dashboard__actions">
-          <button
-            type="button"
-            onClick={refreshAll}
-            title="Refresh"
-            className="icon-btn-ghost"
-          >
-            <RefreshCw size={14} className={kpisLoading || incomeLoading || expensesLoading ? 'spin-animation' : ''} />
-          </button>
-          <Button variant="primary" icon={Plus} onClick={() => setAddPanelOpen(true)}>
-            Add New Expense
-          </Button>
-        </div>
-      </div>
-
       <FinancialKpiCards kpis={kpis} loading={kpisLoading} />
 
-      <PageTabs
-        ariaLabel="Financial sections"
-        activeTab={activeTab}
-        onChange={setActiveTab}
-        tabs={[
-          { key: 'incomes', label: 'Incomes', icon: TrendingUp },
-          { key: 'expenses', label: 'Expenses', icon: TrendingDown, badge: pendingCount },
-        ]}
-      />
-
-      <div className="financial-tab-content">
-        {activeTab === 'incomes' && (
-          <div className="section-card">
-            <div className="section-card__header">
-              <TrendingUp size={15} color="var(--green)" />
-              <h3 className="section-card__title">Income Ledger</h3>
-              <span className="section-card__count">{incomeRows.length} records</span>
-            </div>
-            <div className="section-card__body">
-              <IncomeTable
-                rows={incomeRows}
-                loading={incomeLoading}
-                onViewDetails={setDetailsRow}
-              />
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'expenses' && (
-          <div className="financial-expenses-stack">
-            <div className="section-card">
-              <div className="section-card__header">
-                <TrendingDown size={15} color="var(--text-muted)" />
-                <h3 className="section-card__title">Pending Approvals</h3>
-                {pendingCount > 0 && (
-                  <span className="section-card__count section-card__count--accent">
-                    {pendingCount} pending
-                  </span>
-                )}
-              </div>
-              <div className="section-card__body">
-                <ExpensePendingQueue
-                  expenses={expenses}
-                  loading={expensesLoading}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                />
-              </div>
-            </div>
-
-            <div className="section-card">
-              <div className="section-card__header">
-                <TrendingDown size={15} color="var(--text-muted)" />
-                <h3 className="section-card__title">Expense Historical Ledger</h3>
-                <span className="section-card__count">{expenses.length} records</span>
-              </div>
-              <div className="section-card__body">
-                <ExpenseLedgerTable
-                  expenses={expenses}
-                  loading={expensesLoading}
-                  onEdit={setEditExpense}
-                  onViewProof={setProofExpense}
-                />
-              </div>
-            </div>
-          </div>
-        )}
+      <div className="financial-dashboard__tab-row">
+        <PageTabs
+          ariaLabel="Financial sections"
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          tabs={[
+            { key: 'incomes', label: 'Incomes', icon: TrendingUp },
+            { key: 'expenses', label: 'Expenses', icon: TrendingDown, badge: pendingCount },
+            { key: 'cogs', label: 'COGS', icon: Calculator },
+          ]}
+        />
+        <button
+          type="button"
+          onClick={refreshAll}
+          title="Refresh"
+          className="icon-btn-ghost"
+        >
+          <RefreshCw size={14} className={isRefreshing ? 'spin-animation' : ''} />
+        </button>
       </div>
 
-      <AddExpensePanel
-        isOpen={addPanelOpen}
-        onClose={() => setAddPanelOpen(false)}
-        onSubmit={handleAddExpense}
-      />
+      {activeTab === 'incomes' && (
+        <>
+          <ExpensePendingQueue
+            expenses={expenses}
+            loading={expensesLoading}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+          <IncomeTable
+            rows={sortedIncome}
+            loading={incomeLoading}
+            onViewDetails={setDetailsRow}
+          />
+        </>
+      )}
 
-      <ExpenseProofModal
-        expense={proofExpense}
-        onClose={() => setProofExpense(null)}
-      />
+      {activeTab === 'expenses' && (
+        <>
+          <div className="section-card__header section-card__header--actions">
+            <h2 className="section-card__title">Expense Ledger</h2>
+            <button type="button" className="btn btn-primary" onClick={() => setAddPanelOpen(true)}>
+              <Plus size={16} />
+              Add Expense
+            </button>
+          </div>
+          <ExpenseLedgerTable
+            expenses={expenses}
+            loading={expensesLoading}
+            onViewProof={setProofExpense}
+            onEdit={setEditExpense}
+          />
+        </>
+      )}
 
-      <EditExpenseModal
-        expense={editExpense}
-        onClose={() => setEditExpense(null)}
-        onSave={handleEditSave}
-      />
+      {activeTab === 'cogs' && (
+        <CogsTab
+          profiles={cogsData?.profiles || []}
+          villas={cogsData?.villas || []}
+          loading={cogsLoading}
+          onCreate={() => setCogsModal({})}
+          onEdit={setCogsModal}
+          onDelete={deleteCogsProfile}
+        />
+      )}
 
       <SummaryModal
         isOpen={!!detailsRow}
@@ -294,6 +221,34 @@ function FinancialDashboardPage() {
         displayId={detailsRow?.displayId}
         onClose={() => setDetailsRow(null)}
       />
+
+      {proofExpense && (
+        <ExpenseProofModal expense={proofExpense} onClose={() => setProofExpense(null)} />
+      )}
+
+      {editExpense && (
+        <EditExpenseModal
+          expense={editExpense}
+          onClose={() => setEditExpense(null)}
+          onSave={(payload) => handleEditSave(editExpense.id, payload)}
+        />
+      )}
+
+      {addPanelOpen && (
+        <AddExpensePanel
+          onClose={() => setAddPanelOpen(false)}
+          onSubmit={handleAddExpense}
+        />
+      )}
+
+      {cogsModal !== null && (
+        <CogsProfileModal
+          profile={cogsModal}
+          villas={cogsData?.villas || []}
+          onClose={() => setCogsModal(null)}
+          onSave={saveCogsProfile}
+        />
+      )}
     </div>
   );
 }

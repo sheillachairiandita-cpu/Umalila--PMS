@@ -1,10 +1,18 @@
 import React from 'react';
-import { DollarSign, TrendingUp, Clock, Receipt, Wallet, Tag } from 'lucide-react';
+import {
+  DollarSign,
+  TrendingUp,
+  Clock,
+  Receipt,
+  Wallet,
+  Calculator,
+  PiggyBank,
+} from 'lucide-react';
 import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import ChartCard from '../ui/ChartCard';
-import GaugeChart from '../ui/charts/GaugeChart';
 import HorizontalStackedBar from '../ui/charts/HorizontalStackedBar';
 import ComboBarLineChart from '../ui/charts/ComboBarLineChart';
+import VillaProfitabilityTable from './VillaProfitabilityTable';
 import { formatRp } from './dashboardUtils';
 
 const FINANCIAL_KPIS = [
@@ -13,7 +21,7 @@ const FINANCIAL_KPIS = [
     label: 'Gross Revenue',
     icon: DollarSign,
     mono: true,
-    tooltip: 'Accrual basis: room, add-on, and F&B revenue delivered in this period. Room revenue uses weekday, weekend (Fri–Sun), and holiday tier rates per stay night.',
+    tooltip: 'Total revenue from room stays, add-ons, and F&B for reservations overlapping this period.',
   },
   {
     key: 'amountCollected',
@@ -27,14 +35,35 @@ const FINANCIAL_KPIS = [
     label: 'Pending Deposit',
     icon: Clock,
     mono: true,
-    tooltip: 'Uncollected balance from active, confirmed reservations.',
+    tooltip: 'Outstanding balances not yet paid on active reservations.',
+  },
+  {
+    key: 'totalCogs',
+    label: 'Total COGS',
+    icon: Calculator,
+    mono: true,
+    tooltip: 'Direct operational costs from villa cost profiles (fixed stay + per-night costs).',
   },
   {
     key: 'totalExpenses',
     label: 'Total Expenses',
     icon: Receipt,
     mono: true,
-    tooltip: 'Approved operational cash outflows in this period.',
+    tooltip: 'Approved operational expenses in this period.',
+  },
+  {
+    key: 'grossProfit',
+    label: 'Gross Profit',
+    icon: TrendingUp,
+    mono: true,
+    tooltip: 'Gross Revenue minus Total COGS.',
+  },
+  {
+    key: 'netProfit',
+    label: 'Net Profit',
+    icon: PiggyBank,
+    mono: true,
+    tooltip: 'Gross Profit minus Total Expenses.',
   },
 ];
 
@@ -42,11 +71,9 @@ export default function FinancialOverviewTab({ data, loading }) {
   if (loading) return <div className="dash-loading">Loading financial data…</div>;
   if (!data) return null;
 
-  const netProfit = (Number(data.amountCollected) || 0) - (Number(data.totalExpenses) || 0);
-
   return (
     <div className="dash-tab-content">
-      <KpiCardGrid className="kpi-card-grid--six">
+      <KpiCardGrid className="kpi-card-grid--profit">
         {FINANCIAL_KPIS.map(({ key, label, icon, mono, tooltip }) => (
           <KpiCard
             key={key}
@@ -59,26 +86,14 @@ export default function FinancialOverviewTab({ data, loading }) {
         ))}
       </KpiCardGrid>
 
-      <KpiCardGrid className="kpi-card-grid--one">
-        <KpiCard
-          icon={Wallet}
-          label="Net Profit"
-          value={formatRp(netProfit)}
-          mono
-          tooltip="Amount collected minus approved expenses — realized cash profit."
-        />
-      </KpiCardGrid>
-
       <div className="dash-chart-grid">
         <ChartCard
-          title="GOPPAR"
-          subtitle="Gross Operating Profit Per Available Room"
-          tooltip="Gross operating profit divided by total available room nights in the period. Room revenue reflects tiered weekday, weekend, and holiday rates."
+          title="Revenue Breakdown"
+          subtitle="Room, add-on, and F&B"
+          tooltip="Accrual-based revenue split by source for the selected period."
         >
-          <GaugeChart
-            value={data.goppar}
-            max={data.maxGoppar}
-            label="Per available room"
+          <HorizontalStackedBar
+            segments={data.revenueSegments}
             formatValue={formatRp}
           />
         </ChartCard>
@@ -86,37 +101,36 @@ export default function FinancialOverviewTab({ data, loading }) {
         <ChartCard
           title="Expense Breakdown"
           subtitle="By category"
-          tooltip="Distribution of approved operational cash outflows across expense categories for the selected date window."
+          tooltip="Distribution of approved operational expenses across categories."
         >
           <HorizontalStackedBar
             segments={data.expenseSegments}
             formatValue={formatRp}
           />
         </ChartCard>
-
-        <ChartCard
-          title="Revenue Breakdown"
-          subtitle="Accrual by source (before discounts)"
-          tooltip="Accrual-based income split by source. Room revenue is calculated from tiered villa rates (weekday Mon–Thu, weekend Fri–Sun, holiday dates)."
-        >
-          <HorizontalStackedBar
-            segments={data.revenueSegments}
-            formatValue={formatRp}
-          />
-        </ChartCard>
       </div>
 
       <ChartCard
-        title="Revenue vs Expense Comparison"
-        subtitle="Monthly net revenue vs approved expenses"
-        tooltip="Monthly net booking revenue (after discounts) compared with approved cash expenses."
+        title="Revenue vs Expense Trend"
+        subtitle="Monthly revenue, expenses, and net profit"
+        tooltip="Monthly gross revenue compared with expenses and resulting net profit."
         wide
       >
         <ComboBarLineChart
           data={data.monthlyComparison}
           barKey="revenue"
           lineKey="expenses"
+          lineKey2="netProfit"
         />
+      </ChartCard>
+
+      <ChartCard
+        title="Villa Profitability Ranking"
+        subtitle="Sorted by net profit"
+        tooltip="Per-villa revenue, COGS, and profit. Expenses allocated proportionally by revenue share."
+        wide
+      >
+        <VillaProfitabilityTable rows={data.villaProfitability} loading={loading} />
       </ChartCard>
     </div>
   );

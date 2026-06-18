@@ -1,8 +1,8 @@
 /**
- * Frontend RBAC — keep permission keys in sync with backend/lib/rbac.js
+ * Frontend RBAC — keep permission keys in sync with backend/lib/rbac/rbac.js
  */
 
-export const ROLES = ['owner', 'admin', 'staff'];
+export const ROLES = ['owner', 'admin', 'manager', 'receptionist', 'housekeeping', 'staff'];
 export const ALL_PERMISSIONS = '*';
 
 export const PERMISSIONS = {
@@ -34,19 +34,42 @@ export const PERMISSIONS = {
 
 const P = PERMISSIONS;
 
-const STAFF_PERMISSIONS = [
+const HOUSEKEEPING_PERMISSIONS = [
+  P.PAGE_DASHBOARD,
+  P.BOOKINGS_READ,
+];
+
+const RECEPTIONIST_PERMISSIONS = [
   P.PAGE_DASHBOARD,
   P.PAGE_CALENDAR,
+  P.PAGE_RESERVATIONS,
   P.BOOKINGS_READ,
+  P.BOOKINGS_WRITE,
   P.OVERVIEW_OPERATE,
   P.ORDERS_MANAGE,
   P.MENU_READ,
   P.CALENDAR_READ,
+  P.CALENDAR_BOOK,
 ];
+
+const MANAGER_PERMISSIONS = [
+  ...RECEPTIONIST_PERMISSIONS,
+  P.PAGE_FINANCIAL,
+  P.FINANCIAL_READ,
+  P.PAGE_INSIGHTS,
+  P.DASHBOARD_READ,
+  P.CALENDAR_BLOCK,
+  P.PRICING_READ,
+];
+
+const STAFF_PERMISSIONS = RECEPTIONIST_PERMISSIONS;
 
 export const ROLE_PERMISSIONS = {
   owner: [ALL_PERMISSIONS],
   admin: [ALL_PERMISSIONS],
+  manager: MANAGER_PERMISSIONS,
+  receptionist: RECEPTIONIST_PERMISSIONS,
+  housekeeping: HOUSEKEEPING_PERMISSIONS,
   staff: STAFF_PERMISSIONS,
 };
 
@@ -62,7 +85,6 @@ export function hasAnyPermission(role, permissions = []) {
   return permissions.some((p) => hasPermission(role, p));
 }
 
-/** Admin page slug → required page permission */
 export const PAGE_PERMISSIONS = {
   dashboard: P.PAGE_DASHBOARD,
   calendar: P.PAGE_CALENDAR,

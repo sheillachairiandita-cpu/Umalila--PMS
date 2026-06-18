@@ -3,9 +3,7 @@ import { Modal, Button } from '../ui';
 import Alert from '../ui/Alert';
 import Badge from '../ui/Badge';
 
-function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
-}
+import { formatRp } from '../../utils/formatCurrency';
 
 function formatMetaValue(value) {
   if (value === null || value === undefined || value === '') return '—';

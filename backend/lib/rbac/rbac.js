@@ -3,7 +3,7 @@
  * Keep permission keys in sync with frontend/src/auth/permissions.js
  */
 
-export const ROLES = ['owner', 'admin', 'staff'];
+export const ROLES = ['owner', 'admin', 'manager', 'receptionist', 'housekeeping', 'staff'];
 
 /** Wildcard grants every permission. */
 export const ALL_PERMISSIONS = '*';
@@ -44,19 +44,43 @@ export const PERMISSIONS = {
 
 const P = PERMISSIONS;
 
-const STAFF_PERMISSIONS = [
+const HOUSEKEEPING_PERMISSIONS = [
+  P.PAGE_DASHBOARD,
+  P.BOOKINGS_READ,
+];
+
+const RECEPTIONIST_PERMISSIONS = [
   P.PAGE_DASHBOARD,
   P.PAGE_CALENDAR,
+  P.PAGE_RESERVATIONS,
   P.BOOKINGS_READ,
+  P.BOOKINGS_WRITE,
   P.OVERVIEW_OPERATE,
   P.ORDERS_MANAGE,
   P.MENU_READ,
   P.CALENDAR_READ,
+  P.CALENDAR_BOOK,
 ];
+
+const MANAGER_PERMISSIONS = [
+  ...RECEPTIONIST_PERMISSIONS,
+  P.PAGE_FINANCIAL,
+  P.FINANCIAL_READ,
+  P.PAGE_INSIGHTS,
+  P.DASHBOARD_READ,
+  P.CALENDAR_BLOCK,
+  P.PRICING_READ,
+];
+
+/** Legacy staff role — same as receptionist */
+const STAFF_PERMISSIONS = RECEPTIONIST_PERMISSIONS;
 
 export const ROLE_PERMISSIONS = {
   owner: [ALL_PERMISSIONS],
   admin: [ALL_PERMISSIONS],
+  manager: MANAGER_PERMISSIONS,
+  receptionist: RECEPTIONIST_PERMISSIONS,
+  housekeeping: HOUSEKEEPING_PERMISSIONS,
   staff: STAFF_PERMISSIONS,
 };
 
@@ -72,7 +96,7 @@ export function hasAnyPermission(role, permissions = []) {
   return permissions.some((p) => hasPermission(role, p));
 }
 
-/** Public API routes — no session required. */
+/** Public API routes — no session required (property resolved via slug header/query). */
 export const PUBLIC_API_ROUTES = [
   { methods: ['POST'], pattern: /^\/api\/auth\/login$/ },
   { methods: ['GET'], pattern: /^\/api\/villas$/ },
@@ -82,8 +106,6 @@ export const PUBLIC_API_ROUTES = [
   { methods: ['GET'], pattern: /^\/api\/villas\/availability$/ },
   { methods: ['POST'], pattern: /^\/api\/guests$/ },
   { methods: ['POST'], pattern: /^\/api\/bookings$/ },
-  { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+\/cancel$/ },
-  { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+$/ },
 ];
 
 /**
@@ -119,6 +141,8 @@ export const API_ROUTE_RULES = [
   { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+\/payment-status$/, permission: P.BOOKINGS_WRITE },
   { methods: ['POST'], pattern: /^\/api\/bookings\/[^/]+\/payments$/, permission: P.BOOKINGS_WRITE },
   { methods: ['POST'], pattern: /^\/api\/bookings\/[^/]+\/upload-receipt$/, permission: P.BOOKINGS_WRITE },
+  { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+\/cancel$/, permission: P.BOOKINGS_WRITE },
+  { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+$/, permission: P.BOOKINGS_WRITE },
 
   { methods: ['GET'], pattern: /^\/api\/financial\//, permission: P.FINANCIAL_READ },
   { methods: ['POST'], pattern: /^\/api\/financial\//, permission: P.FINANCIAL_WRITE },
@@ -173,8 +197,6 @@ export function getAuthenticatedPublicOverride(method, path) {
 /** When logged in, these public routes require elevated permissions. */
 export const AUTHENTICATED_PUBLIC_OVERRIDES = [
   { methods: ['POST'], pattern: /^\/api\/bookings$/, permission: P.BOOKINGS_WRITE },
-  { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+\/cancel$/, permission: P.BOOKINGS_WRITE },
-  { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+$/, permission: P.BOOKINGS_WRITE },
 ];
 
 export function getRequiredApiPermission(method, path) {

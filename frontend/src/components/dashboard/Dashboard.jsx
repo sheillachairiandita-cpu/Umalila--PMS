@@ -1,10 +1,9 @@
 /**
  * Dashboard.jsx
  * Reporting & Insights — Financial Overview | Hospitality KPI
- * Global filters: date range + villa selector
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DollarSign, BedDouble } from 'lucide-react';
 import PageTabs from '../ui/PageTabs';
 import GlobalFilterBar from './GlobalFilterBar';
@@ -18,6 +17,7 @@ import {
   processHospitalityData,
   startOf,
 } from './dashboardUtils';
+import { useInsightsData } from '../../hooks/api/useInsights';
 
 function Dashboard() {
   const [tab, setTab] = useState('financial');
@@ -26,41 +26,14 @@ function Dashboard() {
   const [customEnd, setCustomEnd] = useState(getISODate(new Date()));
   const [villaFilter, setVillaFilter] = useState('all');
 
-  const [villas, setVillas] = useState([]);
-  const [bookings, setBookings] = useState([]);
-  const [incomeRows, setIncomeRows] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [expenses, setExpenses] = useState([]);
-  const [pricingHolidays, setPricingHolidays] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const [villasRes, bookingsRes, incomeRes, txRes, expRes, holidaysRes] = await Promise.all([
-        fetch('/api/villas'),
-        fetch('/api/bookings'),
-        fetch('/api/financial/income'),
-        fetch('/api/financial/transactions'),
-        fetch('/api/financial/expenses'),
-        fetch('/api/pricing/holidays'),
-      ]);
-      if (villasRes.ok) setVillas(await villasRes.json());
-      if (bookingsRes.ok) setBookings(await bookingsRes.json());
-      if (incomeRes.ok) setIncomeRows(await incomeRes.json());
-      if (txRes.ok) setTransactions(await txRes.json());
-      if (expRes.ok) setExpenses(await expRes.json());
-      if (holidaysRes.ok) setPricingHolidays(await holidaysRes.json());
-    } catch (err) {
-      console.error('Dashboard fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  const { data, isLoading: loading, refetch } = useInsightsData();
+  const villas = data?.villas || [];
+  const bookings = data?.bookings || [];
+  const incomeRows = data?.incomeRows || [];
+  const transactions = data?.transactions || [];
+  const expenses = data?.expenses || [];
+  const profitability = data?.profitability || [];
+  const pricingHolidays = data?.pricingHolidays || [];
 
   const { rangeStart, rangeEnd } = useMemo(() => {
     if (preset === 'custom') {
@@ -85,23 +58,24 @@ function Dashboard() {
       incomeRows,
       transactions,
       expenses,
+      profitability,
       rangeStart,
       rangeEnd,
       villaFilter,
       villas,
       pricingHolidays,
     }),
-    [bookings, incomeRows, transactions, expenses, rangeStart, rangeEnd, villaFilter, villas, pricingHolidays],
+    [bookings, incomeRows, transactions, expenses, profitability, rangeStart, rangeEnd, villaFilter, villas, pricingHolidays],
   );
 
   const financialData = useMemo(
-    () => processFinancialData(filterCtx),
-    [filterCtx],
+    () => (tab === 'financial' ? processFinancialData(filterCtx) : null),
+    [tab, filterCtx],
   );
 
   const hospitalityData = useMemo(
-    () => processHospitalityData(filterCtx),
-    [filterCtx],
+    () => (tab === 'hospitality' ? processHospitalityData(filterCtx) : null),
+    [tab, filterCtx],
   );
 
   return (
@@ -117,11 +91,11 @@ function Dashboard() {
         setVillaFilter={setVillaFilter}
         villas={villas}
         loading={loading}
-        onRefresh={fetchAll}
+        onRefresh={refetch}
       />
 
       <PageTabs
-        ariaLabel="Dashboard sections"
+        ariaLabel="Insights sections"
         activeTab={tab}
         onChange={setTab}
         tabs={[

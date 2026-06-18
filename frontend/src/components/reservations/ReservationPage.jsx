@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Eye,
@@ -26,6 +26,7 @@ import PublicReservationForm from './PublicReservationForm';
 import SummaryModal from '../financial/SummaryModal';
 import { useMutation } from '../../context/MutationProvider';
 import { sortReservationsByRecency } from '../../utils/bookingUtils';
+import { useReservationsData } from '../../hooks/api/useBookings';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -374,8 +375,8 @@ function AllReservationsTable({
           <p className="text-muted" style={{ fontSize: '0.8rem' }}>Try adjusting your filters or search term.</p>
         </div>
       ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table">
+        <div className="table-scroll-wrap table-scroll-wrap--cards-mobile">
+          <table className="pms-table pms-table--cards-mobile">
             <thead>
               <tr>
                 <th>Guest</th>
@@ -393,20 +394,20 @@ function AllReservationsTable({
                 const isCancelled = res.status === 'cancelled';
                 return (
                   <tr key={res.id}>
-                    <td className="cell-guest">{res.guest_full_name}</td>
-                    <td className="cell-truncate">{res.villa_names || '—'}</td>
-                    <td>{res.check_in_date}</td>
-                    <td>{res.check_out_date}</td>
-                    <td className="text-right cell-amount">
+                    <td className="cell-guest" data-label="Guest">{res.guest_full_name}</td>
+                    <td className="cell-truncate" data-label="Villas">{res.villa_names || '—'}</td>
+                    <td data-label="Check-In">{res.check_in_date}</td>
+                    <td data-label="Check-Out">{res.check_out_date}</td>
+                    <td className="text-right cell-amount" data-label="Amount">
                       Rp {(Number(res.ledger_total ?? res.total_price) || 0).toLocaleString('id-ID')}
                     </td>
-                    <td className="text-center">
+                    <td className="text-center" data-label="Payment">
                       <Badge type="payment" value={res.payment_status || 'pending'} />
                     </td>
-                    <td className="text-center">
+                    <td className="text-center" data-label="Status">
                       <Badge type="status" value={res.status} />
                     </td>
-                    <td className="text-center">
+                    <td className="text-center" data-label="Action">
                       <div className="table-action-group">
                         <TableActionButton
                           title="Edit Reservation"
@@ -455,11 +456,14 @@ function AllReservationsTable({
 // =====================================================
 function ReservationPage() {
   const { runMutation } = useMutation();
-  const [pendingRequests, setPendingRequests] = useState([]);
-  const [allReservations, setAllReservations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(null);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const {
+    pendingRequests: basePending,
+    allReservations: baseReservations,
+    stats,
+    isLoading: loading,
+    isFetching,
+    refetch,
+  } = useReservationsData();
   const [editBooking, setEditBooking] = useState(null);
   const [paymentBooking, setPaymentBooking] = useState(null);
   const [viewRequest, setViewRequest] = useState(null);
@@ -469,68 +473,12 @@ function ReservationPage() {
   const [declineError, setDeclineError] = useState(null);
   const [prioritizeId, setPrioritizeId] = useState(null);
 
-  const processBookings = (bookingsData, topId = null) => {
-    const pending = bookingsData
-      .filter((b) => b.status === 'pending')
-      .map((b) => ({
-        ...b,
-        guest_full_name: b.guests?.full_name || 'Unknown Guest',
-        adults: parseInt(b.notes?.match(/Adults:\s*(\d+)/)?.[1] || '0', 10),
-        children: parseInt(b.notes?.match(/Children:\s*(\d+)/)?.[1] || '0', 10),
-      }));
-
-    const reservations = sortReservationsByRecency(
-      bookingsData
-        .filter((b) => b.status !== 'pending')
-        .map((b) => ({
-          ...b,
-          guest_full_name: b.guests?.full_name || 'Unknown Guest',
-          payment_status: b.status === 'cancelled' ? 'cancelled' : (b.payment_status || 'pending'),
-          phase_status: b.status === 'cancelled' ? 'cancelled' : (b.stay_phase || b.status),
-        })),
-      topId || prioritizeId,
-    );
-
-    setPendingRequests(pending);
-    setAllReservations(reservations);
-    setStats({
-      totalBookings: bookingsData.length,
-      pendingApproval: pending.length,
-      confirmedBookings: reservations.filter((b) => b.status === 'confirmed').length,
-    });
-  };
-
-  const fetchData = async ({ silent = false, topId = null } = {}) => {
-    try {
-      if (!silent) setLoading(true);
-      const [bookingsRes, incomeRes] = await Promise.all([
-        fetch('/api/bookings'),
-        fetch('/api/financial/income'),
-      ]);
-      if (!bookingsRes.ok) throw new Error('Failed to fetch bookings');
-      const bookingsData = await bookingsRes.json();
-      const incomeData = incomeRes.ok ? await incomeRes.json() : [];
-      const ledgerById = Object.fromEntries(
-        (incomeData || []).map((row) => [row.bookingId, row])
-      );
-      const enriched = bookingsData.map((b) => ({
-        ...b,
-        ledger_total: ledgerById[b.id]?.total ?? b.total_price,
-        ledger_discount: ledgerById[b.id]?.discountAmount ?? 0,
-      }));
-      processBookings(enriched, topId);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      throw err;
-    } finally {
-      if (!silent) setLoading(false);
-      setStatsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const allReservations = useMemo(
+    () => (prioritizeId ? sortReservationsByRecency(baseReservations, prioritizeId) : baseReservations),
+    [baseReservations, prioritizeId],
+  );
+  const pendingRequests = basePending;
+  const statsLoading = loading;
 
   const handleDownloadInvoice = async (reservation) => {
     try {
@@ -546,14 +494,14 @@ function ReservationPage() {
 
   const handlePaymentRecorded = () => runMutation({
     mutation: async () => {},
-    refresh: () => fetchData({ silent: true }),
+    refresh: () => refetch(),
     showSuccess: false,
     overlayMessage: 'Refreshing reservations…',
   });
 
   const handleReservationSaved = () => runMutation({
     mutation: async () => {},
-    refresh: () => fetchData({ silent: true }),
+    refresh: () => refetch(),
     showSuccess: false,
     overlayMessage: 'Refreshing reservations…',
   });
@@ -577,7 +525,10 @@ function ReservationPage() {
         }
         return response.json();
       },
-      refresh: () => fetchData({ silent: true, topId: declineTarget.id }),
+      refresh: async () => {
+        setPrioritizeId(declineTarget.id);
+        await refetch();
+      },
       successMessage: 'Reservation request declined.',
       errorMessage: null,
       overlayMessage: 'Declining request…',
@@ -604,7 +555,10 @@ function ReservationPage() {
         if (!response.ok) throw new Error('Failed to approve request');
         return response.json();
       },
-      refresh: () => fetchData({ silent: true, topId: requestId }),
+      refresh: async () => {
+        setPrioritizeId(requestId);
+        await refetch();
+      },
       successMessage: 'Reservation approved successfully.',
       overlayMessage: 'Approving reservation…',
     });

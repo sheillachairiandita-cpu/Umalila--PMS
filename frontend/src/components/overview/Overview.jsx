@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   RefreshCw, ClipboardList, LogIn, LogOut, ShoppingCart, Eye,
   Users, CalendarClock,
@@ -8,6 +8,7 @@ import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import { PHASE_CONFIG } from '../../utils/statusConfigs';
 import FilterButtonGroup from '../ui/FilterButtonGroup';
 import TableActionButton from '../TableActionButton';
+import TablePagination from '../ui/TablePagination';
 import OrderModal from './OrderModal';
 import SummaryModal from '../financial/SummaryModal';
 import { isInHouseToday } from '../../utils/bookingUtils';
@@ -18,6 +19,8 @@ const FILTER_OPTIONS = [
   { key: 'upcoming-7', label: 'Next 7 Days' },
   { key: 'all-phases', label: 'All'         },
 ];
+
+const ALL_FILTER_PAGE_SIZE = 10;
 
 const BASE_URL = '/api';
 
@@ -83,16 +86,17 @@ function rowClassName(phase) {
 }
 
 function BookingActions({
-  booking, todayISO,
+  booking, todayISO, phase,
   checkingInId, checkingOutId,
   onOrder, onCheckIn, onCheckOut, onViewDetails,
 }) {
-  const canCheckIn  = booking.booking_status === 'confirmed';
+  const canCheckIn = booking.booking_status === 'confirmed' && booking.check_in_date === todayISO;
   const canCheckOut = booking.booking_status === 'checked_in' && booking.check_out_date === todayISO;
+  const canOrder = booking.booking_status === 'checked_in'
+    && (phase === 'in-house' || phase === 'departure');
 
   return (
     <div className="table-action-group">
-      {/* View Details Ledger Folio Button */}
       <TableActionButton
         title="View Details"
         variant="default"
@@ -101,7 +105,7 @@ function BookingActions({
         <Eye size={13} />
       </TableActionButton>
 
-      {booking.booking_status === 'checked_in' && (
+      {canOrder && (
         <TableActionButton
           title="Add food & beverage order"
           variant="default"
@@ -163,20 +167,20 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
 
   return (
     <tr className={rowClassName(phase)}>
-      <td className="cell-guest">
+      <td className="cell-guest" data-label="Guest">
         {booking.guests?.full_name || 'Walk-in Guest'}
       </td>
-      <td className="cell-truncate">{booking.villa_names || '—'}</td>
-      <td>{booking.check_in_date}</td>
-      <td>{booking.check_out_date}</td>
-      <td className="text-center cell-amount">{booking.total_guests ?? '—'}</td>
-      <td className="text-center"><BreakfastCell count={booking.total_breakfast} /></td>
-      <td className="text-center"><ExtraBedCell count={booking.extra_bed_qty} /></td>
-      <td className="text-center">
+      <td className="cell-truncate" data-label="Unit">{booking.villa_names || '—'}</td>
+      <td data-label="Check In">{booking.check_in_date}</td>
+      <td data-label="Check Out">{booking.check_out_date}</td>
+      <td className="text-center cell-amount" data-label="Pax">{booking.total_guests ?? '—'}</td>
+      <td className="text-center" data-label="Bfast"><BreakfastCell count={booking.total_breakfast} /></td>
+      <td className="text-center" data-label="Extra Bed"><ExtraBedCell count={booking.extra_bed_qty} /></td>
+      <td className="text-center" data-label="Payment">
         <Badge type="payment" value={booking.payment_status || 'pending'} />
       </td>
-      <td><Badge type="status" value={booking.booking_status} /></td>
-      <td>
+      <td data-label="Status"><Badge type="status" value={booking.booking_status} /></td>
+      <td data-label="Phase">
         <Badge
           type="phase"
           value={phase}
@@ -187,10 +191,11 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
           }
         />
       </td>
-      <td className="text-center">
+      <td className="text-center" data-label="Actions">
         <BookingActions
           booking={booking}
           todayISO={todayISO}
+          phase={phase}
           checkingInId={checkingInId}
           checkingOutId={checkingOutId}
           onOrder={onOrder}
@@ -353,6 +358,7 @@ function PhaseMetricsCards({ metrics, loading }) {
 
 function Overview({ bookings, loading, error, onRefresh }) {
   const [smartFilter, setSmartFilter] = useState('today');
+  const [allFilterPage, setAllFilterPage] = useState(1);
   const [orderModalBooking, setOrderModalBooking] = useState(null);
   const [detailsRow, setDetailsRow] = useState(null);
 
@@ -363,6 +369,25 @@ function Overview({ bookings, loading, error, onRefresh }) {
   const activeBookings = useActiveBookings(bookings, todayISO);
   const phaseMetrics = usePhaseMetrics(activeBookings, todayISO);
   const filtered = useFilteredBookings(activeBookings, smartFilter, todayISO);
+
+  useEffect(() => {
+    setAllFilterPage(1);
+  }, [smartFilter]);
+
+  const isAllFilter = smartFilter === 'all-phases';
+  const allFilterTotalPages = Math.max(1, Math.ceil(filtered.length / ALL_FILTER_PAGE_SIZE));
+
+  useEffect(() => {
+    if (allFilterPage > allFilterTotalPages) {
+      setAllFilterPage(allFilterTotalPages);
+    }
+  }, [allFilterPage, allFilterTotalPages]);
+
+  const displayedBookings = useMemo(() => {
+    if (!isAllFilter) return filtered;
+    const startIdx = (allFilterPage - 1) * ALL_FILTER_PAGE_SIZE;
+    return filtered.slice(startIdx, startIdx + ALL_FILTER_PAGE_SIZE);
+  }, [filtered, isAllFilter, allFilterPage]);
 
   return (
     <>
@@ -384,11 +409,11 @@ function Overview({ bookings, loading, error, onRefresh }) {
         )}
 
         {!loading && !error && filtered.length > 0 && (
-          <div className="table-scroll-wrap" style={{ border: 'none', borderRadius: 0 }}>
-            <table className="pms-table">
+          <div className="table-scroll-wrap table-scroll-wrap--cards-mobile" style={{ border: 'none', borderRadius: 0 }}>
+            <table className="pms-table pms-table--cards-mobile">
               <TableHead />
               <tbody>
-                {filtered.map(booking => (
+                {displayedBookings.map(booking => (
                   <BookingRow
                     key={booking.id}
                     booking={booking}
@@ -407,6 +432,13 @@ function Overview({ bookings, loading, error, onRefresh }) {
                 ))}
               </tbody>
             </table>
+            {isAllFilter && allFilterTotalPages > 1 && (
+              <TablePagination
+                currentPage={allFilterPage}
+                totalPages={allFilterTotalPages}
+                onPageChange={setAllFilterPage}
+              />
+            )}
           </div>
         )}
       </main>

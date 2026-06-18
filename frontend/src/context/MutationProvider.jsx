@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import SubmittingOverlay from '../components/SubmittingOverlay';
 import { useNotification } from './NotificationProvider';
 
@@ -37,8 +37,10 @@ export function MutationProvider({ children }) {
     }
   }, [notify]);
 
+  const value = useMemo(() => ({ runMutation, isMutating: active }), [runMutation, active]);
+
   return (
-    <MutationContext.Provider value={{ runMutation, isMutating: active }}>
+    <MutationContext.Provider value={value}>
       {children}
       {active && (
         <div className="global-submitting-overlay">

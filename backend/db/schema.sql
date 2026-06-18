@@ -15,6 +15,8 @@ CREATE TABLE public.booking_villas (rate_per_night numeric NOT NULL, id uuid DEF
 CREATE TABLE public.discounts (stackable boolean DEFAULT false NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, value numeric NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), villa_id uuid, max_discount_amount numeric, booking_start_date date, booking_end_date date, stay_start_date date, stay_end_date date, villa_ids jsonb DEFAULT '[]'::jsonb NOT NULL, min_booking_amount numeric, min_nights integer, total_usage_limit integer, per_guest_limit integer, usage_count integer DEFAULT 0 NOT NULL, updated_at timestamp with time zone, priority integer DEFAULT 0 NOT NULL, created_by uuid, updated_by uuid, applicable_villas text DEFAULT 'all'::text NOT NULL, code text NOT NULL, name text NOT NULL, type text NOT NULL, application_rule text DEFAULT 'all_items'::text NOT NULL, scope text NOT NULL, status text DEFAULT 'active'::text NOT NULL, description text);
 CREATE TABLE public.villa_date_blocks (start_date date NOT NULL, end_date date NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), reason text NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, villa_id uuid NOT NULL);
 CREATE TABLE public.pricing_holidays (start_date date NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, name text NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), end_date date NOT NULL);
+CREATE TABLE public.reservation_profitability (fb_revenue numeric DEFAULT 0 NOT NULL, room_revenue numeric DEFAULT 0 NOT NULL, calculated_at timestamp with time zone DEFAULT timezone('utc'::text, now()), nights integer DEFAULT 0 NOT NULL, cost_per_night_snapshot numeric DEFAULT 0 NOT NULL, fixed_stay_cost_snapshot numeric DEFAULT 0 NOT NULL, gross_profit numeric DEFAULT 0 NOT NULL, cogs numeric DEFAULT 0 NOT NULL, addon_revenue numeric DEFAULT 0 NOT NULL, revenue numeric DEFAULT 0 NOT NULL, villa_id uuid NOT NULL, booking_id uuid NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL);
+CREATE TABLE public.villa_cost_profiles (id uuid DEFAULT gen_random_uuid() NOT NULL, villa_id uuid NOT NULL, fixed_stay_cost numeric DEFAULT 0 NOT NULL, cost_per_night numeric DEFAULT 0 NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()));
 
 CREATE TYPE public.booking_status AS ENUM ('checked_out', 'completed', 'cancelled', 'pending', 'confirmed', 'checked_in');
 CREATE TYPE public.finance_category AS ENUM ('salary', 'room_revenue', 'fb_revenue', 'addon_revenue', 'operational_expense', 'maintenance', 'marketing', 'other');
@@ -211,4 +213,34 @@ CREATE TABLE public.villa_date_blocks (
   CONSTRAINT villa_date_blocks_pkey PRIMARY KEY (id),
   CONSTRAINT villa_date_blocks_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id),
   CONSTRAINT villa_date_blocks_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.villa_cost_profiles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  villa_id uuid NOT NULL,
+  fixed_stay_cost numeric NOT NULL DEFAULT 0 CHECK (fixed_stay_cost >= 0),
+  cost_per_night numeric NOT NULL DEFAULT 0 CHECK (cost_per_night >= 0),
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT villa_cost_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT villa_cost_profiles_villa_id_key UNIQUE (villa_id),
+  CONSTRAINT villa_cost_profiles_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id) ON DELETE CASCADE
+);
+CREATE TABLE public.reservation_profitability (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  booking_id uuid NOT NULL,
+  villa_id uuid NOT NULL,
+  revenue numeric NOT NULL DEFAULT 0,
+  room_revenue numeric NOT NULL DEFAULT 0,
+  addon_revenue numeric NOT NULL DEFAULT 0,
+  fb_revenue numeric NOT NULL DEFAULT 0,
+  cogs numeric NOT NULL DEFAULT 0,
+  gross_profit numeric NOT NULL DEFAULT 0,
+  fixed_stay_cost_snapshot numeric NOT NULL DEFAULT 0,
+  cost_per_night_snapshot numeric NOT NULL DEFAULT 0,
+  nights integer NOT NULL DEFAULT 0,
+  calculated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT reservation_profitability_pkey PRIMARY KEY (id),
+  CONSTRAINT reservation_profitability_booking_villa_key UNIQUE (booking_id, villa_id),
+  CONSTRAINT reservation_profitability_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id) ON DELETE CASCADE,
+  CONSTRAINT reservation_profitability_villa_id_fkey FOREIGN KEY (villa_id) REFERENCES public.villas(id) ON DELETE CASCADE
 );

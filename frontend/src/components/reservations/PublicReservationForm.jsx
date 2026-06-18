@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, Home, Info, AlertTriangle, Pencil } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import '../../i18n/publicI18n';
+import PublicLanguageSwitcher from '../../i18n/PublicLanguageSwitcher';
 import { Button, Modal, Alert, Select } from '../ui';
 import { COLORS } from '../../styles/theme';
 import SubmittingOverlay from '../SubmittingOverlay';
@@ -12,9 +15,9 @@ import {
 } from '../../utils/villaRateUtils';
 import '../../App.css';
 
-function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
-}
+import { formatRp } from '../../utils/formatCurrency';
+import { apiFetch, apiJson } from '../../api/client';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 const API = '/api';
 
@@ -68,6 +71,26 @@ const qtyBtnStyle = {
   justifyContent: 'center',
 };
 
+function RequiredLabel({ children }) {
+  return (
+    <label>
+      {children}
+      <span style={{ color: '#dc2626', marginLeft: 2 }} aria-hidden="true">*</span>
+    </label>
+  );
+}
+
+function getBookingManageToken(booking) {
+  if (!booking?.id) return null;
+  return booking.manage_token
+    || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(`booking_token_${booking.id}`) : null);
+}
+
+function bookingTokenQuery(booking) {
+  const token = getBookingManageToken(booking);
+  return token ? `?token=${encodeURIComponent(token)}` : '';
+}
+
 /**
  * Unified reservation form — public page, admin create modal, or edit modal.
  *
@@ -83,10 +106,12 @@ function PublicReservationForm({
   booking = null,
   onSaved,
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const notify = useNotification();
   const isEditMode = Boolean(booking);
   const isModal = variant === 'modal';
+  const isPublicPage = !isModal && !isEditMode;
   const isCancelled = isEditMode && booking?.status === 'cancelled';
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -183,14 +208,17 @@ function PublicReservationForm({
     loadCatalog();
   }, [isModal, isOpen, isEditMode, booking]);
 
+  const debouncedCheckIn = useDebouncedValue(checkInDate, 400);
+  const debouncedCheckOut = useDebouncedValue(checkOutDate, 400);
+
   // Availability check (bookings + admin date blocks)
   useEffect(() => {
-    if ((isModal && !isOpen) || !checkInDate || !checkOutDate || dateError) return;
+    if ((isModal && !isOpen) || !debouncedCheckIn || !debouncedCheckOut || dateError) return;
 
     const checkLiveAvailability = async () => {
       try {
-        const response = await fetch(
-          `${API}/villas/availability?check_in=${checkInDate}&check_out=${checkOutDate}`
+        const response = await apiFetch(
+          `/api/villas/availability?check_in=${debouncedCheckIn}&check_out=${debouncedCheckOut}`,
         );
         if (!response.ok) return;
         const data = await response.json();
@@ -215,7 +243,7 @@ function PublicReservationForm({
     };
 
     checkLiveAvailability();
-  }, [checkInDate, checkOutDate, dateError, isModal, isOpen, isEditMode, booking, villas]);
+  }, [debouncedCheckIn, debouncedCheckOut, dateError, isModal, isOpen, isEditMode, booking?.id]);
 
   // Date validation
   useEffect(() => {
@@ -228,7 +256,7 @@ function PublicReservationForm({
     const checkOut = new Date(`${checkOutDate}T12:00:00`);
 
     if (checkOut <= checkIn) {
-      setDateError('⚠️ Checkout date must occur after the check-in timeline.');
+      setDateError('checkoutAfterCheckin');
       return;
     }
 
@@ -312,7 +340,9 @@ function PublicReservationForm({
       .join(', ');
 
     setError(
-      `${conflictNames} ${conflictIds.length === 1 ? 'is' : 'are'} unavailable for the selected dates due to a scheduled block. Please choose different dates or accommodations.`
+      t(`publicReservation.errors.villaUnavailableBlock_${conflictIds.length === 1 ? 'one' : 'other'}`, {
+        names: conflictNames,
+      })
     );
     return false;
   };
@@ -323,22 +353,22 @@ function PublicReservationForm({
 
     if (isEditMode && cancelMode) {
       if (!cancellationReason.trim()) {
-        setError('Cancellation reason is required.');
+        setError(t('publicReservation.errors.cancellationReasonRequired'));
         return;
       }
       setIsSubmitting(true);
       setError(null);
       try {
-        const response = await fetch(`${API}/bookings/${booking.id}/cancel`, {
+        const response = await apiFetch(`${API}/bookings/${booking.id}/cancel${bookingTokenQuery(booking)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cancellation_reason: cancellationReason.trim() }),
         });
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || 'Failed to cancel reservation');
+          throw new Error(data.error || t('publicReservation.errors.failedCancelReservation'));
         }
-        notify.success('Reservation cancelled successfully.');
+        notify.success(t('publicReservation.notifications.reservationCancelled'));
         onSaved?.();
         onClose?.();
       } catch (err) {
@@ -351,12 +381,12 @@ function PublicReservationForm({
 
     if (isEditMode) {
       if (selectedVillaIds.length === 0) {
-        setError('Select at least one villa.');
+        setError(t('publicReservation.errors.selectAtLeastOneVilla'));
         return;
       }
       if (!validateBlockConflicts()) return;
       if (applyDiscount && !discountId) {
-        setError('Select a discount to apply.');
+        setError(t('publicReservation.errors.selectDiscountToApply'));
         return;
       }
 
@@ -367,7 +397,7 @@ function PublicReservationForm({
       setIsSubmitting(true);
       setError(null);
       try {
-        const response = await fetch(`${API}/bookings/${booking.id}`, {
+        const response = await apiFetch(`${API}/bookings/${booking.id}${bookingTokenQuery(booking)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -383,9 +413,9 @@ function PublicReservationForm({
         });
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || 'Failed to update reservation');
+          throw new Error(data.error || t('publicReservation.errors.failedUpdateReservation'));
         }
-        notify.success('Reservation updated successfully.');
+        notify.success(t('publicReservation.notifications.reservationUpdated'));
         onSaved?.();
         onClose?.();
       } catch (err) {
@@ -398,7 +428,7 @@ function PublicReservationForm({
 
     // Create flow
     if (selectedVillaIds.length === 0) {
-      setError('Select at least one villa.');
+      setError(t('publicReservation.errors.selectAtLeastOneVilla'));
       return;
     }
     if (!validateBlockConflicts()) return;
@@ -415,7 +445,7 @@ function PublicReservationForm({
           phone_number: formData.phoneNumber,
         }),
       });
-      if (!guestResponse.ok) throw new Error('Failed to create guest record.');
+      if (!guestResponse.ok) throw new Error(t('publicReservation.errors.failedCreateGuest'));
       const newGuest = await guestResponse.json();
 
       const selected_addons = Object.entries(selectedAddons)
@@ -445,10 +475,14 @@ function PublicReservationForm({
 
       const data = await bookingResponse.json();
       if (bookingResponse.status === 409) {
-        setError(`Booking denied: ${data.error}`);
+        setError(t('publicReservation.errors.bookingDenied', { error: data.error }));
         return;
       }
-      if (!bookingResponse.ok) throw new Error(data.error || 'Failed to save booking.');
+      if (!bookingResponse.ok) throw new Error(data.error || t('publicReservation.errors.failedSaveBooking'));
+
+      if (data?.id && data?.manage_token) {
+        sessionStorage.setItem(`booking_token_${data.id}`, data.manage_token);
+      }
 
       setSelectedVillaIds([]);
       if (isModal) {
@@ -466,16 +500,16 @@ function PublicReservationForm({
   };
 
   const formTitle = isEditMode
-    ? 'Edit Reservation'
+    ? t('publicReservation.editReservation')
     : isModal
-      ? 'Book New Reservation'
-      : 'New Reservation';
+      ? t('publicReservation.bookNewReservation')
+      : t('publicReservation.newReservation');
 
   const submitLabel = isEditMode
-    ? (cancelMode ? 'Confirm Cancellation' : 'Save Changes')
+    ? (cancelMode ? t('publicReservation.confirmCancellation') : t('publicReservation.saveChanges'))
     : isModal
-      ? 'Confirm & Save Reservation'
-      : 'Submit Reservation Request';
+      ? t('publicReservation.confirmSaveReservation')
+      : t('publicReservation.submitReservationRequest');
 
   const formBody = (
     <form onSubmit={handleSubmit} className="modal-form">
@@ -485,13 +519,13 @@ function PublicReservationForm({
         <>
           <Alert
             type="warning"
-            title="Cancelled Booking"
-            message="This reservation has been cancelled and can no longer be edited."
+            title={t('publicReservation.cancelledBooking')}
+            message={t('publicReservation.cancelledBookingMessage')}
           />
           <div className="form-section">
-            <h4><AlertTriangle size={14} /> Cancellation Reason</h4>
+            <h4><AlertTriangle size={14} /> {t('publicReservation.cancellationReason')}</h4>
             <p className="cancellation-reason-display">
-              {parseCancellationReason(booking?.notes) || 'No cancellation reason recorded.'}
+              {parseCancellationReason(booking?.notes) || t('publicReservation.noCancellationReason')}
             </p>
           </div>
         </>
@@ -499,12 +533,12 @@ function PublicReservationForm({
         <>
           {!isEditMode && (
             <div className="form-section">
-              <h4><User size={14} /> Guest Profile Details</h4>
+              <h4><User size={14} /> {t('publicReservation.guestProfileDetails')}</h4>
               <div className="form-group">
-                <label>Full Name</label>
+                <RequiredLabel>{t('publicReservation.fullName')}</RequiredLabel>
                 <input
                   type="text"
-                  placeholder="John Doe"
+                  placeholder={t('publicReservation.fullNamePlaceholder')}
                   required
                   value={formData.fullName}
                   onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
@@ -512,20 +546,20 @@ function PublicReservationForm({
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Email Address</label>
+                  <RequiredLabel>{t('publicReservation.emailAddress')}</RequiredLabel>
                   <input
                     type="email"
-                    placeholder="john@example.com"
+                    placeholder={t('publicReservation.emailPlaceholder')}
                     required
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   />
                 </div>
                 <div className="form-group">
-                  <label>Phone / WhatsApp</label>
+                  <RequiredLabel>{t('publicReservation.phoneWhatsApp')}</RequiredLabel>
                   <input
                     type="text"
-                    placeholder="+62..."
+                    placeholder={t('publicReservation.phonePlaceholder')}
                     required
                     value={formData.phoneNumber}
                     onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
@@ -537,7 +571,7 @@ function PublicReservationForm({
 
           {isEditMode && guestName && (
             <div className="form-section">
-              <h4><User size={14} /> Guest</h4>
+              <h4><User size={14} /> {t('publicReservation.guest')}</h4>
               <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>{guestName}</p>
               {formData.phoneNumber && (
                 <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>{formData.phoneNumber}</p>
@@ -546,11 +580,15 @@ function PublicReservationForm({
           )}
 
           <div className="form-section">
-            <h4><Home size={14} /> Room Selection & Pricing</h4>
+            <h4><Home size={14} /> {t('publicReservation.roomSelectionPricing')}</h4>
 
             <div className="form-row">
               <div className="form-group">
-                <label>Check In</label>
+                {isPublicPage ? (
+                  <RequiredLabel>{t('publicReservation.checkIn')}</RequiredLabel>
+                ) : (
+                  <label>{t('publicReservation.checkIn')}</label>
+                )}
                 <input
                   type="date"
                   required
@@ -560,7 +598,11 @@ function PublicReservationForm({
                 />
               </div>
               <div className="form-group">
-                <label>Check Out</label>
+                {isPublicPage ? (
+                  <RequiredLabel>{t('publicReservation.checkOut')}</RequiredLabel>
+                ) : (
+                  <label>{t('publicReservation.checkOut')}</label>
+                )}
                 <input
                   type="date"
                   required
@@ -571,7 +613,9 @@ function PublicReservationForm({
               </div>
             </div>
 
-            {dateError && <div className="date-error-banner">{dateError}</div>}
+            {dateError && (
+              <div className="date-error-banner">{t(`publicReservation.errors.${dateError}`)}</div>
+            )}
             {blockWarning && !dateError && (
               <div className="date-error-banner">{blockWarning}</div>
             )}
@@ -579,33 +623,37 @@ function PublicReservationForm({
             {!isEditMode ? (
               <div className="form-row">
                 <div className="form-group">
-                  <label>Number of Adults</label>
+                  <label>{t('publicReservation.numberOfAdults')}</label>
                   <select
                     value={formData.adults}
                     onChange={(e) => setFormData({ ...formData, adults: e.target.value })}
                     style={selectStyle}
                   >
                     {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                      <option key={n} value={n}>{n} Adult{n > 1 ? 's' : ''}</option>
+                      <option key={n} value={n}>
+                        {n} {n > 1 ? t('publicReservation.adults') : t('publicReservation.adult')}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Number of Children</label>
+                  <label>{t('publicReservation.numberOfChildren')}</label>
                   <select
                     value={formData.children}
                     onChange={(e) => setFormData({ ...formData, children: e.target.value })}
                     style={selectStyle}
                   >
                     {[0, 1, 2, 3, 4, 5, 6].map((n) => (
-                      <option key={n} value={n}>{n} {n === 1 ? 'Child' : 'Children'}</option>
+                      <option key={n} value={n}>
+                        {n} {n === 1 ? t('publicReservation.child') : t('publicReservation.children')}
+                      </option>
                     ))}
                   </select>
                 </div>
               </div>
             ) : (
               <div className="form-group">
-                <label>Total Guests</label>
+                <label>{t('publicReservation.totalGuests')}</label>
                 <input
                   type="number"
                   min="1"
@@ -619,13 +667,16 @@ function PublicReservationForm({
 
             <div className="form-group">
               <label style={{ marginBottom: '6px' }}>
-                Assigned Property Units (Select one or more)
+                {t('publicReservation.assignedPropertyUnits')}
+                {isPublicPage && (
+                  <span style={{ color: '#dc2626', marginLeft: 2 }} aria-hidden="true">*</span>
+                )}
               </label>
               <div className="checkbox-grid">
                 {loadingVillas ? (
-                  <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Syncing property portfolio…</span>
+                  <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{t('publicReservation.syncingPortfolio')}</span>
                 ) : villas.length === 0 ? (
-                  <span style={{ fontSize: '0.9rem', color: '#64748b' }}>No properties found in database</span>
+                  <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{t('publicReservation.noPropertiesFound')}</span>
                 ) : (
                   villas.map((villa) => {
                     const isOccupied = occupiedVillaIds.includes(villa.id);
@@ -651,10 +702,10 @@ function PublicReservationForm({
                           <span>
                             {villa.name}
                             {isBlocked && (
-                              <small className="villa-unavailable-tag">(Dates blocked)</small>
+                              <small className="villa-unavailable-tag">{t('publicReservation.datesBlocked')}</small>
                             )}
                             {isOccupied && !isBlocked && !isOriginallyAssigned && (
-                              <small className="villa-unavailable-tag">(Unavailable)</small>
+                              <small className="villa-unavailable-tag">{t('publicReservation.unavailable')}</small>
                             )}
                           </span>
                           <span className="villa-rate">
@@ -670,7 +721,7 @@ function PublicReservationForm({
 
             {addons.length > 0 && (
               <div className="form-group">
-                <label style={{ marginBottom: '6px' }}>Add-ons</label>
+                <label style={{ marginBottom: '6px' }}>{t('publicReservation.addons')}</label>
                 <div className="checkbox-grid">
                   {addons.map((addon) => (
                     <div key={addon.id} className="checkbox-row" style={{ justifyContent: 'space-between' }}>
@@ -678,7 +729,7 @@ function PublicReservationForm({
                         <span>{addon.name}</span>
                         <span className="villa-rate">
                           Rp {addonPrice(addon).toLocaleString('id-ID')}
-                          {addon.is_per_night !== false ? '/night' : ' one-time'}
+                          {addon.is_per_night !== false ? t('publicReservation.perNight') : t('publicReservation.oneTime')}
                         </span>
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
@@ -738,16 +789,16 @@ function PublicReservationForm({
                       else if (discounts.length === 1) setDiscountId(discounts[0].id);
                     }}
                   />
-                  <span style={{ fontWeight: 600 }}>Apply promotional discount</span>
+                  <span style={{ fontWeight: 600 }}>{t('publicReservation.applyPromotionalDiscount')}</span>
                 </label>
                 {applyDiscount && (
                   <div style={{ marginTop: 10 }}>
                     <Select
-                      label="Discount Code"
+                      label={t('publicReservation.discountCode')}
                       value={discountId}
                       onChange={(e) => setDiscountId(e.target.value)}
                       disabled={cancelMode}
-                      placeholder="Select a discount…"
+                      placeholder={t('publicReservation.selectDiscount')}
                       options={discounts.map((d) => ({
                         value: d.id,
                         label: `${d.promo_code || d.code} — ${d.name} (${d.type === 'percentage' ? `${d.value}%` : `Rp ${Number(d.value).toLocaleString('id-ID')}`})`,
@@ -757,7 +808,7 @@ function PublicReservationForm({
                 )}
                 {applyDiscount && selectedDiscount?.application_rule === 'highest_priced_single' && (
                   <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 8, marginBottom: 0 }}>
-                    This discount applies its percentage to the highest-priced villa only.
+                    {t('publicReservation.discountHighestPricedNote')}
                   </p>
                 )}
               </div>
@@ -765,36 +816,36 @@ function PublicReservationForm({
 
             {hasValidDates && selectedVillaIds.length > 0 && (
               <div className="reservation-price-breakdown">
-                <p className="reservation-price-breakdown__title">Accommodation breakdown</p>
+                <p className="reservation-price-breakdown__title">{t('publicReservation.accommodationBreakdown')}</p>
                 <ul className="reservation-price-breakdown__list">
                   {rateBreakdown.weekdayNights > 0 && (
                     <li>
-                      <span>{rateBreakdown.weekdayNights} weekday night{rateBreakdown.weekdayNights !== 1 ? 's' : ''} (Mon–Thu)</span>
+                      <span>{t('publicReservation.weekdayNights', { count: rateBreakdown.weekdayNights })}</span>
                       <span>{formatRp(rateBreakdown.weekdayTotal)}</span>
                     </li>
                   )}
                   {rateBreakdown.weekendNights > 0 && (
                     <li>
-                      <span>{rateBreakdown.weekendNights} weekend night{rateBreakdown.weekendNights !== 1 ? 's' : ''} (Fri–Sun)</span>
+                      <span>{t('publicReservation.weekendNights', { count: rateBreakdown.weekendNights })}</span>
                       <span>{formatRp(rateBreakdown.weekendTotal)}</span>
                     </li>
                   )}
                   {rateBreakdown.holidayNights > 0 && (
                     <li>
-                      <span>{rateBreakdown.holidayNights} holiday night{rateBreakdown.holidayNights !== 1 ? 's' : ''}</span>
+                      <span>{t('publicReservation.holidayNights', { count: rateBreakdown.holidayNights })}</span>
                       <span>{formatRp(rateBreakdown.holidayTotal)}</span>
                     </li>
                   )}
                   {selectedVillas.length > 1 && (
                     <li className="reservation-price-breakdown__subtotal">
-                      <span>Villa subtotal ({selectedVillas.length} units)</span>
+                      <span>{t('publicReservation.villaSubtotal', { count: selectedVillas.length })}</span>
                       <span>{formatRp(rateBreakdown.villaTotal)}</span>
                     </li>
                   )}
                 </ul>
                 {addonTotal > 0 && (
                   <div className="reservation-price-breakdown__addon">
-                    <span>Add-ons</span>
+                    <span>{t('publicReservation.addonsLabel')}</span>
                     <span>{formatRp(addonTotal)}</span>
                   </div>
                 )}
@@ -802,21 +853,23 @@ function PublicReservationForm({
             )}
 
             {!hasValidDates && checkInDate && checkOutDate && !dateError && (
-              <p className="reservation-price-hint">Select valid check-in and check-out dates to see tiered pricing.</p>
+              <p className="reservation-price-hint">{t('publicReservation.selectValidDatesHint')}</p>
             )}
 
             <div className="form-row">
               <div className="form-group">
-                <label>Duration</label>
+                <label>{t('publicReservation.duration')}</label>
                 <input
                   type="text"
                   readOnly
-                  value={rateBreakdown.nights > 0 ? `${rateBreakdown.nights} night${rateBreakdown.nights !== 1 ? 's' : ''}` : '—'}
+                  value={rateBreakdown.nights > 0
+                    ? `${rateBreakdown.nights} ${rateBreakdown.nights !== 1 ? t('publicReservation.nights') : t('publicReservation.night')}`
+                    : '—'}
                   style={{ backgroundColor: '#f8fafc', color: '#64748b' }}
                 />
               </div>
               <div className="form-group">
-                <label>Estimated Total (IDR)</label>
+                <label>{t('publicReservation.estimatedTotalIdr')}</label>
                 <input
                   type="text"
                   readOnly
@@ -828,13 +881,13 @@ function PublicReservationForm({
           </div>
 
           <div className="form-section">
-            <h4><Info size={14} /> {isEditMode ? 'Notes' : 'Special Requests & Notes'}</h4>
+            <h4><Info size={14} /> {isEditMode ? t('publicReservation.notes') : t('publicReservation.specialRequestsNotes')}</h4>
             <div className="form-group">
               <textarea
                 placeholder={
                   isEditMode
-                    ? 'Internal notes about this reservation…'
-                    : 'Early check-in, dietary requirements, special occasions…'
+                    ? t('publicReservation.notesPlaceholderEdit')
+                    : t('publicReservation.notesPlaceholderPublic')
                 }
                 rows="3"
                 value={formData.notes}
@@ -856,20 +909,20 @@ function PublicReservationForm({
                   }}
                 />
                 <AlertTriangle size={14} />
-                Cancel this reservation
+                {t('publicReservation.cancelThisReservation')}
               </label>
               {cancelMode && (
                 <div className="form-group" style={{ marginTop: 12 }}>
-                  <label>Cancellation Reason</label>
+                  <label>{t('publicReservation.cancellationReason')}</label>
                   <textarea
-                    placeholder="Explain why this booking is being cancelled…"
+                    placeholder={t('publicReservation.cancellationReasonPlaceholder')}
                     value={cancellationReason}
                     onChange={(e) => setCancellationReason(e.target.value)}
                     rows={3}
                     required
                   />
                   <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 6, marginBottom: 0 }}>
-                    Status and payment status will be set to cancelled.
+                    {t('publicReservation.cancelStatusNote')}
                   </p>
                 </div>
               )}
@@ -878,14 +931,14 @@ function PublicReservationForm({
 
           {!isEditMode && !isModal && (
             <p style={{ fontSize: '0.78rem', color: COLORS.textTertiary, margin: '-4px 0 8px', lineHeight: 1.5 }}>
-              No payment required now. Our team will confirm availability and send an invoice within 24 hours.
+              {t('publicReservation.noPaymentRequiredNote')}
             </p>
           )}
 
           {isModal ? (
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: 8 }}>
               <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>
-                Close
+                {t('publicReservation.close')}
               </Button>
               <Button
                 type="submit"
@@ -930,27 +983,30 @@ function PublicReservationForm({
             <span className="public-brand-sub">Alahan Panjang</span>
           </div>
           <div className="public-welcome-copy">
-            <h1 className="public-welcome-title">Book Your Highland Stay</h1>
+            <h1 className="public-welcome-title">{t('publicReservation.bookYourHighlandStay')}</h1>
             <p className="public-welcome-desc">
-              Perched at 1,400 m in the Minangkabau highlands, Umalila offers
-              private villas with panoramic lake views, farm-to-table dining,
-              and unhurried highland living.
+              {t('publicReservation.welcomeDesc')}
             </p>
           </div>
           <ul className="public-feature-list">
-            {['Mountain-view private villas', 'English garden', 'Daily breakfast included'].map((f) => (
+            {[
+              t('publicReservation.featureMountainVillas'),
+              t('publicReservation.featureEnglishGarden'),
+              t('publicReservation.featureBreakfast'),
+            ].map((f) => (
               <li key={f} className="public-feature-item">
                 <span className="public-feature-dot" />
                 {f}
               </li>
             ))}
           </ul>
-          <div className="public-welcome-meta">1°30′S · 100°28′E · 1,400 m elevation</div>
+          <div className="public-welcome-meta">{t('publicReservation.welcomeMeta')}</div>
         </div>
       </aside>
 
       <main className="public-form-panel">
         <div className="modal-card public-form-card" style={{ position: 'relative' }}>
+          {isPublicPage && <PublicLanguageSwitcher />}
           {isSubmitting && <SubmittingOverlay />}
           <div className="modal-header">
             <h2>{formTitle}</h2>

@@ -13,6 +13,7 @@ export { default as MetricTooltip } from './MetricTooltip';
 export { default as ChartCard } from './ChartCard';
 export { default as PageTabs } from './PageTabs';
 export { default as PendingQueueCard, PendingQueueList } from './PendingQueueCard';
+export { DataTable, TableFilterBar } from './DataTable';
 
 export { default as Input } from './Input';
 export { default as PasswordInput } from './PasswordInput';

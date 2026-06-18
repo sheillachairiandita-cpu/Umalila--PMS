@@ -31,13 +31,20 @@ function Modal({ isOpen, onClose, children, size = 'md', className = '' }) {
   };
 
   return (
-    <div style={MODAL_BASE.overlay} className={`modal-overlay ${className}`}>
+    <div
+      style={MODAL_BASE.overlay}
+      className={`modal-overlay ${className}`}
+      onClick={onClose ? onClose : undefined}
+    >
       <div
         style={{
           ...MODAL_BASE.content,
           ...sizeStyles[size],
         }}
         className="modal-content"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
         {children}
       </div>

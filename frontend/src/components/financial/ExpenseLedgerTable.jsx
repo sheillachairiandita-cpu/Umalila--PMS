@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Edit, Eye, Filter } from 'lucide-react';
-import { Badge } from '../ui';
+import { Edit, Eye, Filter, Plus } from 'lucide-react';
+import { Badge, Button } from '../ui';
 import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
 import {
@@ -9,10 +9,7 @@ import {
   TIMEFRAME_FILTER_OPTIONS,
 } from '../../utils/statusConfigs';
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
-
-function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
-}
+import { formatRp } from '../../utils/formatCurrency';
 
 const STATUS_FILTER_OPTIONS = [
   { key: 'all', label: 'All Statuses' },
@@ -21,7 +18,7 @@ const STATUS_FILTER_OPTIONS = [
   { key: 'pending', label: 'Pending' },
 ];
 
-function ExpenseLedgerTable({ expenses, loading, onEdit, onViewProof }) {
+function ExpenseLedgerTable({ expenses, loading, onEdit, onViewProof, onAddExpense }) {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [timeframeFilter, setTimeframeFilter] = useState('all');
@@ -52,7 +49,7 @@ function ExpenseLedgerTable({ expenses, loading, onEdit, onViewProof }) {
 
   return (
     <div>
-      <div className="filter-bar filter-bar--expense-ledger">
+      <div className="filter-bar filter-bar--expense-ledger filter-bar--with-actions">
         <div>
           <label className="filter-bar__label">Category</label>
           <select
@@ -92,6 +89,14 @@ function ExpenseLedgerTable({ expenses, loading, onEdit, onViewProof }) {
             ))}
           </select>
         </div>
+
+        {onAddExpense && (
+          <div className="filter-bar__actions">
+            <Button variant="primary" icon={Plus} onClick={onAddExpense}>
+              Add New Expense
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="table-result-count">
@@ -108,8 +113,8 @@ function ExpenseLedgerTable({ expenses, loading, onEdit, onViewProof }) {
           <p className="text-muted" style={{ fontSize: '0.85rem' }}>No expenses match your filters.</p>
         </div>
       ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table pms-table--financial">
+        <div className="table-scroll-wrap table-scroll-wrap--cards-mobile">
+          <table className="pms-table pms-table--financial pms-table--cards-mobile">
             <thead>
               <tr>
                 <th>Display ID</th>
@@ -124,17 +129,17 @@ function ExpenseLedgerTable({ expenses, loading, onEdit, onViewProof }) {
             <tbody>
               {paginatedData.map((expense) => (
                 <tr key={expense.id}>
-                  <td>
+                  <td data-label="Display ID">
                     <span className="cell-booking-id">{expense.displayId || '—'}</span>
                   </td>
-                  <td>{EXPENSE_CATEGORY_LABELS[expense.category] || expense.category}</td>
-                  <td className="cell-truncate">{expense.description || '—'}</td>
-                  <td className="text-right">{formatRp(expense.amount)}</td>
-                  <td>{expense.transactionDate}</td>
-                  <td className="text-center">
+                  <td data-label="Category">{EXPENSE_CATEGORY_LABELS[expense.category] || expense.category}</td>
+                  <td className="cell-truncate" data-label="Description">{expense.description || '—'}</td>
+                  <td className="text-right" data-label="Amount">{formatRp(expense.amount)}</td>
+                  <td data-label="Date">{expense.transactionDate}</td>
+                  <td className="text-center" data-label="Status">
                     <Badge type="expense" value={expense.status} />
                   </td>
-                  <td className="text-center">
+                  <td className="text-center" data-label="Actions">
                     <div className="table-action-group">
                       <TableActionButton title="Edit" variant="default" onClick={() => onEdit(expense)}>
                         <Edit size={13} />

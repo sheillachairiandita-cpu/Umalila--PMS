@@ -1,64 +1,51 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { lazy, Suspense } from 'react';
+import { Menu, User } from 'lucide-react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import Overview from './components/overview/Overview';
+import useBreakpoint from './hooks/useBreakpoint';
 import Sidebar from './components/SideBar';
-import CalendarPage from './components/calendar/CalendarPage';
-import ReservationPage from './components/reservations/ReservationPage';
-import FinancialDashboardPage from './components/financial/FinancialDashboardPage';
-import Pricing from './components/pricing/Pricing';
-import Users from './components/users/Users';
 import PublicReservationForm from './components/reservations/PublicReservationForm';
 import PublicSuccessMessage from './components/reservations/PublicSuccessMessage';
-import Dashboard from './components/dashboard/Dashboard';
 import LoginPage from './components/auth/LoginPage';
-import ChangePasswordPage from './components/auth/ChangePasswordPage';
-import Profile from './components/users/Profile';
 import ProtectedPage from './components/auth/ProtectedPage';
 import { NotificationProvider } from './context/NotificationProvider';
 import { MutationProvider } from './context/MutationProvider';
 import { AuthProvider, RequireAuth, DefaultAdminRedirect, useAuth } from './context/AuthProvider';
 import RequirePermission from './components/auth/RequirePermission';
 import { PERMISSIONS } from './auth/permissions';
+import { useBookings } from './hooks/api/useBookings';
 import './App.css';
 
+const Overview = lazy(() => import('./components/overview/Overview'));
+const CalendarPage = lazy(() => import('./components/calendar/CalendarPage'));
+const ReservationPage = lazy(() => import('./components/reservations/ReservationPage'));
+const FinancialDashboardPage = lazy(() => import('./components/financial/FinancialDashboardPage'));
+const Dashboard = lazy(() => import('./components/dashboard/Dashboard'));
+const Pricing = lazy(() => import('./components/pricing/Pricing'));
+const Users = lazy(() => import('./components/users/Users'));
+const ChangePasswordPage = lazy(() => import('./components/auth/ChangePasswordPage'));
+const Profile = lazy(() => import('./components/users/Profile'));
+
+function PageLoader() {
+  return <div className="empty-state">Loading…</div>;
+}
+
 function OverviewPage() {
-  const [bookings, setBookings] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const fetchBookings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/bookings', { credentials: 'include' });
-      if (!response.ok) throw new Error('Failed to capture active booking ledger.');
-      const data = await response.json();
-      setBookings(data);
-      setError(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+  const { data: bookings = [], isLoading: loading, error, refetch } = useBookings();
 
   return (
     <div className="dashboard-container">
       <Overview
         bookings={bookings}
         loading={loading}
-        error={error}
-        onRefresh={fetchBookings}
+        error={error?.message || null}
+        onRefresh={refetch}
       />
     </div>
   );
 }
 
 function CalendarRoute() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = React.useState(false);
 
   const handleBookingSuccess = () => {
     setIsModalOpen(false);
@@ -88,29 +75,98 @@ function SettingsPage() {
   );
 }
 
+function AdminMobileHeader({ onMenuOpen, onProfile }) {
+  return (
+    <header className="app-mobile-header" aria-label="Mobile navigation">
+      <button
+        type="button"
+        className="app-mobile-header__menu-btn"
+        onClick={onMenuOpen}
+        aria-label="Open navigation menu"
+      >
+        <Menu size={22} />
+      </button>
+      <div className="app-mobile-header__brand">
+        <span className="app-mobile-header__title">Umalila</span>
+        <span className="app-mobile-header__subtitle">PMS</span>
+      </div>
+      <button
+        type="button"
+        className="app-mobile-header__user-btn"
+        onClick={onProfile}
+        aria-label="Profile"
+      >
+        <User size={20} />
+      </button>
+    </header>
+  );
+}
+
 function AdminLayout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const { isMobile, isTablet } = useBreakpoint();
   const location = useLocation();
   const navigate = useNavigate();
   const { logout } = useAuth();
 
   const activePage = location.pathname.replace(/^\/admin\/?/, '').split('/')[0] || 'dashboard';
 
+  React.useEffect(() => {
+    if (!isMobile) setMobileMenuOpen(false);
+  }, [isMobile]);
+
+  React.useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  React.useEffect(() => {
+    if (!mobileMenuOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [mobileMenuOpen]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/admin/login', { replace: true });
   };
 
+  const tabletCompact = isTablet && !sidebarCollapsed;
+
   return (
-    <div className="app-layout">
+    <div className={`app-layout${isMobile ? ' app-layout--mobile' : ''}`}>
+      {isMobile && mobileMenuOpen && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="Close navigation menu"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {isMobile && (
+        <AdminMobileHeader
+          onMenuOpen={() => setMobileMenuOpen(true)}
+          onProfile={() => navigate('/admin/profile')}
+        />
+      )}
+
       <Sidebar
         activePage={activePage}
-        collapsed={sidebarCollapsed}
+        collapsed={sidebarCollapsed && !isMobile}
+        tabletCompact={tabletCompact}
+        mobileOpen={isMobile && mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
         onToggle={() => setSidebarCollapsed((c) => !c)}
         onLogout={handleLogout}
+        hideCollapseToggle={isMobile}
       />
+
       <main className="main-content">
-        <Outlet />
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );
@@ -130,78 +186,16 @@ function AdminApp() {
             )}
           >
             <Route index element={<DefaultAdminRedirect />} />
-            <Route
-              path="dashboard"
-              element={(
-                <ProtectedPage page="dashboard">
-                  <OverviewPage />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="calendar"
-              element={(
-                <ProtectedPage page="calendar">
-                  <CalendarRoute />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="reservations"
-              element={(
-                <ProtectedPage page="reservations">
-                  <ReservationPage />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="financial"
-              element={(
-                <ProtectedPage page="financial">
-                  <FinancialDashboardPage />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="insights"
-              element={(
-                <ProtectedPage page="insights">
-                  <Dashboard />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="pricing"
-              element={(
-                <ProtectedPage page="pricing">
-                  <Pricing />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="users"
-              element={(
-                <ProtectedPage page="users">
-                  <Users />
-                </ProtectedPage>
-              )}
-            />
-            <Route
-              path="profile"
-              element={<Profile />}
-            />
-            <Route
-              path="change-password"
-              element={<ChangePasswordPage />}
-            />
-            <Route
-              path="settings"
-              element={(
-                <ProtectedPage page="settings">
-                  <SettingsPage />
-                </ProtectedPage>
-              )}
-            />
+            <Route path="dashboard" element={<ProtectedPage page="dashboard"><OverviewPage /></ProtectedPage>} />
+            <Route path="calendar" element={<ProtectedPage page="calendar"><CalendarRoute /></ProtectedPage>} />
+            <Route path="reservations" element={<ProtectedPage page="reservations"><ReservationPage /></ProtectedPage>} />
+            <Route path="financial" element={<ProtectedPage page="financial"><FinancialDashboardPage /></ProtectedPage>} />
+            <Route path="insights" element={<ProtectedPage page="insights"><Dashboard /></ProtectedPage>} />
+            <Route path="pricing" element={<ProtectedPage page="pricing"><Pricing /></ProtectedPage>} />
+            <Route path="users" element={<ProtectedPage page="users"><Users /></ProtectedPage>} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="change-password" element={<ChangePasswordPage />} />
+            <Route path="settings" element={<ProtectedPage page="settings"><SettingsPage /></ProtectedPage>} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
         </Routes>

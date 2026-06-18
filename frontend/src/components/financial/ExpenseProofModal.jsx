@@ -2,10 +2,7 @@ import React from 'react';
 import { ImageIcon } from 'lucide-react';
 import { Modal, Button } from '../ui';
 import { EXPENSE_CATEGORY_LABELS } from '../../utils/statusConfigs';
-
-function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
-}
+import { formatRp } from '../../utils/formatCurrency';
 
 function isPdfUrl(url) {
   return /\.pdf(\?|$)/i.test(url || '');

@@ -9,10 +9,7 @@ import {
 } from '../../utils/statusConfigs';
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
 
-function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString('id-ID')}`;
-}
-
+import { formatRp } from '../../utils/formatCurrency';
 function IncomeTable({ rows, loading, onViewDetails }) {
   const [search, setSearch] = useState('');
   const [payFilter, setPayFilter] = useState('all');
@@ -138,8 +135,8 @@ function IncomeTable({ rows, loading, onViewDetails }) {
           </p>
         </div>
       ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table pms-table--financial">
+        <div className="table-scroll-wrap table-scroll-wrap--cards-mobile">
+          <table className="pms-table pms-table--financial pms-table--cards-mobile">
             <thead>
               <tr>
                 <th>Booking ID</th>
@@ -160,41 +157,41 @@ function IncomeTable({ rows, loading, onViewDetails }) {
             <tbody>
               {paginatedData.map((row) => (
                 <tr key={row.bookingId}>
-                  <td>
+                  <td data-label="Booking ID">
                     <span className="cell-booking-id">{row.displayId || row.invoiceId}</span>
                   </td>
-                  <td className="cell-guest">{row.guestName}</td>
-                  <td>{row.checkIn}</td>
-                  <td>{row.checkOut}</td>
-                  <td className="text-right">{formatRp(row.totalAccommodation)}</td>
-                  <td className="text-right">
+                  <td className="cell-guest" data-label="Guest">{row.guestName}</td>
+                  <td data-label="Check-In">{row.checkIn}</td>
+                  <td data-label="Check-Out">{row.checkOut}</td>
+                  <td className="text-right" data-label="Accommodation">{formatRp(row.totalAccommodation)}</td>
+                  <td className="text-right" data-label="F&B">
                     {row.totalMenuItems > 0 ? formatRp(row.totalMenuItems) : '—'}
                   </td>
-                  <td className="text-right">
+                  <td className="text-right" data-label="Add-ons">
                     {row.totalAddons > 0 ? formatRp(row.totalAddons) : '—'}
                   </td>
-                  <td className="text-right">
+                  <td className="text-right" data-label="Discount">
                     {(row.discountAmount || 0) > 0 ? (
                       <span className="income-table-discount">−{formatRp(row.discountAmount)}</span>
                     ) : (
                       '—'
                     )}
                   </td>
-                  <td className="text-right">{formatRp(row.total)}</td>
-                  <td className="text-right">
+                  <td className="text-right" data-label="Total">{formatRp(row.total)}</td>
+                  <td className="text-right" data-label="Paid">
                     {row.amountPaid > 0 ? formatRp(row.amountPaid) : '—'}
                   </td>
-                  <td className="text-right">
+                  <td className="text-right" data-label="Balance Due">
                     {(row.balanceDue || 0) > 0 ? (
                       <span className="cell-balance-due">{formatRp(row.balanceDue)}</span>
                     ) : (
                       'Settled'
                     )}
                   </td>
-                  <td className="text-center">
+                  <td className="text-center" data-label="Payment">
                     <Badge type="payment" value={row.paymentStatus || 'pending'} />
                   </td>
-                  <td className="text-center">
+                  <td className="text-center" data-label="Actions">
                     <div className="table-action-group">
                       <TableActionButton title="View Details" variant="default" onClick={() => onViewDetails(row)}>
                         <Eye size={13} />

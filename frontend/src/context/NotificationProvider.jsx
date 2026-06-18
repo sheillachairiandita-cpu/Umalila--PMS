@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { CheckCircle, XCircle, X } from 'lucide-react';
 
 const NotificationContext = createContext(null);
@@ -17,10 +17,10 @@ export function NotificationProvider({ children }) {
     window.setTimeout(() => dismiss(id), 5000);
   }, [dismiss]);
 
-  const value = {
+  const value = useMemo(() => ({
     success: (message) => show('success', message),
     error: (message) => show('error', message),
-  };
+  }), [show]);
 
   return (
     <NotificationContext.Provider value={value}>

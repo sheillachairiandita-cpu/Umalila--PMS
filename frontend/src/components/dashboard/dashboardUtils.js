@@ -152,9 +152,8 @@ const EXPENSE_CATEGORIES = [
 
 const REVENUE_SEGMENTS = [
   { key: 'room_revenue', label: 'Room Revenue', color: 'var(--navy)' },
-  { key: 'order_revenue', label: 'Order Revenue', color: 'var(--green)' },
   { key: 'addon_revenue', label: 'Add-on Revenue', color: '#7c3aed' },
-  { key: 'other_income', label: 'Other Income', color: 'var(--text-light)' },
+  { key: 'order_revenue', label: 'F&B Revenue', color: 'var(--green)' },
 ];
 
 function villaUnits(booking) {
@@ -178,6 +177,7 @@ export function processFinancialData({
   incomeRows,
   transactions,
   expenses,
+  profitability = [],
   rangeStart,
   rangeEnd,
   villaFilter,
@@ -260,13 +260,62 @@ export function processFinancialData({
       return s + amt;
     }, 0);
 
-  const netProfit = amountCollected - totalExpenses;
+  let totalCogs = 0;
+  let proratedRoomFromProfit = 0;
+  let proratedAddonFromProfit = 0;
+  let proratedFbFromProfit = 0;
+
+  const villaAgg = {};
+
+  (profitability || []).forEach((row) => {
+    if (row.bookingStatus === 'cancelled') return;
+    if (villaFilter !== 'all' && row.villaName !== villaFilter) return;
+    if (!row.checkIn || !row.checkOut) return;
+    if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
+
+    const totalNights = stayNights(row.checkIn, row.checkOut);
+    const inRange = nightsInRange(row.checkIn, row.checkOut, rangeStart, rangeEnd);
+    if (!inRange || !totalNights) return;
+
+    const factor = inRange / totalNights;
+    const rev = (Number(row.revenue) || 0) * factor;
+    const cogs = (Number(row.cogs) || 0) * factor;
+    const gp = rev - cogs;
+
+    totalCogs += cogs;
+    proratedRoomFromProfit += (Number(row.roomRevenue) || 0) * factor;
+    proratedAddonFromProfit += (Number(row.addonRevenue) || 0) * factor;
+    proratedFbFromProfit += (Number(row.fbRevenue) || 0) * factor;
+
+    if (!villaAgg[row.villaId]) {
+      villaAgg[row.villaId] = {
+        villaId: row.villaId,
+        villaName: row.villaName,
+        revenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+      };
+    }
+    villaAgg[row.villaId].revenue += rev;
+    villaAgg[row.villaId].cogs += cogs;
+    villaAgg[row.villaId].grossProfit += gp;
+  });
+
+  const useProfitability = (profitability || []).length > 0;
+  if (useProfitability) {
+    grossRevenue = proratedRoomFromProfit + proratedAddonFromProfit + proratedFbFromProfit;
+    roomRevenue = proratedRoomFromProfit;
+    addonRevenue = proratedAddonFromProfit;
+    orderRevenue = proratedFbFromProfit;
+  }
+
+  const grossProfit = grossRevenue - totalCogs;
+  const netProfit = grossProfit - totalExpenses;
 
   const rooms = villaCount(villas, villaFilter);
   const rangeDays = Math.max(1, Math.ceil((dateOnly(rangeEnd) - dateOnly(rangeStart)) / 86400000) + 1);
   const availableRoomNights = rooms * rangeDays;
-  const gop = grossRevenue - totalExpenses;
-  const goppar = availableRoomNights ? gop / availableRoomNights : 0;
+  const goppar = availableRoomNights ? grossProfit / availableRoomNights : 0;
   const maxGoppar = Math.max(Math.abs(goppar) * 1.25, 100000);
 
   const expenseSegments = EXPENSE_CATEGORIES.map((c) => ({
@@ -278,9 +327,8 @@ export function processFinancialData({
     ...c,
     value: {
       room_revenue: roomRevenue,
-      order_revenue: orderRevenue,
       addon_revenue: addonRevenue,
-      other_income: 0,
+      order_revenue: orderRevenue,
     }[c.key] || 0,
   }));
 
@@ -289,21 +337,39 @@ export function processFinancialData({
   const end = dateOnly(rangeEnd);
   while (cur <= end) {
     const mk = monthKey(getISODate(cur));
-    if (!monthMap[mk]) monthMap[mk] = { revenue: 0, expenses: 0 };
+    if (!monthMap[mk]) monthMap[mk] = { revenue: 0, expenses: 0, cogs: 0 };
     cur = addDays(cur, 1);
   }
 
-  (bookings || []).forEach((b) => {
-    if (b.status === 'cancelled') return;
-    if (!matchesVilla(b.villa_names, villaFilter)) return;
-    if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
-    const summary = incomeMap[b.id];
-    const total = summary
-      ? prorateAmount(summary.total, b.check_in_date, b.check_out_date, rangeStart, rangeEnd)
-      : 0;
-    const mk = monthKey(b.check_in_date);
-    if (monthMap[mk]) monthMap[mk].revenue += total;
-  });
+  if (useProfitability) {
+    (profitability || []).forEach((row) => {
+      if (row.bookingStatus === 'cancelled') return;
+      if (villaFilter !== 'all' && row.villaName !== villaFilter) return;
+      if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
+
+      const totalNights = stayNights(row.checkIn, row.checkOut);
+      const inRange = nightsInRange(row.checkIn, row.checkOut, rangeStart, rangeEnd);
+      if (!inRange || !totalNights) return;
+      const factor = inRange / totalNights;
+      const mk = monthKey(row.checkIn);
+      if (monthMap[mk]) {
+        monthMap[mk].revenue += (Number(row.revenue) || 0) * factor;
+        monthMap[mk].cogs += (Number(row.cogs) || 0) * factor;
+      }
+    });
+  } else {
+    (bookings || []).forEach((b) => {
+      if (b.status === 'cancelled') return;
+      if (!matchesVilla(b.villa_names, villaFilter)) return;
+      if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
+      const summary = incomeMap[b.id];
+      const total = summary
+        ? prorateAmount(summary.total, b.check_in_date, b.check_out_date, rangeStart, rangeEnd)
+        : 0;
+      const mk = monthKey(b.check_in_date);
+      if (monthMap[mk]) monthMap[mk].revenue += total;
+    });
+  }
 
   (expenses || [])
     .filter((e) => e.status === 'approved')
@@ -319,21 +385,44 @@ export function processFinancialData({
       label: monthLabel(key),
       revenue: val.revenue,
       expenses: val.expenses,
+      netProfit: val.revenue - (val.cogs || 0) - val.expenses,
     }));
+
+  const villaProfitability = Object.values(villaAgg)
+    .map((v) => {
+      const expenseShare = grossRevenue > 0
+        ? totalExpenses * (v.revenue / grossRevenue)
+        : 0;
+      return {
+        ...v,
+        netProfit: v.grossProfit - expenseShare,
+      };
+    })
+    .sort((a, b) => b.netProfit - a.netProfit);
 
   return {
     grossRevenue,
     netRevenue: Math.max(grossRevenue - totalDiscounts, 0),
     amountCollected,
     pendingDeposit,
+    totalCogs,
     totalExpenses,
     totalDiscounts,
+    grossProfit,
     netProfit,
     goppar,
     maxGoppar,
     expenseSegments,
     revenueSegments,
     monthlyComparison,
+    profitabilityFlow: {
+      revenue: grossRevenue,
+      cogs: totalCogs,
+      grossProfit,
+      expenses: totalExpenses,
+      netProfit,
+    },
+    villaProfitability,
   };
 }
 

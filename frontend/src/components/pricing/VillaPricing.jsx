@@ -14,7 +14,7 @@ import {
   usePricingMutation,
   formatRp,
 } from './pricingShared';
-import { Button } from '../ui';
+import { apiFetch } from '../../api/client';
 import TableActionButton from '../TableActionButton';
 
 const EMPTY_VILLA_FORM = {
@@ -342,8 +342,8 @@ function VillaPricing() {
     setLoading(true);
     try {
       const [villasRes, holidaysRes] = await Promise.all([
-        fetch('/api/villas'),
-        fetch('/api/pricing/holidays'),
+        apiFetch('/api/villas'),
+        apiFetch('/api/pricing/holidays'),
       ]);
       if (!villasRes.ok) throw new Error('Failed to fetch villas');
       setVillas(await villasRes.json());
@@ -412,7 +412,7 @@ function VillaPricing() {
       {loading && <PricingLoadingState message="Loading villas…" />}
       {!loading && error && <PricingErrorState message={error} />}
       {!loading && !error && (
-        <div className="pricing-table-wrap">
+        <div className="pricing-table-wrap pricing-table-wrap--aligned">
           <table className="pricing-table">
             <thead>
               <tr>
@@ -477,21 +477,18 @@ function VillaPricing() {
         </div>
       )}
 
-      <div className="pricing-pane pricing-pane--nested">
-        <div className="pricing-pane__toolbar">
-          <div>
-            <h4 className="pricing-pane__subtitle">Holiday Periods</h4>
-            <p className="pricing-pane__desc">
-              Dates within these ranges use the holiday rate. Fri–Sun otherwise use the weekend rate; Mon–Thu use weekday.
-            </p>
-          </div>
-          <Button variant="secondary" size="sm" icon={Plus} onClick={() => setHolidayModalOpen(true)}>
-            Add Holiday Period
-          </Button>
-        </div>
+      <div className="pricing-pane--nested">
+        <PricingPaneToolbar
+          title="Holiday Periods"
+          description="Dates within these ranges use the holiday rate. Fri–Sun otherwise use the weekend rate; Mon–Thu use weekday."
+          actionLabel="Add Holiday Period"
+          actionIcon={Plus}
+          actionVariant="secondary"
+          onAction={() => setHolidayModalOpen(true)}
+        />
 
         {!loading && !error && (
-          <div className="pricing-table-wrap">
+          <div className="pricing-table-wrap pricing-table-wrap--aligned">
             <table className="pricing-table">
               <thead>
                 <tr>

@@ -10,8 +10,13 @@ const SESSION_COOKIE = 'umalila_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 const SESSION_SECRET = process.env.SESSION_SECRET
-  || process.env.SUPABASE_SERVICE_ROLE_KEY
-  || 'umalila-dev-session-secret-change-in-production';
+  || (process.env.NODE_ENV !== 'production' ? 'umalila-dev-session-secret' : null);
+if (!SESSION_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is required in production.');
+}
+if (!process.env.SESSION_SECRET && process.env.NODE_ENV !== 'production') {
+  console.warn('WARNING: SESSION_SECRET not set — using insecure dev default.');
+}
 
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -111,13 +116,14 @@ export function mapAuthUser(row) {
     email: row.email,
     role: row.role,
     status: row.status || 'active',
+    property_id: row.property_id || null,
   };
 }
 
 export async function loadUserById(supabase, userId) {
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, name, role, created_at, display_id, status')
+    .select('id, email, name, role, created_at, display_id, status, property_id')
     .eq('id', userId)
     .maybeSingle();
 
@@ -142,7 +148,7 @@ export function createAuthHandlers(supabase) {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, email, name, role, password_hash, display_id, status')
+        .select('id, email, name, role, password_hash, display_id, status, property_id')
         .eq('email', email.trim().toLowerCase())
         .maybeSingle();
 
