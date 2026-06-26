@@ -1,15 +1,44 @@
+import './loadEnv.js';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import {
   calculateDiscountAmount,
   mapDiscountRow,
   discountPayloadFromBody,
+  validateDiscountPayload,
+  isDiscountEligible,
+  buildDiscountBookingContext,
+  resolveDiscountApplication,
+  normalizeStatus,
 } from './lib/discountUtils.js';
 import { streamBookingConfirmationPdf } from './lib/pdfHelpers.js';
-
-dotenv.config();
+import { computeVillaStayCharges, buildTieredAccommodationLines } from './lib/villaRateUtils.js';
+import {
+  calculateReservationCogs,
+  calculateGrossProfit,
+} from './lib/cogsUtils.js';
+import {
+  findBlockingReservationsForBlock,
+  formatBlockConflictError,
+} from './lib/blockUtils.js';
+import {
+  hashPassword,
+  createAuthHandlers,
+  createAuthMiddleware,
+  rbacMiddleware,
+} from './lib/auth.js';
+import { createPropertyMiddleware, finishScope, withPropertyId, scoped } from './lib/tenant/index.js';
+import { createBookingAccessMiddleware } from './lib/bookingAccess.js';
+import { auditLog } from './lib/auditLog.js';
+import { parsePagination, fetchCursorPage, paginatedJson } from './lib/pagination.js';
+import { generateBookingToken } from './lib/bookingToken.js';
+import {
+  assertBookingInProperty,
+  findVillaBookingConflicts,
+  deleteBookingChildren,
+  deleteBookingCascade,
+} from './lib/tenant/bookingScope.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -18,8 +47,46 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-app.use(cors());
+const propertyMiddleware = createPropertyMiddleware(supabase);
+const bookingAccessMiddleware = createBookingAccessMiddleware(supabase);
+const S = (req, table) => scoped(supabase, req.propertyId, table);
+const INS = (req, table, data, opts) => supabase.from(table).insert(withPropertyId(data, req.propertyId, table), opts);
+const scopeQ = (propertyId, table) => scoped(supabase, propertyId, table);
+
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '20mb' }));
+
+const authMiddleware = createAuthMiddleware(supabase);
+const { login, logout, me, changePassword } = createAuthHandlers(supabase);
+
+app.use(authMiddleware);
+app.use(rbacMiddleware);
+app.use(propertyMiddleware);
+
+app.post('/api/auth/login', login);
+app.post('/api/auth/logout', logout);
+app.get('/api/auth/me', me);
+app.patch('/api/auth/change-password', changePassword);
+
+/** Allowed values for orders.status (matches Supabase orders_status_check) */
+const ORDER_STATUSES = ['open', 'served', 'billed'];
+const ORDER_STATUS_OPEN = 'open';
+
+/** Blocks use inclusive [start_date, end_date]; bookings use half-open [check_in, check_out). */
+async function findBlockConflicts(villaIds, checkIn, checkOut, propertyId) {
+  let query = scopeQ(propertyId, 'villa_date_blocks')
+    .select('id, villa_id, start_date, end_date, reason')
+    .lt('start_date', checkOut)
+    .gte('end_date', checkIn);
+
+  if (Array.isArray(villaIds) && villaIds.length > 0) {
+    query = query.in('villa_id', villaIds);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
 
 // ─────────────────────────────────────────────────────────────
 // 📋 BOOKINGS
@@ -27,54 +94,48 @@ app.use(express.json({ limit: '20mb' }));
 
 app.get('/api/bookings', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(`
-        *,
+    const { limit, cursor } = parsePagination(req.query);
+    const bookingSelect = `
+        id, display_id, status, payment_status, check_in_date, check_out_date,
+        total_price, amount_paid, total_guests, notes, created_at, discount_id, discount_amount,
         discounts (id, code, name, type, value, scope, status, application_rule),
         guests (full_name, phone_number),
         booking_villas (
-          villa_id,
-          rate_per_night,
-          nights,
-          villas (id, name, base_rate_per_night, base_breakfast, display_id)
+          villa_id, rate_per_night, nights,
+          villas (id, name, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night, base_breakfast, display_id)
         ),
         booking_addons (
-          addon_id,
-          quantity,
-          unit_price,
-          subtotal,
+          addon_id, quantity, unit_price, subtotal,
           addons (id, name, price, is_per_night, base_breakfast)
         )
-      `)
-      .order('created_at', { ascending: false });
+      `;
 
-    if (error) throw error;
+    const { data, nextCursor, hasMore } = await fetchCursorPage(
+      S(req, 'bookings').select(bookingSelect),
+      { limit, cursor },
+    );
 
-    const { data: orderTotals, error: orderErr } = await supabase
-      .from('orders')
+    const { data: orderTotals, error: orderErr } = await S(req, 'orders')
       .select('booking_id, total_amount')
       .not('status', 'eq', 'billed');
 
     if (orderErr) throw orderErr;
 
     const orderTotalMap = {};
-    (orderTotals || []).forEach(o => {
+    (orderTotals || []).forEach((o) => {
       orderTotalMap[o.booking_id] = (orderTotalMap[o.booking_id] || 0) + Number(o.total_amount);
     });
 
     const today = new Date().toISOString().split('T')[0];
 
-    const formatted = data.map(b => {
+    const formatted = (data || []).map((b) => {
       const villaBreakfast = b.booking_villas?.reduce((sum, bv) => sum + (bv.villas?.base_breakfast || 0), 0) || 0;
       const addonBreakfast = b.booking_addons?.reduce((sum, ba) => sum + ((ba.addons?.base_breakfast || 0) * (ba.quantity || 1)), 0) || 0;
       const totalBreakfast = villaBreakfast + addonBreakfast;
 
-      const extraBedAddon = b.booking_addons?.find(ba => ba.addons?.name === 'Extra Bed');
+      const extraBedAddon = b.booking_addons?.find((ba) => ba.addons?.name === 'Extra Bed');
       const extraBedQty = extraBedAddon?.quantity || 0;
 
-      // FIX 4: If status is 'checked_in', phase must be 'in-house' regardless of date.
-      // This ensures the badge immediately reflects the operational state after check-in.
       let stayPhase;
       if (b.status === 'checked_in') {
         stayPhase = 'in-house';
@@ -92,7 +153,7 @@ app.get('/api/bookings', async (req, res) => {
 
       return {
         ...b,
-        villa_names: b.booking_villas?.map(bv => bv.villas?.name).filter(Boolean).join(', ') || 'No Units Assigned',
+        villa_names: b.booking_villas?.map((bv) => bv.villas?.name).filter(Boolean).join(', ') || 'No Units Assigned',
         total_breakfast: totalBreakfast,
         extra_bed_qty: extraBedQty,
         stay_phase: stayPhase,
@@ -103,7 +164,7 @@ app.get('/api/bookings', async (req, res) => {
       };
     });
 
-    res.json(formatted);
+    paginatedJson(res, { data: formatted, nextCursor, hasMore });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -123,18 +184,24 @@ app.post('/api/bookings', async (req, res) => {
     discount_id,
   } = req.body;
 
-  try {
-    const { data: conflictingBookings, error: checkError } = await supabase
-      .from('booking_villas')
-      .select(`villa_id, bookings!inner (id, check_in_date, check_out_date, status)`)
-      .in('villa_id', villa_ids)
-      .not('bookings.status', 'eq', 'cancelled')
-      .lt('bookings.check_in_date', check_out_date)
-      .gt('bookings.check_out_date', check_in_date);
+  let createdBookingId = null;
 
-    if (checkError) throw checkError;
-    if (conflictingBookings && conflictingBookings.length > 0) {
+  try {
+    const conflictingBookings = await findVillaBookingConflicts(supabase, {
+      villaIds: villa_ids,
+      checkIn: check_in_date,
+      checkOut: check_out_date,
+      propertyId: req.propertyId,
+    });
+    if (conflictingBookings.length > 0) {
       return res.status(409).json({ error: 'One or more villas are already reserved.' });
+    }
+
+    const blockConflicts = await findBlockConflicts(villa_ids, check_in_date, check_out_date, req.propertyId);
+    if (blockConflicts.length > 0) {
+      return res.status(409).json({
+        error: 'One or more villas are unavailable for these dates due to a scheduled block.',
+      });
     }
 
     const charges = await computeBookingCharges({
@@ -142,16 +209,30 @@ app.post('/api/bookings', async (req, res) => {
       selected_addons: selected_addons || [],
       check_in_date,
       check_out_date,
+      propertyId: req.propertyId,
+    });
+
+    const discountContext = buildDiscountBookingContext({
+      checkInDate: check_in_date,
+      checkOutDate: check_out_date,
+      nights: stayNights(check_in_date, check_out_date),
+      bookingAmount: charges.accommodationTotal,
+      villaIds: villa_ids,
+      guestId: guest_id,
     });
 
     const { discount, discount_id: resolvedDiscountId } = await resolveDiscountForBooking({
       apply_discount: !!apply_discount,
       discount_id,
+      context: discountContext,
+      charges,
+      propertyId: req.propertyId,
     });
 
     let discountAmount = 0;
     if (discount) {
       const result = calculateDiscountAmount(discount, {
+        ...discountContext,
         villaLines: charges.villaLines,
         addonLines: charges.addonLines,
         menuLines: [],
@@ -162,38 +243,45 @@ app.post('/api/bookings', async (req, res) => {
     const computedTotal = Math.max(charges.accommodationTotal - discountAmount, 0);
     const finalTotal = total_price !== undefined ? Number(total_price) : computedTotal;
 
-    const { data: bookingData, error: bookingError } = await supabase
-      .from('bookings')
-      .insert([{
-        guest_id,
-        check_in_date,
-        check_out_date,
-        total_guests,
-        total_price: finalTotal,
-        notes,
-        discount_id: discount ? resolvedDiscountId : null,
-        discount_amount: discountAmount,
-      }])
-      .select()
-      .single();
+    const { token: manageToken, hash: manageTokenHash } = generateBookingToken();
+
+    const { data: bookingData, error: bookingError } = await INS(req, 'bookings', [{
+      guest_id,
+      check_in_date,
+      check_out_date,
+      total_guests,
+      total_price: finalTotal,
+      notes,
+      discount_id: discount ? resolvedDiscountId : null,
+      discount_amount: discountAmount,
+      manage_token_hash: manageTokenHash,
+    }]).select().single();
 
     if (bookingError) throw bookingError;
+    createdBookingId = bookingData.id;
 
-    const nights = stayNights(check_in_date, check_out_date);
-    const { data: villaCatalog, error: villaFetchError } = await supabase
-      .from('villas')
-      .select('id, base_rate_per_night')
+    const nights = charges.nights;
+
+    const holidays = await fetchPricingHolidays(req.propertyId);
+    const { data: villaCatalog, error: villaFetchError } = await scopeQ(req.propertyId, 'villas')
+      .select('id, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night')
       .in('id', villa_ids);
     if (villaFetchError) throw villaFetchError;
 
-    const bridgeRows = buildBookingVillaRows(bookingData.id, villa_ids, villaCatalog, nights);
+    const bridgeRows = buildBookingVillaRows(
+      bookingData.id,
+      villa_ids,
+      villaCatalog,
+      check_in_date,
+      check_out_date,
+      holidays
+    );
     const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
     if (bridgeError) throw bridgeError;
 
     if (selected_addons && selected_addons.length > 0) {
       const addonIds = selected_addons.map((a) => a.addon_id);
-      const { data: addonCatalog, error: addonFetchError } = await supabase
-        .from('addons')
+      const { data: addonCatalog, error: addonFetchError } = await scopeQ(req.propertyId, 'addons')
         .select('id, price, is_per_night')
         .in('id', addonIds);
       if (addonFetchError) throw addonFetchError;
@@ -201,14 +289,23 @@ app.post('/api/bookings', async (req, res) => {
       const addonRows = buildBookingAddonRows(bookingData.id, selected_addons, addonCatalog, nights);
       const { error: addonError } = await supabase.from('booking_addons').insert(addonRows);
       if (addonError) {
-        await supabase.from('booking_villas').delete().eq('booking_id', bookingData.id);
-        await supabase.from('bookings').delete().eq('id', bookingData.id);
+        await deleteBookingChildren(supabase, bookingData.id);
+        await scopeQ(req.propertyId, 'bookings').delete().eq('id', bookingData.id);
         throw addonError;
       }
     }
 
-    res.status(201).json(bookingData);
+    try {
+      await upsertReservationProfitability(bookingData.id, req.propertyId);
+    } catch (profitErr) {
+      console.error('Profitability snapshot failed:', profitErr.message);
+    }
+
+    res.status(201).json({ ...bookingData, manage_token: manageToken });
   } catch (error) {
+    if (createdBookingId) {
+      await deleteBookingCascade(supabase, scopeQ, req.propertyId, createdBookingId);
+    }
     res.status(400).json({ error: error.message });
   }
 });
@@ -224,20 +321,28 @@ app.patch('/api/bookings/:id/status', async (req, res) => {
       // Checked-in bookings always operate in the in-house phase (computed on read).
     }
 
-    const { data, error } = await supabase
-      .from('bookings')
+    const { data, error } = await S(req, 'bookings')
       .update(updateData)
       .eq('id', id)
       .select();
 
     if (error) throw error;
+
+    if (['confirmed', 'checked_in', 'checked_out', 'completed'].includes(status)) {
+      try {
+        await upsertReservationProfitability(id, req.propertyId);
+      } catch (profitErr) {
+        console.error('Profitability snapshot failed:', profitErr.message);
+      }
+    }
+
     res.json(data[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.patch('/api/bookings/:id', async (req, res) => {
+app.patch('/api/bookings/:id', bookingAccessMiddleware, async (req, res) => {
   const { id } = req.params;
   const {
     check_in_date,
@@ -252,8 +357,7 @@ app.patch('/api/bookings/:id', async (req, res) => {
   } = req.body;
 
   try {
-    const { data: existing, error: existingError } = await supabase
-      .from('bookings')
+    const { data: existing, error: existingError } = await S(req, 'bookings')
       .select('check_in_date, check_out_date, status')
       .eq('id', id)
       .single();
@@ -271,18 +375,22 @@ app.patch('/api/bookings/:id', async (req, res) => {
     }
 
     if (Array.isArray(villa_ids) && villa_ids.length > 0) {
-      const { data: conflictingBookings, error: checkError } = await supabase
-        .from('booking_villas')
-        .select(`villa_id, booking_id, bookings!inner (id, check_in_date, check_out_date, status)`)
-        .in('villa_id', villa_ids)
-        .not('bookings.status', 'eq', 'cancelled')
-        .neq('booking_id', id)
-        .lt('bookings.check_in_date', nextCheckOut)
-        .gt('bookings.check_out_date', nextCheckIn);
-
-      if (checkError) throw checkError;
-      if (conflictingBookings && conflictingBookings.length > 0) {
+      const conflictingBookings = await findVillaBookingConflicts(supabase, {
+        villaIds: villa_ids,
+        checkIn: nextCheckIn,
+        checkOut: nextCheckOut,
+        propertyId: req.propertyId,
+        excludeBookingId: id,
+      });
+      if (conflictingBookings.length > 0) {
         return res.status(409).json({ error: 'One or more villas are already reserved for these dates.' });
+      }
+
+      const blockConflicts = await findBlockConflicts(villa_ids, nextCheckIn, nextCheckOut, req.propertyId);
+      if (blockConflicts.length > 0) {
+        return res.status(409).json({
+          error: 'One or more villas are unavailable for these dates due to a scheduled block.',
+        });
       }
     }
 
@@ -301,6 +409,12 @@ app.patch('/api/bookings/:id', async (req, res) => {
       check_out_date !== undefined;
 
     if (shouldRecalculate) {
+      const { data: bookingMeta, error: bookingMetaError } = await S(req, 'bookings')
+        .select('guest_id')
+        .eq('id', id)
+        .single();
+      if (bookingMetaError) throw bookingMetaError;
+
       let resolvedVillaIds = villa_ids;
       if (!Array.isArray(resolvedVillaIds)) {
         const { data: currentVillas, error: villaFetchError } = await supabase
@@ -329,11 +443,24 @@ app.patch('/api/bookings/:id', async (req, res) => {
         selected_addons: resolvedAddons,
         check_in_date: nextCheckIn,
         check_out_date: nextCheckOut,
+        propertyId: req.propertyId,
+      });
+
+      const discountContext = buildDiscountBookingContext({
+        checkInDate: nextCheckIn,
+        checkOutDate: nextCheckOut,
+        nights: stayNights(nextCheckIn, nextCheckOut),
+        bookingAmount: charges.accommodationTotal,
+        villaIds: resolvedVillaIds,
+        guestId: bookingMeta.guest_id,
       });
 
       const { discount } = await resolveDiscountForBooking({
         apply_discount: apply_discount === true,
         discount_id: apply_discount === true ? discount_id : undefined,
+        context: discountContext,
+        charges,
+        propertyId: req.propertyId,
       });
 
       let discountAmount = 0;
@@ -346,19 +473,26 @@ app.patch('/api/bookings/:id', async (req, res) => {
         let discountToApply = discount;
 
         if (!discountToApply && apply_discount !== true) {
-          const { data: currentBooking, error: currentBookingError } = await supabase
-            .from('bookings')
+          const { data: currentBooking, error: currentBookingError } = await S(req, 'bookings')
             .select('discount_id')
             .eq('id', id)
             .single();
           if (currentBookingError) throw currentBookingError;
           if (currentBooking.discount_id) {
-            discountToApply = await fetchDiscountById(currentBooking.discount_id);
+            discountToApply = await fetchDiscountById(currentBooking.discount_id, req.propertyId);
+          }
+        }
+
+        if (discountToApply) {
+          const eligibility = isDiscountEligible(discountToApply, discountContext);
+          if (!eligibility.eligible) {
+            discountToApply = null;
           }
         }
 
         if (discountToApply) {
           const result = calculateDiscountAmount(discountToApply, {
+            ...discountContext,
             villaLines: charges.villaLines,
             addonLines: charges.addonLines,
             menuLines: [],
@@ -379,13 +513,20 @@ app.patch('/api/bookings/:id', async (req, res) => {
       if (Array.isArray(villa_ids)) {
         await supabase.from('booking_villas').delete().eq('booking_id', id);
         if (villa_ids.length > 0) {
-          const { data: villaCatalog, error: villaCatalogError } = await supabase
-            .from('villas')
-            .select('id, base_rate_per_night')
+          const holidays = await fetchPricingHolidays(req.propertyId);
+          const { data: villaCatalog, error: villaCatalogError } = await scopeQ(req.propertyId, 'villas')
+            .select('id, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night')
             .in('id', villa_ids);
           if (villaCatalogError) throw villaCatalogError;
 
-          const bridgeRows = buildBookingVillaRows(id, villa_ids, villaCatalog, patchNights);
+          const bridgeRows = buildBookingVillaRows(
+            id,
+            villa_ids,
+            villaCatalog,
+            nextCheckIn,
+            nextCheckOut,
+            holidays
+          );
           const { error: bridgeError } = await supabase.from('booking_villas').insert(bridgeRows);
           if (bridgeError) throw bridgeError;
         }
@@ -412,8 +553,7 @@ app.patch('/api/bookings/:id', async (req, res) => {
         await supabase.from('booking_addons').delete().eq('booking_id', id);
         if (selected_addons.length > 0) {
           const addonIds = selected_addons.map((a) => a.addon_id);
-          const { data: addonCatalog, error: addonFetchError } = await supabase
-            .from('addons')
+          const { data: addonCatalog, error: addonFetchError } = await scopeQ(req.propertyId, 'addons')
             .select('id, price, is_per_night')
             .in('id', addonIds);
           if (addonFetchError) throw addonFetchError;
@@ -427,8 +567,7 @@ app.patch('/api/bookings/:id', async (req, res) => {
       updateData.total_price = total_price;
     }
 
-    const { data, error } = await supabase
-      .from('bookings')
+    const { data, error } = await S(req, 'bookings')
       .update(updateData)
       .eq('id', id)
       .select(`
@@ -452,13 +591,20 @@ app.patch('/api/bookings/:id', async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    try {
+      await upsertReservationProfitability(id);
+    } catch (profitErr) {
+      console.error('Profitability snapshot failed:', profitErr.message);
+    }
+
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.patch('/api/bookings/:id/cancel', async (req, res) => {
+app.patch('/api/bookings/:id/cancel', bookingAccessMiddleware, async (req, res) => {
   const { id } = req.params;
   const { cancellation_reason } = req.body;
 
@@ -467,8 +613,7 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
   }
 
   try {
-    const { data: existing, error: fetchError } = await supabase
-      .from('bookings')
+    const { data: existing, error: fetchError } = await S(req, 'bookings')
       .select('notes, status')
       .eq('id', id)
       .single();
@@ -483,8 +628,7 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
       ? `${existing.notes}\n\n${reasonLine}`
       : reasonLine;
 
-    const { data, error } = await supabase
-      .from('bookings')
+    const { data, error } = await S(req, 'bookings')
       .update({
         status: 'cancelled',
         payment_status: 'cancelled',
@@ -502,6 +646,9 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
       }
       throw error;
     }
+
+    await S(req, 'reservation_profitability').delete().eq('booking_id', id);
+
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -514,7 +661,7 @@ app.patch('/api/bookings/:id/cancel', async (req, res) => {
 
 app.get('/api/menu-items', async (req, res) => {
   try {
-    let query = supabase.from('menu_items').select('*').order('category').order('name');
+    let query = S(req, 'menu_items').select('id, name, category, price, is_available, created_at').order('category').order('name');
     if (req.query.all !== 'true') {
       query = query.eq('is_available', true);
     }
@@ -533,11 +680,7 @@ app.post('/api/menu-items', async (req, res) => {
     return res.status(400).json({ error: 'Name and price are required.' });
   }
   try {
-    const { data, error } = await supabase
-      .from('menu_items')
-      .insert([{ name: name.trim(), category, price: Number(price), is_available }])
-      .select()
-      .single();
+    const { data, error } = await INS(req, 'menu_items', [{ name: name.trim(), category, price: Number(price), is_available }]).select().single();
     if (error) throw error;
     res.status(201).json(data);
   } catch (error) {
@@ -553,7 +696,7 @@ app.patch('/api/menu-items/:id', async (req, res) => {
   if (req.body.price !== undefined) payload.price = Number(req.body.price);
   if (req.body.is_available !== undefined) payload.is_available = !!req.body.is_available;
   try {
-    const { data, error } = await supabase.from('menu_items').update(payload).eq('id', id).select().single();
+    const { data, error } = await S(req, 'menu_items').update(payload).eq('id', id).select().single();
     if (error) throw error;
     res.json(data);
   } catch (error) {
@@ -563,7 +706,7 @@ app.patch('/api/menu-items/:id', async (req, res) => {
 
 app.delete('/api/menu-items/:id', async (req, res) => {
   try {
-    const { error } = await supabase.from('menu_items').delete().eq('id', req.params.id);
+    const { error } = await S(req, 'menu_items').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ message: 'Menu item deleted.' });
   } catch (error) {
@@ -579,8 +722,8 @@ app.get('/api/bookings/:bookingId/orders', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const { data, error } = await supabase
-      .from('orders')
+    await assertBookingInProperty(supabase, scopeQ, req.propertyId, bookingId);
+    const { data, error } = await S(req, 'orders')
       .select(`
         *,
         order_items (
@@ -611,9 +754,9 @@ app.post('/api/bookings/:bookingId/orders', async (req, res) => {
   }
 
   try {
+    await assertBookingInProperty(supabase, scopeQ, req.propertyId, bookingId);
     const menuIds = items.map(i => i.menu_item_id);
-    const { data: menuData, error: menuError } = await supabase
-      .from('menu_items')
+    const { data: menuData, error: menuError } = await S(req, 'menu_items')
       .select('id, price')
       .in('id', menuIds);
 
@@ -626,11 +769,12 @@ app.post('/api/bookings/:bookingId/orders', async (req, res) => {
       return sum + (priceMap[item.menu_item_id] || 0) * item.quantity;
     }, 0);
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert([{ booking_id: bookingId, staff_note: staff_note || null, total_amount, status: 'pending' }])
-      .select()
-      .single();
+    const { data: order, error: orderError } = await INS(req, 'orders', [{
+      booking_id: bookingId,
+      staff_note: staff_note || null,
+      total_amount,
+      status: ORDER_STATUS_OPEN,
+    }]).select().single();
 
     if (orderError) throw orderError;
 
@@ -659,8 +803,8 @@ app.get('/api/bookings/:bookingId/food-orders', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const { data, error } = await supabase
-      .from('orders')
+    await assertBookingInProperty(supabase, scopeQ, req.propertyId, bookingId);
+    const { data, error } = await S(req, 'orders')
       .select(`
         *,
         order_items (
@@ -703,9 +847,9 @@ app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
   }
 
   try {
+    await assertBookingInProperty(supabase, scopeQ, req.propertyId, bookingId);
     const menuIds = items.map(i => i.menu_item_id);
-    const { data: menuData, error: menuError } = await supabase
-      .from('menu_items')
+    const { data: menuData, error: menuError } = await S(req, 'menu_items')
       .select('id, price')
       .in('id', menuIds);
 
@@ -718,15 +862,11 @@ app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
       return sum + (priceMap[item.menu_item_id] || 0) * item.quantity;
     }, 0);
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert([{
-        booking_id: bookingId,
-        total_amount,
-        status: 'pending',
-      }])
-      .select()
-      .single();
+    const { data: order, error: orderError } = await INS(req, 'orders', [{
+      booking_id: bookingId,
+      total_amount,
+      status: ORDER_STATUS_OPEN,
+    }]).select().single();
 
     if (orderError) {
       console.error("❌ Supabase Orders Insert Error:", orderError);
@@ -754,6 +894,12 @@ app.post('/api/bookings/:bookingId/food-orders', async (req, res) => {
       throw itemsError;
     }
 
+    try {
+      await upsertReservationProfitability(bookingId, req.propertyId);
+    } catch (profitErr) {
+      console.error('Profitability snapshot failed:', profitErr.message);
+    }
+
     res.status(201).json({ ...order, items: orderItemRows });
   } catch (error) {
     console.error("Backend Food Order Submission Error:", error);
@@ -765,9 +911,14 @@ app.patch('/api/orders/:orderId/status', async (req, res) => {
   const { orderId } = req.params;
   const { status } = req.body;
 
+  if (!ORDER_STATUSES.includes(status)) {
+    return res.status(400).json({
+      error: `Invalid order status. Allowed: ${ORDER_STATUSES.join(', ')}`,
+    });
+  }
+
   try {
-    const { data, error } = await supabase
-      .from('orders')
+    const { data, error } = await S(req, 'orders')
       .update({ status })
       .eq('id', orderId)
       .select()
@@ -786,37 +937,110 @@ app.patch('/api/orders/:orderId/status', async (req, res) => {
 
 app.get('/api/villas/gantt', async (req, res) => {
   try {
-    const { data: villas, error: villaError } = await supabase
-      .from('villas')
-      .select('*')
+    const { data: villas, error: villaError } = await S(req, 'villas')
+      .select('id, name, capacity, base_rate_per_night, display_id')
       .order('name');
 
     if (villaError) throw villaError;
 
-    const { data: bookings, error: bookingError } = await supabase
-      .from('bookings')
-      .select(`id, status, check_in_date, check_out_date, guests (full_name), booking_villas (villa_id)`)
+    const { data: bookings, error: bookingError } = await S(req, 'bookings')
+      .select(`id, display_id, status, check_in_date, check_out_date, guests (full_name), booking_villas (villa_id)`)
       .not('status', 'eq', 'cancelled');
 
     if (bookingError) throw bookingError;
+
+    const { data: blocks } = await scopeQ(req.propertyId, 'villa_date_blocks')
+      .select('id, villa_id, start_date, end_date, reason, created_at, created_by, users:created_by (name)');
 
     const ganttData = villas.map(villa => {
       const villaBookings = bookings
         .filter(b => b.booking_villas?.some(bv => bv.villa_id === villa.id))
         .map(b => ({
           id: b.id,
+          displayId: b.display_id || null,
           guest: b.guests?.full_name || 'Unknown Guest',
           checkIn: b.check_in_date,
           checkOut: b.check_out_date,
-          status: b.status
+          status: b.status,
         }));
 
-      return { id: villa.id, name: villa.name, bookings: villaBookings };
+      const villaBlocks = (blocks || [])
+        .filter(blk => blk.villa_id === villa.id)
+        .map(blk => ({
+          id: blk.id,
+          startDate: blk.start_date,
+          endDate: blk.end_date,
+          reason: blk.reason,
+          createdAt: blk.created_at,
+          createdBy: blk.users?.name || null,
+        }));
+
+      return { id: villa.id, name: villa.name, bookings: villaBookings, blocks: villaBlocks };
     });
 
     res.json(ganttData);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/villas/blocks', async (req, res) => {
+  const { villa_id, start_date, end_date, reason } = req.body;
+  if (!villa_id || !start_date || !end_date || !reason?.trim()) {
+    return res.status(400).json({ error: 'Villa, start date, end date, and reason are required.' });
+  }
+  if (end_date < start_date) {
+    return res.status(400).json({ error: 'End date must be on or after start date.' });
+  }
+  try {
+    const conflicts = await findBlockingReservationsForBlock(
+      supabase,
+      villa_id,
+      start_date,
+      end_date,
+    );
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        error: formatBlockConflictError(conflicts),
+        conflicts,
+      });
+    }
+
+    const insertPayload = {
+      villa_id,
+      start_date,
+      end_date,
+      reason: reason.trim(),
+    };
+    if (req.user?.id) {
+      insertPayload.created_by = req.user.id;
+    }
+
+    const { data, error } = await INS(req, 'villa_date_blocks', [insertPayload])
+      .select('id, villa_id, start_date, end_date, reason, created_at, created_by, users:created_by (name)')
+      .single();
+    if (error) throw error;
+    res.status(201).json({
+      id: data.id,
+      villa_id: data.villa_id,
+      startDate: data.start_date,
+      endDate: data.end_date,
+      reason: data.reason,
+      createdAt: data.created_at,
+      createdBy: data.users?.name || null,
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/villas/blocks/:id', async (req, res) => {
+  try {
+    const { error } = await S(req, 'villa_date_blocks').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 
@@ -829,14 +1053,25 @@ app.get('/api/villas/availability', async (req, res) => {
   try {
     const { data: conflicts, error } = await supabase
       .from('booking_villas')
-      .select(`villa_id, bookings!inner (status, check_in_date, check_out_date)`)
+      .select(`villa_id, bookings!inner (status, check_in_date, check_out_date, property_id)`)
+      .eq('bookings.property_id', req.propertyId)
       .not('bookings.status', 'eq', 'cancelled')
       .lt('bookings.check_in_date', check_out)
       .gt('bookings.check_out_date', check_in);
 
     if (error) throw error;
-    const occupiedVillaIds = conflicts ? conflicts.map(c => c.villa_id) : [];
-    res.json({ occupiedVillaIds });
+    const occupiedVillaIds = conflicts ? [...new Set(conflicts.map((c) => c.villa_id))] : [];
+
+    const blockRows = await findBlockConflicts(null, check_in, check_out, req.propertyId);
+    const blockedVillaIds = [...new Set(blockRows.map((b) => b.villa_id))];
+    const blockedDetails = blockRows.map((b) => ({
+      villa_id: b.villa_id,
+      start_date: b.start_date,
+      end_date: b.end_date,
+      reason: b.reason,
+    }));
+
+    res.json({ occupiedVillaIds, blockedVillaIds, blockedDetails });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -844,7 +1079,7 @@ app.get('/api/villas/availability', async (req, res) => {
 
 app.get('/api/villas', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('villas').select('*').order('name');
+    const { data, error } = await S(req, 'villas').select('id, name, capacity, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night, description, base_breakfast, display_id, created_at').order('name');
     if (error) throw error;
     res.json(data);
   } catch (error) {
@@ -853,22 +1088,33 @@ app.get('/api/villas', async (req, res) => {
 });
 
 app.post('/api/villas', async (req, res) => {
-  const { name, capacity = 1, base_rate_per_night, description = '', base_breakfast = 0 } = req.body;
+  const {
+    name,
+    capacity = 1,
+    base_rate_per_night,
+    weekend_rate_per_night,
+    holiday_rate_per_night,
+    description = '',
+    base_breakfast = 0,
+  } = req.body;
   if (!name?.trim() || base_rate_per_night === undefined) {
-    return res.status(400).json({ error: 'Name and base rate are required.' });
+    return res.status(400).json({ error: 'Name and weekday rate are required.' });
   }
   try {
-    const { data, error } = await supabase
-      .from('villas')
-      .insert([{
-        name: name.trim(),
-        capacity: Number(capacity) || 1,
-        base_rate_per_night: Number(base_rate_per_night),
-        description,
-        base_breakfast: Number(base_breakfast) || 0,
-      }])
-      .select()
-      .single();
+    const row = {
+      name: name.trim(),
+      capacity: Number(capacity) || 1,
+      base_rate_per_night: Number(base_rate_per_night),
+      description,
+      base_breakfast: Number(base_breakfast) || 0,
+    };
+    if (weekend_rate_per_night !== undefined && weekend_rate_per_night !== '') {
+      row.weekend_rate_per_night = Number(weekend_rate_per_night);
+    }
+    if (holiday_rate_per_night !== undefined && holiday_rate_per_night !== '') {
+      row.holiday_rate_per_night = Number(holiday_rate_per_night);
+    }
+    const { data, error } = await INS(req, 'villas', [row]).select().single();
     if (error) throw error;
     res.status(201).json(data);
   } catch (error) {
@@ -882,10 +1128,20 @@ app.patch('/api/villas/:id', async (req, res) => {
   if (req.body.name !== undefined) payload.name = req.body.name.trim();
   if (req.body.capacity !== undefined) payload.capacity = Number(req.body.capacity);
   if (req.body.base_rate_per_night !== undefined) payload.base_rate_per_night = Number(req.body.base_rate_per_night);
+  if (req.body.weekend_rate_per_night !== undefined) {
+    payload.weekend_rate_per_night = req.body.weekend_rate_per_night === '' || req.body.weekend_rate_per_night == null
+      ? null
+      : Number(req.body.weekend_rate_per_night);
+  }
+  if (req.body.holiday_rate_per_night !== undefined) {
+    payload.holiday_rate_per_night = req.body.holiday_rate_per_night === '' || req.body.holiday_rate_per_night == null
+      ? null
+      : Number(req.body.holiday_rate_per_night);
+  }
   if (req.body.description !== undefined) payload.description = req.body.description;
   if (req.body.base_breakfast !== undefined) payload.base_breakfast = Number(req.body.base_breakfast) || 0;
   try {
-    const { data, error } = await supabase.from('villas').update(payload).eq('id', id).select().single();
+    const { data, error } = await S(req, 'villas').update(payload).eq('id', id).select().single();
     if (error) throw error;
     res.json(data);
   } catch (error) {
@@ -893,9 +1149,50 @@ app.patch('/api/villas/:id', async (req, res) => {
   }
 });
 
+app.get('/api/pricing/holidays', async (req, res) => {
+  try {
+    const data = await fetchPricingHolidays(req.propertyId);
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/pricing/holidays', async (req, res) => {
+  const { name, start_date, end_date } = req.body;
+  if (!name?.trim() || !start_date || !end_date) {
+    return res.status(400).json({ error: 'Name, start date, and end date are required.' });
+  }
+  if (end_date < start_date) {
+    return res.status(400).json({ error: 'End date must be on or after start date.' });
+  }
+  try {
+    const { data, error } = await INS(req, 'pricing_holidays', [{
+        name: name.trim(),
+        start_date,
+        end_date,
+      }]).select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/pricing/holidays/:id', async (req, res) => {
+  try {
+    const { error } = await S(req, 'pricing_holidays').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ message: 'Holiday period deleted.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.delete('/api/villas/:id', async (req, res) => {
   try {
-    const { error } = await supabase.from('villas').delete().eq('id', req.params.id);
+    const { error } = await S(req, 'villas').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ message: 'Villa deleted.' });
   } catch (error) {
@@ -910,15 +1207,12 @@ app.delete('/api/villas/:id', async (req, res) => {
 app.post('/api/guests', async (req, res) => {
   const { full_name, email, phone_number, id_card_number } = req.body;
   try {
-    const { data, error } = await supabase
-      .from('guests')
-      .insert([{
+    const { data, error } = await INS(req, 'guests', [{
         full_name,
         email,
         phone_number,
         ...(id_card_number !== undefined ? { id_card_number } : {}),
-      }])
-      .select();
+      }]).select();
 
     if (error) throw error;
     res.status(201).json(data[0]);
@@ -929,7 +1223,7 @@ app.post('/api/guests', async (req, res) => {
 
 app.get('/api/addons', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('addons').select('*').order('name');
+    const { data, error } = await S(req, 'addons').select('id, name, price, is_per_night, base_breakfast, created_at').order('name');
     if (error) throw error;
     res.json((data || []).map(mapAddonRow));
   } catch (error) {
@@ -951,15 +1245,12 @@ app.post('/api/addons', async (req, res) => {
   }
   try {
     const numericPrice = Number(resolvedPrice);
-    const { data, error } = await supabase
-      .from('addons')
-      .insert([{
+    const { data, error } = await INS(req, 'addons', [{
         name: name.trim(),
         price: numericPrice,
         base_breakfast: Number(base_breakfast) || 0,
         is_per_night: is_per_night !== false,
-      }])
-      .select()
+      }]).select()
       .single();
     if (error) throw error;
     res.status(201).json(mapAddonRow(data));
@@ -980,7 +1271,7 @@ app.patch('/api/addons/:id', async (req, res) => {
   if (req.body.base_breakfast !== undefined) payload.base_breakfast = Number(req.body.base_breakfast) || 0;
   if (req.body.is_per_night !== undefined) payload.is_per_night = !!req.body.is_per_night;
   try {
-    const { data, error } = await supabase.from('addons').update(payload).eq('id', id).select().single();
+    const { data, error } = await S(req, 'addons').update(payload).eq('id', id).select().single();
     if (error) throw error;
     res.json(mapAddonRow(data));
   } catch (error) {
@@ -990,7 +1281,7 @@ app.patch('/api/addons/:id', async (req, res) => {
 
 app.delete('/api/addons/:id', async (req, res) => {
   try {
-    const { error } = await supabase.from('addons').delete().eq('id', req.params.id);
+    const { error } = await S(req, 'addons').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ message: 'Add-on deleted.' });
   } catch (error) {
@@ -1004,7 +1295,7 @@ app.delete('/api/addons/:id', async (req, res) => {
 
 app.get('/api/discounts', async (req, res) => {
   try {
-    const { data, error } = await supabase.from('discounts').select('*').order('created_at', { ascending: false });
+    const { data, error } = await S(req, 'discounts').select('*').order('created_at', { ascending: false });
     if (error) throw error;
     res.json((data || []).map(mapDiscountRow));
   } catch (error) {
@@ -1014,11 +1305,22 @@ app.get('/api/discounts', async (req, res) => {
 
 app.post('/api/discounts', async (req, res) => {
   const payload = discountPayloadFromBody(req.body);
-  if (!payload.code || !payload.name || payload.value === undefined || Number.isNaN(payload.value)) {
-    return res.status(400).json({ error: 'Promo code, name, and value are required.' });
+  const validation = validateDiscountPayload(payload);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.errors[0] });
   }
+
   try {
-    const { data, error } = await supabase.from('discounts').insert([payload]).select().single();
+    const { data: existing, error: existingError } = await S(req, 'discounts')
+      .select('id')
+      .eq('code', payload.code)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing) {
+      return res.status(400).json({ error: 'Promo code must be unique.' });
+    }
+
+    const { data, error } = await INS(req, 'discounts', [payload]).select().single();
     if (error) throw error;
     res.status(201).json(mapDiscountRow(data));
   } catch (error) {
@@ -1027,12 +1329,34 @@ app.post('/api/discounts', async (req, res) => {
 });
 
 app.patch('/api/discounts/:id', async (req, res) => {
-  const payload = discountPayloadFromBody(req.body, { partial: true });
+  const payload = discountPayloadFromBody(req.body, { partial: true, forUpdate: true });
   if (Object.keys(payload).length === 0) {
     return res.status(400).json({ error: 'No valid fields to update.' });
   }
+
+  const validation = validateDiscountPayload(payload, { partial: true });
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.errors[0] });
+  }
+
   try {
-    const { data, error } = await supabase.from('discounts').update(payload).eq('id', req.params.id).select().single();
+    if (payload.code) {
+      const { data: existing, error: existingError } = await S(req, 'discounts')
+        .select('id')
+        .eq('code', payload.code)
+        .neq('id', req.params.id)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing) {
+        return res.status(400).json({ error: 'Promo code must be unique.' });
+      }
+    }
+
+    const { data, error } = await S(req, 'discounts')
+      .update(payload)
+      .eq('id', req.params.id)
+      .select()
+      .single();
     if (error) throw error;
     res.json(mapDiscountRow(data));
   } catch (error) {
@@ -1042,9 +1366,16 @@ app.patch('/api/discounts/:id', async (req, res) => {
 
 app.delete('/api/discounts/:id', async (req, res) => {
   try {
-    const { error } = await supabase.from('discounts').delete().eq('id', req.params.id);
+    const { data, error } = await S(req, 'discounts')
+      .update({
+        status: 'archived',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
     if (error) throw error;
-    res.json({ message: 'Discount deleted.' });
+    res.json({ message: 'Discount archived.', discount: mapDiscountRow(data) });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1065,6 +1396,44 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
+function currentMonthBounds() {
+  const now = new Date();
+  const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const end = lastDay.toISOString().split('T')[0];
+  return { start, end };
+}
+
+function addDaysISO(dateStr, days) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+function encodeExpenseProof(description, proofUrl) {
+  const base = (description || '').trim();
+  if (!proofUrl) return base || null;
+  return base ? `${base}\n[proof:${proofUrl}]` : `[proof:${proofUrl}]`;
+}
+
+function parseExpenseRecord(row) {
+  const rawDescription = row.description || '';
+  const proofMatch = rawDescription.match(/\[proof:([^\]]+)\]/);
+  const proof = proofMatch?.[1] || null;
+  const description = rawDescription.replace(/\n?\[proof:[^\]]+\]\s*$/, '').trim();
+  return {
+    id: row.id,
+    displayId: row.display_id,
+    category: row.category,
+    description,
+    amount: Number(row.amount) || 0,
+    transactionDate: row.transaction_date,
+    status: row.status,
+    proof,
+    createdAt: row.created_at,
+  };
+}
+
 function addonUnitPrice(addon) {
   return Number(addon?.price) || 0;
 }
@@ -1075,15 +1444,26 @@ function mapAddonRow(row) {
   return { ...row, price, price_per_night: price };
 }
 
-function buildBookingVillaRows(bookingId, villaIds, villaCatalog, nights) {
+async function fetchPricingHolidays(propertyId) {
+  const { data, error } = await scopeQ(propertyId, 'pricing_holidays')
+    .select('id, name, start_date, end_date')
+    .order('start_date');
+  if (error) {
+    if (error.code === '42P01') return [];
+    throw error;
+  }
+  return data || [];
+}
+
+function buildBookingVillaRows(bookingId, villaIds, villaCatalog, checkIn, checkOut, holidays = []) {
   const villaMap = Object.fromEntries((villaCatalog || []).map((v) => [v.id, v]));
   return villaIds.map((villaId) => {
     const villa = villaMap[villaId];
-    const rate = Number(villa?.base_rate_per_night) || 0;
+    const { avgRate, nights } = computeVillaStayCharges(villa || {}, checkIn, checkOut, holidays);
     return {
       booking_id: bookingId,
       villa_id: villaId,
-      rate_per_night: rate,
+      rate_per_night: avgRate,
       nights,
     };
   });
@@ -1104,32 +1484,33 @@ function buildBookingAddonRows(bookingId, selectedAddons, addonCatalog, nights) 
   });
 }
 
-async function fetchDiscountById(discountId) {
+async function fetchDiscountById(discountId, propertyId) {
   if (!discountId) return null;
-  const { data, error } = await supabase.from('discounts').select('*').eq('id', discountId).maybeSingle();
+  const { data, error } = await scopeQ(propertyId, 'discounts').select('*').eq('id', discountId).maybeSingle();
   if (error) throw error;
   return data;
 }
 
-async function computeBookingCharges({ villa_ids = [], selected_addons = [], check_in_date, check_out_date }) {
+async function computeBookingCharges({ villa_ids = [], selected_addons = [], check_in_date, check_out_date, propertyId }) {
   const nights = stayNights(check_in_date, check_out_date);
   let villaTotal = 0;
   const villaLines = [];
+  const holidays = await fetchPricingHolidays(propertyId);
 
   if (villa_ids.length > 0) {
-    const { data: villas, error } = await supabase.from('villas').select('*').in('id', villa_ids);
+    const { data: villas, error } = await scopeQ(propertyId, 'villas').select('id, name, base_rate_per_night, weekend_rate_per_night, holiday_rate_per_night').in('id', villa_ids);
     if (error) throw error;
     (villas || []).forEach((villa) => {
-      const rate = Number(villa.base_rate_per_night) || 0;
-      const subtotal = rate * nights;
-      villaTotal += subtotal;
+      const { total, avgRate } = computeVillaStayCharges(villa, check_in_date, check_out_date, holidays);
+      villaTotal += total;
       villaLines.push({
         type: 'accommodation',
         name: villa.name,
         description: `${villa.name} — ${nights} night${nights !== 1 ? 's' : ''}`,
         quantity: nights,
-        unitPrice: rate,
-        subtotal,
+        unitPrice: avgRate,
+        subtotal: total,
+        villa_id: villa.id,
       });
     });
   }
@@ -1139,7 +1520,7 @@ async function computeBookingCharges({ villa_ids = [], selected_addons = [], che
 
   if (selected_addons.length > 0) {
     const addonIds = selected_addons.map((a) => a.addon_id);
-    const { data: addons, error } = await supabase.from('addons').select('*').in('id', addonIds);
+    const { data: addons, error } = await scopeQ(propertyId, 'addons').select('id, name, price, is_per_night').in('id', addonIds);
     if (error) throw error;
     const addonMap = Object.fromEntries((addons || []).map((a) => [a.id, a]));
 
@@ -1172,27 +1553,43 @@ async function computeBookingCharges({ villa_ids = [], selected_addons = [], che
   };
 }
 
-async function resolveDiscountForBooking({ apply_discount, discount_id }) {
+async function resolveDiscountForBooking({ apply_discount, discount_id, context = {}, charges = null, propertyId }) {
   if (!apply_discount) {
     return { discount: null, discount_id: null, discount_amount: 0 };
   }
 
   let discount = null;
   if (discount_id) {
-    discount = await fetchDiscountById(discount_id);
+    discount = await fetchDiscountById(discount_id, propertyId);
+    if (discount) {
+      const eligibility = isDiscountEligible(discount, context);
+      if (!eligibility.eligible) {
+        return { discount: null, discount_id: null, discount_amount: 0 };
+      }
+    }
   } else {
-    const { data, error } = await supabase
-      .from('discounts')
+    const { data, error } = await scopeQ(propertyId, 'discounts')
       .select('*')
       .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('priority', { ascending: false })
+      .order('created_at', { ascending: false });
     if (error) throw error;
-    discount = data;
+
+    const eligible = (data || []).filter((row) => isDiscountEligible(row, context).eligible);
+    if (eligible.length > 0 && charges) {
+      const resolved = resolveDiscountApplication(eligible, {
+        ...context,
+        villaLines: charges.villaLines,
+        addonLines: charges.addonLines,
+        menuLines: [],
+      });
+      discount = resolved.discount;
+    } else if (eligible.length > 0) {
+      discount = eligible[0];
+    }
   }
 
-  if (!discount || discount.status !== 'active') {
+  if (!discount || normalizeStatus(discount.status) !== 'active') {
     return { discount: null, discount_id: null, discount_amount: 0 };
   }
 
@@ -1207,14 +1604,25 @@ function buildInvoiceId(bookingOrId) {
   return `UM-${String(bookingOrId).slice(0, 8).toUpperCase()}`;
 }
 
-async function buildFinancialSummary(bookingId) {
-  const { data: booking, error: bookingError } = await supabase
-    .from('bookings')
+async function buildFinancialSummary(bookingId, propertyId) {
+  const { data: booking, error: bookingError } = await scopeQ(propertyId, 'bookings')
     .select(`
       *,
       discounts (id, code, name, type, value, scope, status, application_rule),
       guests (full_name, phone_number),
-      booking_villas (rate_per_night, nights, villas (name, base_rate_per_night)),
+      booking_villas (
+        rate_per_night,
+        nights,
+        villa_id,
+        villas (
+          id,
+          name,
+          base_rate_per_night,
+          weekend_rate_per_night,
+          holiday_rate_per_night,
+          base_breakfast
+        )
+      ),
       booking_addons (
         quantity,
         unit_price,
@@ -1227,8 +1635,7 @@ async function buildFinancialSummary(bookingId) {
 
   if (bookingError) throw bookingError;
 
-  const { data: orders, error: orderError } = await supabase
-    .from('orders')
+  const { data: orders, error: orderError } = await scopeQ(propertyId, 'orders')
     .select(`
       id,
       total_amount,
@@ -1242,30 +1649,49 @@ async function buildFinancialSummary(bookingId) {
       )
     `)
     .eq('booking_id', bookingId)
-    .in('status', ['pending', 'preparing', 'served']);
+    .in('status', ORDER_STATUSES);
 
   if (orderError) throw orderError;
 
   const nights = stayNights(booking.check_in_date, booking.check_out_date);
-  const accommodationLines = [];
+  const holidays = await fetchPricingHolidays(propertyId);
+  const villaCatalog = (booking.booking_villas || [])
+    .map((bv) => bv.villas)
+    .filter(Boolean);
+
+  let accommodationLines = [];
   let calculatedAccommodation = 0;
 
-  (booking.booking_villas || []).forEach((bv) => {
-    const rate = Number(bv.rate_per_night) || Number(bv.villas?.base_rate_per_night) || 0;
-    const lineNights = Number(bv.nights) || nights;
-    const subtotal = rate > 0 ? rate * lineNights : 0;
-    if (rate > 0) {
-      calculatedAccommodation += subtotal;
-      accommodationLines.push({
-        type: 'accommodation',
-        name: bv.villas?.name || 'Villa',
-        description: `${bv.villas?.name || 'Villa'} — ${lineNights} night${lineNights !== 1 ? 's' : ''}`,
-        quantity: lineNights,
-        unitPrice: rate,
-        subtotal,
-      });
-    }
-  });
+  if (villaCatalog.length > 0) {
+    const tiered = buildTieredAccommodationLines(
+      villaCatalog,
+      booking.check_in_date,
+      booking.check_out_date,
+      holidays
+    );
+    accommodationLines = tiered.lines;
+    calculatedAccommodation = tiered.total;
+  }
+
+  if (accommodationLines.length === 0) {
+    (booking.booking_villas || []).forEach((bv) => {
+      const rate = Number(bv.rate_per_night) || Number(bv.villas?.base_rate_per_night) || 0;
+      const lineNights = Number(bv.nights) || nights;
+      const subtotal = rate > 0 ? rate * lineNights : 0;
+      if (rate > 0) {
+        calculatedAccommodation += subtotal;
+        accommodationLines.push({
+          type: 'accommodation',
+          name: bv.villas?.name || 'Villa',
+          description: `${bv.villas?.name || 'Villa'} — ${lineNights} night${lineNights !== 1 ? 's' : ''}`,
+          quantity: lineNights,
+          unitPrice: rate,
+          subtotal,
+          villa_id: bv.villa_id,
+        });
+      }
+    });
+  }
 
   const accommodation = calculatedAccommodation > 0
     ? calculatedAccommodation
@@ -1360,12 +1786,28 @@ async function buildFinancialSummary(bookingId) {
 
   if (booking.discount_id && booking.discounts) {
     const discountResult = calculateDiscountAmount(booking.discounts, {
+      checkInDate: booking.check_in_date,
+      checkOutDate: booking.check_out_date,
+      nights,
+      bookingAmount: subtotalBeforeDiscount,
+      villaIds: (booking.booking_villas || []).map((bv) => bv.villa_id).filter(Boolean),
       villaLines: accommodationLines,
       addonLines,
       menuLines,
     });
-    discountAmount = discountResult.amount;
-    discountLines = discountResult.lines;
+    discountAmount = discountResult.amount > 0
+      ? discountResult.amount
+      : Number(booking.discount_amount) || 0;
+    discountLines = discountResult.lines.length > 0
+      ? discountResult.lines
+      : (discountAmount > 0 ? [{
+          type: 'discount',
+          name: booking.discounts.name || booking.discounts.code || 'Discount',
+          description: `Discount (${booking.discounts.code})`,
+          quantity: 1,
+          unitPrice: -discountAmount,
+          subtotal: -discountAmount,
+        }] : []);
     discountMeta = mapDiscountRow(booking.discounts);
   } else if (Number(booking.discount_amount) > 0) {
     discountAmount = Number(booking.discount_amount);
@@ -1384,8 +1826,7 @@ async function buildFinancialSummary(bookingId) {
   const amountPaid = Number(booking.amount_paid) || 0;
   const balanceDue = Math.max(total - amountPaid, 0);
 
-  const { data: partialPayments } = await supabase
-    .from('finances')
+  const { data: partialPayments } = await scopeQ(propertyId, 'finances')
     .select('id')
     .eq('booking_id', bookingId)
     .eq('category', 'partial_payment')
@@ -1425,9 +1866,141 @@ async function buildFinancialSummary(bookingId) {
     guestName: booking.guests?.full_name || 'Guest',
     phone: booking.guests?.phone_number || '',
     totalGuests: booking.total_guests,
-    nights,
-    checkIn: booking.check_in_date,
-    checkOut: booking.check_out_date,
+  };
+}
+
+async function upsertReservationProfitability(bookingId, propertyId) {
+  const { data: booking, error: bookingError } = await scopeQ(propertyId, 'bookings')
+    .select('id, status, check_in_date, check_out_date')
+    .eq('id', bookingId)
+    .single();
+
+  if (bookingError) throw bookingError;
+
+  if (booking.status === 'cancelled') {
+    await scopeQ(propertyId, 'reservation_profitability').delete().eq('booking_id', bookingId);
+    return [];
+  }
+
+  const summary = await buildFinancialSummary(bookingId, propertyId);
+  const bookingVillas = summary.booking?.booking_villas || [];
+  if (!bookingVillas.length) return [];
+
+  const villaIds = bookingVillas.map((bv) => bv.villa_id).filter(Boolean);
+  const { data: profiles } = await scopeQ(propertyId, 'villa_cost_profiles')
+    .select('villa_id, fixed_stay_cost, cost_per_night')
+    .in('villa_id', villaIds);
+
+  const profileMap = {};
+  (profiles || []).forEach((p) => { profileMap[p.villa_id] = p; });
+
+  const nights = stayNights(booking.check_in_date, booking.check_out_date);
+
+  const roomByVilla = {};
+  villaIds.forEach((vid) => { roomByVilla[vid] = 0; });
+  (summary.accommodationLines || []).forEach((line) => {
+    const vid = line.villa_id;
+    if (vid && roomByVilla[vid] !== undefined) {
+      roomByVilla[vid] += Number(line.subtotal) || 0;
+    }
+  });
+
+  const totalRoomFromLines = Object.values(roomByVilla).reduce((s, v) => s + v, 0);
+  if (totalRoomFromLines === 0 && summary.totalAccommodation > 0) {
+    const perVilla = summary.totalAccommodation / bookingVillas.length;
+    villaIds.forEach((vid) => { roomByVilla[vid] = perVilla; });
+  }
+
+  const totalRoom = Object.values(roomByVilla).reduce((s, v) => s + v, 0);
+  const addonTotal = summary.totalAddons || 0;
+  const fbTotal = summary.totalMenuItems || 0;
+
+  const rows = bookingVillas.map((bv) => {
+    const vid = bv.villa_id;
+    const profile = profileMap[vid];
+    const fixedSnap = Number(profile?.fixed_stay_cost) || 0;
+    const perNightSnap = Number(profile?.cost_per_night) || 0;
+    const villaNights = Number(bv.nights) || nights;
+    const cogs = calculateReservationCogs(fixedSnap, perNightSnap, villaNights);
+
+    const roomRevenue = roomByVilla[vid] || 0;
+    const share = totalRoom > 0 ? roomRevenue / totalRoom : 1 / bookingVillas.length;
+    const addonRevenue = addonTotal * share;
+    const fbRevenue = fbTotal * share;
+    const revenue = roomRevenue + addonRevenue + fbRevenue;
+    const grossProfit = calculateGrossProfit(revenue, cogs);
+
+    return {
+      booking_id: bookingId,
+      villa_id: vid,
+      property_id: propertyId,
+      revenue,
+      room_revenue: roomRevenue,
+      addon_revenue: addonRevenue,
+      fb_revenue: fbRevenue,
+      cogs,
+      gross_profit: grossProfit,
+      fixed_stay_cost_snapshot: fixedSnap,
+      cost_per_night_snapshot: perNightSnap,
+      nights: villaNights,
+      calculated_at: new Date().toISOString(),
+    };
+  });
+
+  const { data: existingRows } = await scopeQ(propertyId, 'reservation_profitability')
+    .select('villa_id')
+    .eq('booking_id', bookingId);
+
+  const removeIds = (existingRows || [])
+    .map((r) => r.villa_id)
+    .filter((vid) => !villaIds.includes(vid));
+
+  if (removeIds.length) {
+    await scopeQ(propertyId, 'reservation_profitability')
+      .delete()
+      .eq('booking_id', bookingId)
+      .in('villa_id', removeIds);
+  }
+
+  const { data, error } = await scopeQ(propertyId, 'reservation_profitability')
+    .upsert(rows, { onConflict: 'booking_id,villa_id' })
+    .select();
+
+  if (error) throw error;
+  return data || [];
+}
+
+function mapCostProfileRow(row) {
+  return {
+    id: row.id,
+    villaId: row.villa_id,
+    villaName: row.villas?.name || '—',
+    fixedStayCost: Number(row.fixed_stay_cost) || 0,
+    costPerNight: Number(row.cost_per_night) || 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapProfitabilityRow(row) {
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    villaId: row.villa_id,
+    villaName: row.villas?.name || '—',
+    checkIn: row.bookings?.check_in_date,
+    checkOut: row.bookings?.check_out_date,
+    bookingStatus: row.bookings?.status,
+    revenue: Number(row.revenue) || 0,
+    roomRevenue: Number(row.room_revenue) || 0,
+    addonRevenue: Number(row.addon_revenue) || 0,
+    fbRevenue: Number(row.fb_revenue) || 0,
+    cogs: Number(row.cogs) || 0,
+    grossProfit: Number(row.gross_profit) || 0,
+    fixedStayCostSnapshot: Number(row.fixed_stay_cost_snapshot) || 0,
+    costPerNightSnapshot: Number(row.cost_per_night_snapshot) || 0,
+    nights: row.nights,
+    calculatedAt: row.calculated_at,
   };
 }
 
@@ -1444,8 +2017,7 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
   }
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
+    const { data: booking, error: bookingError } = await S(req, 'bookings')
       .select('id, guest_id, payment_status, amount_paid')
       .eq('id', bookingId)
       .single();
@@ -1499,37 +2071,416 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
 
 app.get('/api/financial/income', async (req, res) => {
   try {
-    const { data: bookings, error } = await supabase
-      .from('bookings')
-      .select('id, display_id, status, payment_status, created_at')
-      .not('status', 'eq', 'cancelled')
+    const { limit, cursor } = parsePagination(req.query);
+    const { data, nextCursor, hasMore } = await fetchCursorPage(
+      supabase.from('booking_income_summary').select('*').eq('property_id', req.propertyId),
+      { limit, cursor },
+    );
+
+    const rows = (data || []).map((row) => ({
+      bookingId: row.booking_id,
+      displayId: row.display_id,
+      invoiceId: row.display_id,
+      guestName: row.guest_name || 'Unknown Guest',
+      checkIn: row.check_in_date,
+      checkOut: row.check_out_date,
+      totalAccommodation: Number(row.total_accommodation) || 0,
+      totalAddons: Number(row.total_addons) || 0,
+      totalMenuItems: Number(row.total_menu_items) || 0,
+      subtotalBeforeDiscount: Number(row.subtotal_before_discount) || 0,
+      discountAmount: Number(row.discount_amount) || 0,
+      discountCode: row.discount_code || null,
+      total: Number(row.total) || 0,
+      amountPaid: Number(row.amount_paid) || 0,
+      balanceDue: Number(row.balance_due) || 0,
+      paymentStatus: row.payment_status,
+      bookingStatus: row.booking_status,
+    }));
+
+    paginatedJson(res, { data: rows, nextCursor, hasMore });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/financial/kpis', async (req, res) => {
+  try {
+    const { start, end } = currentMonthBounds();
+    const today = todayISO();
+    const depositWindowEnd = addDaysISO(today, 30);
+
+    const { data: incomeRows, error: incomeError } = await S(req, 'finances')
+      .select('amount')
+      .eq('type', 'income')
+      .eq('status', 'approved')
+      .gte('transaction_date', start)
+      .lte('transaction_date', end);
+
+    if (incomeError) throw incomeError;
+
+    const { data: expenseRows, error: expenseError } = await S(req, 'finances')
+      .select('amount')
+      .eq('type', 'expense')
+      .eq('status', 'approved')
+      .gte('transaction_date', start)
+      .lte('transaction_date', end);
+
+    if (expenseError) throw expenseError;
+
+    const totalRevenue = (incomeRows || []).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    const totalExpenses = (expenseRows || []).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+    const { data: upcomingBookings, error: upcomingError } = await S(req, 'bookings')
+      .select('id, amount_paid, payment_status, status, check_in_date')
+      .eq('status', 'confirmed')
+      .in('payment_status', ['partial', 'partially_paid'])
+      .gt('check_in_date', today);
+
+    if (upcomingError) throw upcomingError;
+
+    const { data: pendingDepositBookings, error: depositError } = await S(req, 'bookings')
+      .select('id, total_price, payment_status, status, check_in_date')
+      .eq('status', 'confirmed')
+      .eq('payment_status', 'pending')
+      .gte('check_in_date', today)
+      .lte('check_in_date', depositWindowEnd);
+
+    if (depositError) throw depositError;
+
+    let upcomingRevenue = 0;
+    for (const booking of upcomingBookings || []) {
+      const summary = await buildFinancialSummary(booking.id, req.propertyId);
+      upcomingRevenue += Math.max(summary.total - (Number(booking.amount_paid) || 0), 0);
+    }
+
+    let pendingDeposits = 0;
+    for (const booking of pendingDepositBookings || []) {
+      const summary = await buildFinancialSummary(booking.id, req.propertyId);
+      pendingDeposits += summary.total;
+    }
+
+    res.json({
+      totalRevenue,
+      upcomingRevenue,
+      pendingDeposits,
+      totalExpenses,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/financial/transactions', async (req, res) => {
+  try {
+    const { data, error } = await S(req, 'finances')
+      .select('id, type, amount, category, transaction_date, status, booking_id')
+      .eq('status', 'approved')
+      .order('transaction_date', { ascending: false });
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/financial/expenses', async (req, res) => {
+  try {
+    const { data, error } = await S(req, 'finances')
+      .select('id, display_id, category, description, amount, transaction_date, status, created_at')
+      .eq('type', 'expense')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    const rows = await Promise.all(
-      (bookings || []).map(async (b) => {
-        const summary = await buildFinancialSummary(b.id);
-        return {
-          bookingId: b.id,
-          displayId: summary.displayId,
-          invoiceId: summary.displayId,
-          guestName: summary.booking.guests?.full_name || 'Unknown Guest',
-          checkIn: summary.booking.check_in_date,
-          checkOut: summary.booking.check_out_date,
-          totalAccommodation: summary.totalAccommodation,
-          totalAddons: summary.totalAddons,
-          totalMenuItems: summary.totalMenuItems,
-          total: summary.total,
-          amountPaid: summary.amountPaid,
-          balanceDue: summary.balanceDue,
-          paymentStatus: summary.paymentStatus,
-          bookingStatus: summary.booking.status,
-        };
-      })
-    );
+    res.json((data || []).map(parseExpenseRecord));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    res.json(rows);
+app.post('/api/financial/expenses/upload-proof', async (req, res) => {
+  const { fileData, fileName, fileType } = req.body;
+
+  if (!fileData || !fileName) {
+    return res.status(400).json({ error: 'fileData and fileName are required.' });
+  }
+
+  try {
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx !== -1 ? fileName.slice(dotIdx) : '';
+    const storagePath = `proofs/${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+
+    const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const { error: uploadError } = await supabase.storage
+      .from('expenses')
+      .upload(storagePath, buffer, {
+        contentType: fileType || 'application/octet-stream',
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from('expenses')
+      .getPublicUrl(storagePath);
+
+    res.json({
+      message: 'Proof uploaded successfully',
+      path: storagePath,
+      publicUrl: urlData?.publicUrl || null,
+    });
+  } catch (error) {
+    console.error('Expense proof upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/financial/expenses', async (req, res) => {
+  const { category, description, amount, transactionDate, proofUrl } = req.body;
+
+  if (!category || !amount || !transactionDate) {
+    return res.status(400).json({ error: 'category, amount, and transactionDate are required.' });
+  }
+
+  const validCategories = ['operational', 'maintenance', 'salary', 'f&b_cost', 'marketing', 'other_expense'];
+  if (!validCategories.includes(category)) {
+    return res.status(400).json({ error: 'Invalid expense category.' });
+  }
+
+  try {
+    const payload = {
+      type: 'expense',
+      category,
+      description: encodeExpenseProof(description, proofUrl),
+      amount: Number(amount),
+      transaction_date: transactionDate,
+      status: 'pending',
+    };
+
+    const { data, error } = await INS(req, 'finances', [payload])
+      .select('id, display_id, category, description, amount, transaction_date, status, created_at')
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json(parseExpenseRecord(data));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/financial/expenses/:expenseId', async (req, res) => {
+  const { expenseId } = req.params;
+  const { status, category, description, amount, transactionDate, proofUrl } = req.body;
+
+  try {
+    const { data: existing, error: fetchError } = await S(req, 'finances')
+      .select('id, description, type, status, amount')
+      .eq('id', expenseId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (existing.type !== 'expense') {
+      return res.status(400).json({ error: 'Record is not an expense.' });
+    }
+
+    const updateData = {};
+    if (status !== undefined) updateData.status = status;
+    if (category !== undefined) updateData.category = category;
+    if (amount !== undefined) updateData.amount = Number(amount);
+    if (transactionDate !== undefined) updateData.transaction_date = transactionDate;
+
+    if (description !== undefined || proofUrl !== undefined) {
+      const parsed = parseExpenseRecord(existing);
+      const nextDescription = description !== undefined ? description : parsed.description;
+      const nextProof = proofUrl !== undefined ? proofUrl : parsed.proof;
+      updateData.description = encodeExpenseProof(nextDescription, nextProof);
+    }
+
+    const { data, error } = await S(req, 'finances')
+      .update(updateData)
+      .eq('id', expenseId)
+      .select('id, display_id, category, description, amount, transaction_date, status, created_at')
+      .single();
+
+    if (error) throw error;
+
+    await auditLog(supabase, {
+      propertyId: req.propertyId,
+      userId: req.user?.id,
+      action: status === 'approved' ? 'expense.approved' : status === 'rejected' ? 'expense.rejected' : 'expense.updated',
+      entityType: 'finance',
+      entityId: expenseId,
+      oldValues: { status: existing.status, amount: existing.amount },
+      newValues: updateData,
+      req,
+    });
+
+    res.json(parseExpenseRecord(data));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/financial/cogs/profiles', async (req, res) => {
+  try {
+    const { data, error } = await S(req, 'villa_cost_profiles')
+      .select(`
+        id,
+        villa_id,
+        fixed_stay_cost,
+        cost_per_night,
+        created_at,
+        updated_at,
+        villas (id, name)
+      `)
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+    res.json((data || []).map(mapCostProfileRow));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/financial/cogs/profiles', async (req, res) => {
+  const { villaId, fixedStayCost, costPerNight } = req.body;
+
+  if (!villaId) {
+    return res.status(400).json({ error: 'Villa is required.' });
+  }
+
+  try {
+    const { data: existing } = await S(req, 'villa_cost_profiles')
+      .select('id')
+      .eq('villa_id', villaId)
+      .maybeSingle();
+
+    if (existing) {
+      return res.status(409).json({ error: 'A cost profile already exists for this villa. Edit the existing profile instead.' });
+    }
+
+    const now = new Date().toISOString();
+    const { data, error } = await INS(req, 'villa_cost_profiles', [{
+        villa_id: villaId,
+        fixed_stay_cost: Math.max(Number(fixedStayCost) || 0, 0),
+        cost_per_night: Math.max(Number(costPerNight) || 0, 0),
+        created_at: now,
+        updated_at: now,
+      }]).select(`
+        id,
+        villa_id,
+        fixed_stay_cost,
+        cost_per_night,
+        created_at,
+        updated_at,
+        villas (id, name)
+      `)
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(mapCostProfileRow(data));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/financial/cogs/profiles/:profileId', async (req, res) => {
+  const { profileId } = req.params;
+  const { fixedStayCost, costPerNight } = req.body;
+
+  try {
+    const updateData = { updated_at: new Date().toISOString() };
+    if (fixedStayCost !== undefined) updateData.fixed_stay_cost = Math.max(Number(fixedStayCost) || 0, 0);
+    if (costPerNight !== undefined) updateData.cost_per_night = Math.max(Number(costPerNight) || 0, 0);
+
+    const { data, error } = await S(req, 'villa_cost_profiles')
+      .update(updateData)
+      .eq('id', profileId)
+      .select(`
+        id,
+        villa_id,
+        fixed_stay_cost,
+        cost_per_night,
+        created_at,
+        updated_at,
+        villas (id, name)
+      `)
+      .single();
+
+    if (error) throw error;
+    res.json(mapCostProfileRow(data));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/financial/cogs/profiles/:profileId', async (req, res) => {
+  const { profileId } = req.params;
+
+  try {
+    const { error } = await S(req, 'villa_cost_profiles')
+      .delete()
+      .eq('id', profileId);
+
+    if (error) throw error;
+    res.json({ message: 'Cost profile deleted.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/financial/profitability', async (req, res) => {
+  try {
+    const { data, error } = await S(req, 'reservation_profitability')
+      .select(`
+        id,
+        booking_id,
+        villa_id,
+        revenue,
+        room_revenue,
+        addon_revenue,
+        fb_revenue,
+        cogs,
+        gross_profit,
+        fixed_stay_cost_snapshot,
+        cost_per_night_snapshot,
+        nights,
+        calculated_at,
+        villas (id, name),
+        bookings (check_in_date, check_out_date, status)
+      `)
+      .order('calculated_at', { ascending: false });
+
+    if (error) throw error;
+    res.json((data || []).map(mapProfitabilityRow));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/financial/profitability/backfill', async (req, res) => {
+  try {
+    const { data: bookings, error } = await S(req, 'bookings')
+      .select('id')
+      .not('status', 'eq', 'cancelled');
+
+    if (error) throw error;
+
+    let updated = 0;
+    for (const b of bookings || []) {
+      try {
+        await upsertReservationProfitability(b.id, req.propertyId);
+        updated += 1;
+      } catch (err) {
+        console.error(`Backfill ${b.id}:`, err.message);
+      }
+    }
+
+    res.json({ message: `Profitability recalculated for ${updated} reservations.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1539,7 +2490,7 @@ app.get('/api/bookings/:bookingId/invoice/pdf', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const summary = await buildFinancialSummary(bookingId, supabase);
+    const summary = await buildFinancialSummary(bookingId, req.propertyId);
     const displayId = summary.displayId;
     const filename = `Booking Confirmation - ${displayId}.pdf`;
 
@@ -1562,16 +2513,35 @@ app.get('/api/bookings/:bookingId/invoice', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const summary = await buildFinancialSummary(bookingId);
+    const summary = await buildFinancialSummary(bookingId, req.propertyId);
     const displayId = summary.displayId;
+
+    const booking = summary.booking;
+    const villaBreakfast = (booking.booking_villas || []).reduce(
+      (sum, bv) => sum + (bv.villas?.base_breakfast || 0),
+      0
+    );
+    const addonBreakfast = (booking.booking_addons || []).reduce(
+      (sum, ba) => sum + ((ba.addons?.base_breakfast || 0) * (ba.quantity || 1)),
+      0
+    );
+    const adultsMatch = booking.notes?.match(/Adults:\s*(\d+)/);
+    const childrenMatch = booking.notes?.match(/Children:\s*(\d+)/);
+    const parsedAdults = adultsMatch ? parseInt(adultsMatch[1], 10) : 0;
+    const parsedChildren = childrenMatch ? parseInt(childrenMatch[1], 10) : 0;
+    const totalGuests = booking.total_guests ?? (
+      (parsedAdults || parsedChildren) ? parsedAdults + parsedChildren : null
+    );
 
     res.json({
       invoiceNumber: displayId,
       displayId,
-      guestName: summary.booking.guests?.full_name || 'Guest',
-      checkIn: summary.booking.check_in_date,
-      checkOut: summary.booking.check_out_date,
+      guestName: booking.guests?.full_name || 'Guest',
+      checkIn: booking.check_in_date,
+      checkOut: booking.check_out_date,
       villaNames: summary.villaNames,
+      totalGuests,
+      totalBreakfast: villaBreakfast + addonBreakfast,
       lineItems: summary.lineItems,
       accommodationLines: summary.accommodationLines,
       addonLines: summary.addonLines,
@@ -1612,7 +2582,7 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
   }
 
   try {
-    const summary = await buildFinancialSummary(bookingId);
+    const summary = await buildFinancialSummary(bookingId, req.propertyId);
     const booking = summary.booking;
 
     if (paymentType === 'final' && !summary.hasPartialPayment) {
@@ -1643,7 +2613,7 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
 
     const descriptiveAttachmentLabel = proofFileName ? `Proof: ${proofFileName}` : 'No document uploaded';
 
-    await supabase.from('finances').insert([{
+    await INS(req, 'finances', [{
       booking_id: bookingId,
       type: 'income',
       amount: Number(amount),
@@ -1653,8 +2623,7 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
       status: 'approved',
     }]);
 
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('bookings')
+    const { data: updatedBooking, error: updateError } = await S(req, 'bookings')
       .update({
         amount_paid: newAmountPaid,
         payment_status: newPaymentStatus,
@@ -1666,8 +2635,19 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
     if (updateError) throw updateError;
 
     if (newPaymentStatus === 'complete' && updatedBooking.status === 'checked_out') {
-      await supabase.from('bookings').update({ status: 'completed' }).eq('id', bookingId);
+      await S(req, 'bookings').update({ status: 'completed' }).eq('id', bookingId);
     }
+
+    await auditLog(supabase, {
+      propertyId: req.propertyId,
+      userId: req.user?.id,
+      action: 'payment.recorded',
+      entityType: 'booking',
+      entityId: bookingId,
+      oldValues: { amount_paid: booking.amount_paid, payment_status: booking.payment_status },
+      newValues: { amount_paid: newAmountPaid, payment_status: newPaymentStatus },
+      req,
+    });
 
     res.json({
       message: 'Payment recorded successfully',
@@ -1688,8 +2668,7 @@ app.patch('/api/bookings/:bookingId/payment-status', async (req, res) => {
     const updateData = { payment_status: paymentStatus };
     if (amountPaid !== undefined) updateData.amount_paid = amountPaid;
 
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('bookings')
+    const { data: updatedBooking, error: updateError } = await S(req, 'bookings')
       .update(updateData)
       .eq('id', bookingId)
       .select()
@@ -1698,10 +2677,7 @@ app.patch('/api/bookings/:bookingId/payment-status', async (req, res) => {
     if (updateError) throw updateError;
 
     if (paymentStatus === 'complete' && updatedBooking.status === 'checked_out') {
-      await supabase
-        .from('bookings')
-        .update({ status: 'completed' })
-        .eq('id', bookingId);
+      await S(req, 'bookings').update({ status: 'completed' }).eq('id', bookingId);
     }
 
     res.json(updatedBooking);
@@ -1714,8 +2690,7 @@ app.patch('/api/bookings/:bookingId/check-in', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('bookings')
+    const { data: updatedBooking, error: updateError } = await S(req, 'bookings')
       .update({ status: 'checked_in' })
       .eq('id', bookingId)
       .select()
@@ -1736,8 +2711,7 @@ app.patch('/api/bookings/:bookingId/check-out', async (req, res) => {
   const { bookingId } = req.params;
 
   try {
-    const { data: booking, error: bookingError } = await supabase
-      .from('bookings')
+    const { data: booking, error: bookingError } = await S(req, 'bookings')
       .select('payment_status, check_out_date, status')
       .eq('id', bookingId)
       .single();
@@ -1753,8 +2727,7 @@ app.patch('/api/bookings/:bookingId/check-out', async (req, res) => {
       return res.status(400).json({ error: 'Check-out is only available on the scheduled check-out date.' });
     }
 
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('bookings')
+    const { data: updatedBooking, error: updateError } = await S(req, 'bookings')
       .update({ status: 'checked_out' })
       .eq('id', bookingId)
       .select()
@@ -1763,10 +2736,13 @@ app.patch('/api/bookings/:bookingId/check-out', async (req, res) => {
     if (updateError) throw updateError;
 
     if (booking.payment_status === 'complete') {
-      await supabase
-        .from('bookings')
-        .update({ status: 'completed' })
-        .eq('id', bookingId);
+      await S(req, 'bookings').update({ status: 'completed' }).eq('id', bookingId);
+    }
+
+    try {
+      await upsertReservationProfitability(bookingId, req.propertyId);
+    } catch (profitErr) {
+      console.error('Profitability snapshot failed:', profitErr.message);
     }
 
     res.json({
@@ -1783,50 +2759,176 @@ app.patch('/api/bookings/:bookingId/check-out', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 
 app.get('/api/dashboard', async (req, res) => {
-  const todayDate = new Date();
-  const today = todayDate.toISOString().split('T')[0];
-
-  const tomorrowDate = new Date(todayDate);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrow = tomorrowDate.toISOString().split('T')[0];
-
-  const calcBreakfast = (bookings) =>
-    (bookings || []).reduce((total, b) => {
-      const villaBreakfast = b.booking_villas?.reduce((s, bv) => s + (bv.villas?.base_breakfast || 0), 0) || 0;
-      const addonBreakfast = b.booking_addons?.reduce((s, ba) => s + ((ba.addons?.base_breakfast || 0) * (ba.quantity || 1)), 0) || 0;
-      return total + villaBreakfast + addonBreakfast;
-    }, 0);
-
-  const fullSelect = `*, guests (full_name, phone_number), booking_villas (villas (name, base_breakfast)), booking_addons (quantity, addons (name, base_breakfast))`;
-
   try {
-    const [
-      { data: arrivalsToday,            error: e1 },
-      { data: departuresToday,          error: e2 },
-      { data: inHouse,                  error: e3 },
-      { data: breakfastTodayBookings,   error: e4 },
-      { data: breakfastTomorrowBookings,error: e5 },
-    ] = await Promise.all([
-      supabase.from('bookings').select(fullSelect).not('status', 'eq', 'cancelled').eq('check_in_date', today),
-      supabase.from('bookings').select(fullSelect).not('status', 'eq', 'cancelled').eq('check_out_date', today),
-      supabase.from('bookings').select(fullSelect).not('status', 'eq', 'cancelled').lt('check_in_date', today).gt('check_out_date', today),
-      supabase.from('bookings').select(`*, booking_villas (villas (base_breakfast)), booking_addons (quantity, addons (base_breakfast))`).not('status', 'eq', 'cancelled').lt('check_in_date', today).gte('check_out_date', today),
-      supabase.from('bookings').select(`*, booking_villas (villas (base_breakfast)), booking_addons (quantity, addons (base_breakfast))`).not('status', 'eq', 'cancelled').lte('check_in_date', today).gte('check_out_date', tomorrow),
-    ]);
-
-    if (e1) throw e1; if (e2) throw e2; if (e3) throw e3; if (e4) throw e4; if (e5) throw e5;
-
-    res.json({
-      arrivalsToday: arrivalsToday?.length || 0,
-      departuresToday: departuresToday?.length || 0,
-      inHouseCount: inHouse?.length || 0,
-      breakfastToday: calcBreakfast(breakfastTodayBookings),
-      breakfastTomorrow: calcBreakfast(breakfastTomorrowBookings),
-      today,
-      tomorrow,
+    const { data, error } = await supabase.rpc('get_dashboard_kpis', {
+      p_property_id: req.propertyId,
     });
+    if (error) throw error;
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 👤 USERS
+// ─────────────────────────────────────────────────────────────
+
+const USER_ROLES = ['staff', 'owner', 'admin', 'manager', 'receptionist', 'housekeeping'];
+const USER_STATUSES = ['active', 'deactivated'];
+
+function mapUserRow(row, fallbackIndex = null) {
+  const displayId = row.display_id
+    || (fallbackIndex != null ? `UID-${String(fallbackIndex).padStart(4, '0')}` : null);
+
+  return {
+    id: row.id,
+    display_id: displayId,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    status: row.status || 'active',
+    created_at: row.created_at,
+  };
+}
+
+async function generateNextUserDisplayId(propertyId) {
+  const { data, error } = await scopeQ(propertyId, 'users')
+    .select('display_id')
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  let maxNum = 0;
+  for (const row of data || []) {
+    const match = row.display_id?.match(/^UID-(\d+)$/i);
+    if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+  }
+
+  return `UID-${String(maxNum + 1).padStart(4, '0')}`;
+}
+
+app.get('/api/users', async (req, res) => {
+  try {
+    const { data, error } = await S(req, 'users')
+      .select('id, email, name, role, created_at, display_id, status')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    res.json((data || []).map((row, index) => mapUserRow(row, index + 1)));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  const { name, email, password, role = 'staff' } = req.body;
+
+  if (!name?.trim() || !email?.trim() || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
+  }
+
+  if (!USER_ROLES.includes(role)) {
+    return res.status(400).json({ error: 'Invalid role.' });
+  }
+
+  try {
+    const { data: existing, error: existingError } = await S(req, 'users')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (existing) {
+      return res.status(409).json({ error: 'A user with this email already exists.' });
+    }
+
+    const display_id = await generateNextUserDisplayId(req.propertyId);
+
+    const { data, error } = await INS(req, 'users', [{
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password_hash: hashPassword(password),
+        role,
+        display_id,
+        status: 'active',
+      }]).select('id, email, name, role, created_at, display_id, status')
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(mapUserRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const payload = {};
+
+  if (req.body.name !== undefined) payload.name = req.body.name.trim();
+  if (req.body.email !== undefined) payload.email = req.body.email.trim().toLowerCase();
+  if (req.body.role !== undefined) {
+    if (!USER_ROLES.includes(req.body.role)) {
+      return res.status(400).json({ error: 'Invalid role.' });
+    }
+    payload.role = req.body.role;
+  }
+  if (req.body.password) {
+    payload.password_hash = hashPassword(req.body.password);
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return res.status(400).json({ error: 'No valid fields to update.' });
+  }
+
+  try {
+    if (payload.email) {
+      const { data: existing, error: existingError } = await S(req, 'users')
+        .select('id')
+        .eq('email', payload.email)
+        .neq('id', id)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+      if (existing) {
+        return res.status(409).json({ error: 'A user with this email already exists.' });
+      }
+    }
+
+    const { data, error } = await S(req, 'users')
+      .update(payload)
+      .eq('id', id)
+      .select('id, email, name, role, created_at, display_id, status')
+      .single();
+
+    if (error) throw error;
+    res.json(mapUserRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.patch('/api/users/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!USER_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'Status must be active or deactivated.' });
+  }
+
+  try {
+    const { data, error } = await S(req, 'users')
+      .update({ status })
+      .eq('id', id)
+      .select('id, email, name, role, created_at, display_id, status')
+      .single();
+
+    if (error) throw error;
+    res.json(mapUserRow(data));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

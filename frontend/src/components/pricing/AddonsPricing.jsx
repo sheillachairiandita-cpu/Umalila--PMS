@@ -9,18 +9,21 @@ import {
   PricingActionCell,
   PricingLoadingState,
   PricingErrorState,
+  usePaginatedRows,
+  PricingTablePagination,
+  usePricingMutation,
   formatRp,
 } from './pricingShared';
 
 function AddonModal({ isOpen, onClose, onSaved, initialData }) {
   const isEdit = !!initialData;
+  const { saveItem, isMutating } = usePricingMutation();
   const [form, setForm] = useState({
     name: '',
     price_per_night: '',
     base_breakfast: '',
     is_per_night: true,
   });
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -47,34 +50,34 @@ function AddonModal({ isOpen, onClose, onSaved, initialData }) {
       setError('Name and price are required.');
       return;
     }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        price_per_night: Number(form.price_per_night),
-        price: Number(form.price_per_night),
-        base_breakfast: Number(form.base_breakfast) || 0,
-        is_per_night: form.is_per_night,
-      };
-      const url = isEdit ? `/api/addons/${initialData.id}` : '/api/addons';
-      const method = isEdit ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Failed to save add-on');
-      }
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+    await saveItem({
+      isEdit,
+      entityName: 'Add-on',
+      setError,
+      onClose,
+      refresh: onSaved,
+      execute: async () => {
+        const payload = {
+          name: form.name.trim(),
+          price_per_night: Number(form.price_per_night),
+          price: Number(form.price_per_night),
+          base_breakfast: Number(form.base_breakfast) || 0,
+          is_per_night: form.is_per_night,
+        };
+        const url = isEdit ? `/api/addons/${initialData.id}` : '/api/addons';
+        const method = isEdit ? 'PATCH' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || 'Failed to save add-on');
+        }
+        return res.json();
+      },
+    });
   };
 
   return (
@@ -161,8 +164,8 @@ function AddonModal({ isOpen, onClose, onSaved, initialData }) {
 
           <PricingFormFooter
             onCancel={onClose}
-            submitting={submitting}
-            submitLabel={submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Add-on'}
+            submitting={isMutating}
+            submitLabel={isMutating ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Add-on'}
           />
         </form>
       </div>
@@ -171,6 +174,7 @@ function AddonModal({ isOpen, onClose, onSaved, initialData }) {
 }
 
 function AddonsPricing() {
+  const { deleteItem } = usePricingMutation();
   const [addons, setAddons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -198,17 +202,19 @@ function AddonsPricing() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    try {
-      const res = await fetch(`/api/addons/${deleteTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete');
-      await fetchAddons();
-      setDeleteTarget(null);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setDeleting(false);
-    }
+    await deleteItem({
+      entityName: 'Add-on',
+      refresh: fetchAddons,
+      onDone: () => setDeleteTarget(null),
+      execute: async () => {
+        const res = await fetch(`/api/addons/${deleteTarget.id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+      },
+    });
+    setDeleting(false);
   };
+
+  const pagination = usePaginatedRows(addons);
 
   return (
     <div className="pricing-pane">
@@ -238,7 +244,7 @@ function AddonsPricing() {
               {addons.length === 0 && (
                 <tr><td colSpan={5} className="pricing-empty">No add-ons found. Create one to get started.</td></tr>
               )}
-              {addons.map((a) => (
+              {pagination.paginatedRows.map((a) => (
                 <tr key={a.id}>
                   <td className="pricing-name-cell">{a.name}</td>
                   <td className="text-right pricing-rate-cell">{formatRp(a.price_per_night)}</td>
@@ -268,6 +274,7 @@ function AddonsPricing() {
               ))}
             </tbody>
           </table>
+          <PricingTablePagination rows={addons} pagination={pagination} />
         </div>
       )}
 

@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { DollarSign } from 'lucide-react';
 import { Modal, Button, Input, Alert, FileUpload } from '../ui';
-import { FinancialSummaryTable } from '../financial/FinancialSummaryTable';
+import SummaryModal from '../financial/SummaryModal';
+import { useMutation } from '../../context/MutationProvider';
 
 async function uploadReceipt(bookingId, proof, paymentType) {
   if (!proof?.dataUrl) return null;
@@ -37,6 +38,7 @@ function ReservationPaymentModal({
   const bookingId = booking?.id || bookingIdProp;
   const guestName = booking?.guest_full_name || guestNameProp;
   const displayId = booking?.display_id;
+  const { runMutation } = useMutation();
 
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState(null);
@@ -94,24 +96,39 @@ function ReservationPaymentModal({
     setLoader(true);
     setError(null);
 
-    try {
-      const publicReceiptUrl = await uploadReceipt(bookingId, proof, type);
+    const result = await runMutation({
+      mutation: async () => {
+        const publicReceiptUrl = await uploadReceipt(bookingId, proof, type);
 
-      const res = await fetch(`/api/bookings/${bookingId}/payments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paymentType: type,
-          amount: Number(amount),
-          receiptUrl: publicReceiptUrl,
-        }),
-      });
+        const res = await fetch(`/api/bookings/${bookingId}/payments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            paymentType: type,
+            amount: Number(amount),
+            receiptUrl: publicReceiptUrl,
+          }),
+        });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to process financial record assignment.');
-      }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to process financial record assignment.');
+        }
 
+        return res.json();
+      },
+      refresh: async () => {
+        handlePaymentComplete();
+      },
+      successMessage: type === 'partial'
+        ? 'Partial payment recorded successfully.'
+        : 'Final payment recorded successfully.',
+      overlayMessage: 'Processing payment…',
+    });
+
+    setLoader(false);
+
+    if (result.ok) {
       if (type === 'partial') {
         setPartialAmount('');
         setPartialProof(null);
@@ -119,13 +136,9 @@ function ReservationPaymentModal({
         setFinalAmount('');
         setFinalProof(null);
       }
-
-      handlePaymentComplete();
       onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoader(false);
+    } else {
+      setError(result.error?.message || 'Failed to process payment.');
     }
   };
 
@@ -134,15 +147,20 @@ function ReservationPaymentModal({
   const isPending = summary?.paymentStatus === 'pending';
   const isComplete = summary?.paymentStatus === 'complete';
   const bookingRef = displayId || summary?.displayId || summary?.invoiceNumber;
-  const titleSuffix = bookingRef ? `${guestName || 'Guest'} (${bookingRef})` : (guestName || 'Guest');
+  const titleSuffix = bookingRef ? `${guestName || 'Guest'}` : (guestName || 'Guest');
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="2xl">
-      <Modal.Header title={`Record Payment — ${titleSuffix}`} icon={DollarSign} />
+      <Modal.Header title={`Payment — ${titleSuffix}`} icon={DollarSign} />
 
       <Modal.Body className="payment-modal-body">
         <div className="payment-modal-summary">
-          <FinancialSummaryTable bookingId={bookingId} onDataLoaded={handleDataLoaded} />
+          <SummaryModal
+            embedded
+            isOpen={isOpen}
+            bookingId={bookingId}
+            onDataLoaded={handleDataLoaded}
+          />
         </div>
 
         <div className="payment-modal-form">

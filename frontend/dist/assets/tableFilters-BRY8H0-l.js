@@ -1,0 +1,1 @@
+function e(e,t,n=new Date){if(!e||t===`all`)return!0;let r=new Date(e),i=new Date(n.getFullYear(),n.getMonth(),1),a=new Date(n.getFullYear(),0,1);return t===`today`?r.toDateString()===n.toDateString():t===`month`?r>=i&&r<=n:t===`year`?r>=a&&r<=n:!0}export{e as t};

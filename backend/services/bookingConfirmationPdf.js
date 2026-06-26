@@ -1,30 +1,25 @@
-/**
- * Booking Confirmation PDF — pdfkit rewrite
- * Two-page layout:
- *   Page 1 — Confirmation letter (guest-facing)
- *   Page 2 — Invoice / financial summary
- *
- * Drop-in replacement for the previous pdfmake version.
- * External API is identical:
- *   generateBookingConfirmationPdf(summary) → Promise<Buffer>
- *   streamBookingConfirmationPdf(summary, res) → void
- */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { PNG } from 'pngjs';
 import PDFDocument from 'pdfkit';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGO_PNG_PATH = path.resolve(__dirname, '../../frontend/public/Umalila-w.png');
+const FONT_DIR      = path.resolve(__dirname, '../lib/fonts');
+const FONT_REGULAR  = path.join(FONT_DIR, 'Poppins-Regular.ttf');
+const FONT_SEMIBOLD = path.join(FONT_DIR, 'Poppins-SemiBold.ttf');
+
+const F = { regular: 'Poppins', semibold: 'Poppins-SemiBold' };
 
 // ─── Brand colours ────────────────────────────────────────────────────────────
 
 const C = {
-  brandDark:   '#2E241C',
-  brandMid:    '#5C4A3A',
-  brandAccent: '#8B6F47',
-  cream:       '#F7F3ED',
-  border:      '#C9B8A4',
-  text:        '#2E241C',
-  textMuted:   '#6B5D52',
-  white:       '#FFFFFF',
-  tableHead:   '#3D3228',
-  red:         '#C0392B',
+  brandBlue: '#363481',
+  text:      '#000000',
+  white:     '#FFFFFF',
+  border:    '#000000',
 };
 
 // ─── Property constants ───────────────────────────────────────────────────────
@@ -34,11 +29,7 @@ const PROPERTY = {
   email:           'stayatumalila@gmail.com',
   instagram:       '@stayatumalila',
   phone:           '+62 822 6805 7800',
-  addressLines: [
-    'Jl. Batu Bagiriak, Alahan Panjang,',
-    'Kec. Lembah Gumanti, Kabupaten',
-    'Solok, Sumatera Barat 27371',
-  ],
+  address:         'Jl. Batu Bagiriak, Alahan Panjang, Kec. Lembah Gumanti, Kabupaten Solok, Sumatera Barat 27371',
   bankName:        'Bank BNI',
   bankAccount:     '0174105357',
   bankAccountName: 'Chairiyanto',
@@ -46,16 +37,170 @@ const PROPERTY = {
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
-const MARGIN  = 40;
-const PW      = 595.28;          // A4 width  in points
-const PH      = 841.89;          // A4 height in points
-const CONTENT = PW - MARGIN * 2; // usable width
+const MARGIN   = 48;
+const PW       = 595.28;
+const PH       = 841.89;
+const CONTENT  = PW - MARGIN * 2;
+const HEADER_H = 96;
+const HEADER_LOGO_PAD = 18;
+// Display width for header logo; height is derived from PNG aspect ratio (auto).
+const LOGO_TARGET_WIDTH = 148;
+const LOGO_MAX_HEIGHT   = HEADER_H - HEADER_LOGO_PAD;
+// ─── Logo ─────────────────────────────────────────────────────────────────────
+
+/** @type {{ buffer: Buffer, width: number, height: number } | null} */
+let logoCache = null;
+
+function isLogoPixel(r, g, b) {
+  return r > 70 || g > 70 || b > 70;
+}
+
+/**
+ * Load frontend/public/Umalila-w.png, key out the black backdrop, and crop to
+ * the visible white wordmark so it sits transparently on the purple header.
+ */
+function processLogoPng(filePath) {
+  const source = PNG.sync.read(fs.readFileSync(filePath));
+  let minX = source.width;
+  let minY = source.height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < source.height; y++) {
+    for (let x = 0; x < source.width; x++) {
+      const idx = (source.width * y + x) << 2;
+      const r = source.data[idx];
+      const g = source.data[idx + 1];
+      const b = source.data[idx + 2];
+
+      if (r < 55 && g < 55 && b < 55) {
+        source.data[idx + 3] = 0;
+        continue;
+      }
+
+      source.data[idx + 3] = 255;
+      if (isLogoPixel(r, g, b)) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    throw new Error('Logo PNG has no visible artwork after background removal');
+  }
+
+  const cropW = maxX - minX + 1;
+  const cropH = maxY - minY + 1;
+  const cropped = new PNG({ width: cropW, height: cropH });
+
+  for (let y = 0; y < cropH; y++) {
+    for (let x = 0; x < cropW; x++) {
+      const srcIdx = ((minY + y) * source.width + (minX + x)) << 2;
+      const dstIdx = (y * cropW + x) << 2;
+      cropped.data[dstIdx]     = source.data[srcIdx];
+      cropped.data[dstIdx + 1] = source.data[srcIdx + 1];
+      cropped.data[dstIdx + 2] = source.data[srcIdx + 2];
+      cropped.data[dstIdx + 3] = source.data[srcIdx + 3];
+    }
+  }
+
+  return {
+    buffer: PNG.sync.write(cropped),
+    width:  cropW,
+    height: cropH,
+  };
+}
+
+function getLogoAsset() {
+  if (logoCache) return logoCache;
+
+  if (!fs.existsSync(LOGO_PNG_PATH)) {
+    throw new Error(`Logo PNG not found at ${LOGO_PNG_PATH}`);
+  }
+
+  try {
+    logoCache = processLogoPng(LOGO_PNG_PATH);
+  } catch (error) {
+    throw new Error(`Failed to process logo PNG: ${error.message}`);
+  }
+
+  return logoCache;
+}
+
+/**
+ * Draw logo with fixed width and auto height (aspect ratio locked).
+ * If auto height exceeds the header, scale down proportionally (object-fit: contain).
+ */
+function drawHeaderLogo(doc, asset) {
+  const aspect = asset.width / asset.height;
+  let drawW = LOGO_TARGET_WIDTH;
+  let drawH = drawW / aspect;
+
+  if (drawH > LOGO_MAX_HEIGHT) {
+    drawH = LOGO_MAX_HEIGHT;
+    drawW = drawH * aspect;
+  }
+
+  const x = PW - MARGIN - drawW;
+  const y = (HEADER_H - drawH) / 2;
+
+  // Width only — PDFKit derives height from the image's intrinsic aspect ratio.
+  doc.image(asset.buffer, x, y, { width: drawW });
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function hexToRgb(hex) {
   const n = parseInt(hex.replace('#', ''), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function setFill(doc, hex) {
+  const [r, g, b] = hexToRgb(hex);
+  doc.fillColor([r, g, b]);
+  return doc;
+}
+
+function setStroke(doc, hex) {
+  const [r, g, b] = hexToRgb(hex);
+  doc.strokeColor([r, g, b]);
+  return doc;
+}
+
+function fillRect(doc, x, y, w, h, hex) {
+  const [r, g, b] = hexToRgb(hex);
+  doc.save().rect(x, y, w, h).fill([r, g, b]).restore();
+}
+
+function strokeRect(doc, x, y, w, h, hex = C.border, lineWidth = 0.75) {
+  setStroke(doc, hex);
+  doc.save().rect(x, y, w, h).lineWidth(lineWidth).stroke().restore();
+}
+
+function registerFonts(doc) {
+  doc.registerFont(F.regular, FONT_REGULAR);
+  doc.registerFont(F.semibold, FONT_SEMIBOLD);
+}
+
+function maxLabelWidth(doc, labels, size = 10, bold = true) {
+  doc.font(bold ? F.semibold : F.regular).fontSize(size);
+  return Math.max(...labels.map((label) => doc.widthOfString(label)));
+}
+
+function colonXForLabels(doc, labels, x, size = 10, gap = 4) {
+  return x + maxLabelWidth(doc, labels, size) + gap;
+}
+
+function drawColonField(doc, label, value, x, y, colonX, { size = 10, valueBold = false, labelBold = true } = {}) {
+  setFill(doc, C.text).font(labelBold ? F.semibold : F.regular).fontSize(size)
+    .text(label, x, y, { lineBreak: false });
+  setFill(doc, C.text).font(labelBold ? F.semibold : F.regular).fontSize(size)
+    .text(' :', colonX, y, { lineBreak: false });
+  setFill(doc, C.text).font(valueBold ? F.semibold : F.regular).fontSize(size)
+    .text(` ${value}`, colonX + 10, y, { lineBreak: false });
 }
 
 function formatIdr(amount) {
@@ -97,146 +242,412 @@ function formatLineQty(item) {
   return String(qty);
 }
 
-// ─── Low-level drawing primitives ─────────────────────────────────────────────
+// ─── Contact icons (vector paths) ─────────────────────────────────────────────
 
-/**
- * Draw a filled rectangle using an HTML hex colour string.
- */
-function fillRect(doc, x, y, w, h, hex) {
-  const [r, g, b] = hexToRgb(hex);
-  doc.save().rect(x, y, w, h).fill([r, g, b]).restore();
+function drawCircleIcon(doc, cx, cy, radius = 8) {
+  setStroke(doc, C.brandBlue);
+  doc.save().circle(cx, cy, radius).lineWidth(0.75).stroke().restore();
 }
 
-/**
- * Draw a horizontal rule.
- */
-function hRule(doc, x, y, w, hex = C.border, lineWidth = 0.5) {
-  const [r, g, b] = hexToRgb(hex);
-  doc.save()
-     .moveTo(x, y).lineTo(x + w, y)
-     .lineWidth(lineWidth).strokeColor([r, g, b]).stroke()
-     .restore();
+function drawEnvelopeIcon(doc, cx, cy, size = 9) {
+  const [r, g, b] = hexToRgb(C.brandBlue);
+  const w = size * 1.15;
+  const h = size * 0.72;
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  doc.save().lineWidth(0.75).strokeColor([r, g, b])
+    .rect(x, y, w, h).stroke()
+    .moveTo(x, y).lineTo(cx, y + h * 0.55).lineTo(x + w, y).stroke()
+    .restore();
 }
 
-/**
- * Set fill colour from a hex string and return the doc for chaining.
- */
-function setFill(doc, hex) {
-  const [r, g, b] = hexToRgb(hex);
-  doc.fillColor([r, g, b]);
-  return doc;
+function drawPhoneIcon(doc, cx, cy, size = 9) {
+  const [r, g, b] = hexToRgb(C.brandBlue);
+  const w = size * 0.52;
+  const h = size * 1.05;
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  doc.save().lineWidth(0.75).strokeColor([r, g, b])
+    .roundedRect(x, y, w, h, 1.8).stroke()
+    .circle(cx, cy + h * 0.3, 0.9).fill([r, g, b])
+    .restore();
 }
 
-// ─── Section title ────────────────────────────────────────────────────────────
-
-function sectionTitle(doc, text, y) {
-  setFill(doc, C.tableHead)
-    .font('Helvetica-Bold').fontSize(12)
-    .text(text, MARGIN, y);
-  return doc.y + 6;
+function drawInstagramIcon(doc, cx, cy, size = 9) {
+  const [r, g, b] = hexToRgb(C.brandBlue);
+  const w = size;
+  const h = size;
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  doc.save().lineWidth(0.75).strokeColor([r, g, b])
+    .roundedRect(x, y, w, h, 2.2).stroke()
+    .circle(cx, cy, w * 0.28).stroke()
+    .circle(cx + w * 0.22, cy - h * 0.22, 0.75).fill([r, g, b])
+    .restore();
 }
 
-// ─── Key-value detail table (confirmation page) ───────────────────────────────
+function drawContactRow(doc, type, label, x, y) {
+  const iconCx = x + 8;
+  const iconCy = y + 6;
+  drawCircleIcon(doc, iconCx, iconCy);
+  if (type === 'email') drawEnvelopeIcon(doc, iconCx, iconCy);
+  else if (type === 'phone') drawPhoneIcon(doc, iconCx, iconCy);
+  else drawInstagramIcon(doc, iconCx, iconCy);
+  setFill(doc, C.text).font(F.regular).fontSize(9)
+    .text(label, x + 20, y, { width: CONTENT * 0.4, lineBreak: false });
+}
 
-function detailTable(doc, rows, startY) {
-  const col1 = MARGIN;
-  const col2 = MARGIN + CONTENT * 0.42;
-  let   y    = startY;
-  const rowH = 24;
+function drawPageHeader(doc) {
+  fillRect(doc, 0, 0, PW, HEADER_H, C.brandBlue);
+  drawHeaderLogo(doc, getLogoAsset());
+}
 
-  rows.forEach((row, i) => {
-    // Alternating subtle background
-    if (i % 2 === 0) fillRect(doc, MARGIN, y, CONTENT, rowH, C.cream);
+function drawSectionBar(doc, text, y) {
+  const barH = 24;
+  fillRect(doc, MARGIN, y, CONTENT, barH, C.brandBlue);
+  setFill(doc, C.white).font(F.semibold).fontSize(11)
+    .text(text, MARGIN + 10, y + 7, { width: CONTENT - 20, lineBreak: false });
+  return y + barH;
+}
 
-    setFill(doc, C.text).font('Helvetica-Bold').fontSize(10)
-      .text(row[0], col1 + 8, y + 7, { width: col2 - col1 - 8, lineBreak: false });
-    setFill(doc, C.text).font('Helvetica').fontSize(10)
-      .text(row[1], col2 + 8, y + 7, { width: MARGIN + CONTENT - col2 - 8, lineBreak: false });
+// ─── Line items & discount placement ──────────────────────────────────────────
 
-    hRule(doc, MARGIN, y + rowH, CONTENT);
-    y += rowH;
-  });
+function buildInvoiceLineItems(summary) {
+  const items = [];
 
-  return y + 4;
+  if (Array.isArray(summary.accommodationLines) && summary.accommodationLines.length) {
+    summary.accommodationLines.forEach((line) => {
+      items.push({
+        description: line.name || line.description || 'Accommodation',
+        name:        line.name || 'Accommodation',
+        quantity:    line.quantity || 1,
+        unitPrice:   line.unitPrice || 0,
+        subtotal:    line.subtotal  || 0,
+        type:        'accommodation',
+      });
+    });
+  } else if (Array.isArray(summary.villas)) {
+    summary.villas.forEach((villa) => {
+      const lineNights = villa.nights || 1;
+      const rate = villa.rate || 0;
+      items.push({
+        description: villa.name || 'Accommodation',
+        name:        villa.name || 'Accommodation',
+        quantity:    lineNights,
+        unitPrice:   rate,
+        subtotal:    villa.subtotal ?? rate * lineNights,
+        type:        'accommodation',
+      });
+    });
+  }
+
+  if (Array.isArray(summary.addonLines) && summary.addonLines.length) {
+    summary.addonLines.forEach((line) => {
+      items.push({
+        description: line.name || line.description || 'Add-on',
+        name:        line.name || 'Add-on',
+        quantity:    line.quantity || 1,
+        unitPrice:   line.unitPrice || 0,
+        subtotal:    line.subtotal  || 0,
+        type:        'addon',
+      });
+    });
+  } else if (Array.isArray(summary.addons)) {
+    summary.addons.forEach((addon) => {
+      items.push({
+        description: addon.name || 'Add-on',
+        name:        addon.name || 'Add-on',
+        quantity:    addon.quantity || 1,
+        unitPrice:   addon.unitPrice || 0,
+        subtotal:    addon.subtotal ?? (addon.unitPrice || 0) * (addon.quantity || 1),
+        type:        'addon',
+      });
+    });
+  }
+
+  if (Array.isArray(summary.menuLines) && summary.menuLines.length) {
+    summary.menuLines.forEach((line) => {
+      items.push({
+        description: line.name || line.description || 'Menu Item',
+        name:        line.name || 'Menu Item',
+        quantity:    line.quantity || 1,
+        unitPrice:   line.unitPrice || 0,
+        subtotal:    line.subtotal  || 0,
+        type:        'menu',
+      });
+    });
+  }
+
+  return items;
+}
+
+function getDiscountAnchorIndex(lineItems, summary) {
+  if (!lineItems.length) return -1;
+
+  const rule  = summary.applicationRule || summary.discount?.application_rule || 'all_items';
+  const scope = summary.discount?.scope || 'global';
+
+  const indicesByType = (type) =>
+    lineItems.map((item, i) => (item.type === type ? i : -1)).filter((i) => i >= 0);
+
+  const accommodationIndices = indicesByType('accommodation');
+  const addonIndices         = indicesByType('addon');
+  const menuIndices          = indicesByType('menu');
+
+  const pickExtremeAccommodation = (compare) => {
+    let chosen = accommodationIndices[0];
+    lineItems.forEach((item, i) => {
+      if (item.type !== 'accommodation') return;
+      const current = lineItems[chosen];
+      if (compare(item.subtotal || 0, current.subtotal || 0)) chosen = i;
+    });
+    return chosen;
+  };
+
+  if (rule === 'highest_priced_single' && accommodationIndices.length) {
+    return pickExtremeAccommodation((a, b) => a > b);
+  }
+  if (rule === 'lowest_priced_single' && accommodationIndices.length) {
+    return pickExtremeAccommodation((a, b) => a < b);
+  }
+  if (scope === 'villas' && accommodationIndices.length) {
+    return accommodationIndices[accommodationIndices.length - 1];
+  }
+  if (scope === 'addons' && addonIndices.length) {
+    return addonIndices[addonIndices.length - 1];
+  }
+  if (scope === 'menu' && menuIndices.length) {
+    return menuIndices[menuIndices.length - 1];
+  }
+  if (accommodationIndices.length) return accommodationIndices[accommodationIndices.length - 1];
+  if (addonIndices.length) return addonIndices[addonIndices.length - 1];
+  if (menuIndices.length) return menuIndices[menuIndices.length - 1];
+  return lineItems.length - 1;
+}
+
+function buildInvoiceTableRows(lineItems, summary) {
+  const discountAmount = summary.discountAmount || 0;
+  const rows = lineItems.map((item) => ({ kind: 'item', item }));
+
+  if (discountAmount <= 0) return rows;
+
+  const anchorIndex = getDiscountAnchorIndex(lineItems, summary);
+  const discountLine = summary.discountLines?.[0];
+  const discountCode = summary.discountCode;
+  const label = discountLine?.description
+    || discountLine?.name
+    || `Discount${discountCode ? ` (${discountCode})` : ''}`;
+
+  const discountRow = {
+    kind:   'discount',
+    label,
+    amount: discountAmount,
+  };
+
+  if (anchorIndex < 0) {
+    rows.push(discountRow);
+    return rows;
+  }
+
+  rows.splice(anchorIndex + 1, 0, discountRow);
+  return rows;
 }
 
 // ─── Invoice table ────────────────────────────────────────────────────────────
 
-/**
- * Draws the line-item invoice table.
- * Columns: Description | Qty | Unit Price | Total Price
- * Returns the y position after the table.
- */
-function invoiceTable(doc, lineItems, discountAmount, discountCode, total, startY) {
-  const colWidths = [CONTENT * 0.46, CONTENT * 0.12, CONTENT * 0.21, CONTENT * 0.21];
+function invoiceTable(doc, tableRows, total, startY) {
+  const colWidths = [CONTENT * 0.44, CONTENT * 0.14, CONTENT * 0.21, CONTENT * 0.21];
   const colX = [
     MARGIN,
     MARGIN + colWidths[0],
     MARGIN + colWidths[0] + colWidths[1],
     MARGIN + colWidths[0] + colWidths[1] + colWidths[2],
   ];
-  const rowH  = 26;
+  const moneyPad = 10;
+  const rowH  = 28;
   const headH = 28;
-  let   y     = startY;
+  let y = startY;
 
-  // Header
-  fillRect(doc, MARGIN, y, CONTENT, headH, C.tableHead);
+  fillRect(doc, MARGIN, y, CONTENT, headH, C.brandBlue);
   const headers = ['DESCRIPTION', 'QTY', 'UNIT PRICE', 'TOTAL PRICE'];
-  const aligns  = ['left', 'center', 'right', 'right'];
-
+  const headAligns = ['left', 'center', 'right', 'right'];
   headers.forEach((h, i) => {
-    setFill(doc, C.white).font('Helvetica-Bold').fontSize(9)
-      .text(h, colX[i] + 6, y + 9, { width: colWidths[i] - 12, align: aligns[i], lineBreak: false });
+    setFill(doc, C.white).font(F.semibold).fontSize(9)
+      .text(h, colX[i] + 8, y + 9, { width: colWidths[i] - 16, align: headAligns[i], lineBreak: false });
   });
-
-  hRule(doc, MARGIN, y + headH, CONTENT, C.border, 1);
+  strokeRect(doc, MARGIN, y, CONTENT, headH);
+  for (let i = 1; i < 4; i++) {
+    doc.save().moveTo(colX[i], y).lineTo(colX[i], y + headH).lineWidth(0.75).stroke().restore();
+  }
   y += headH;
 
-  // Line items
-  lineItems.forEach((item, idx) => {
-    const bg = idx % 2 === 0 ? C.white : C.cream;
-    fillRect(doc, MARGIN, y, CONTENT, rowH, bg);
-
-    const cells = [
-      item.description,
-      formatLineQty(item),
-      formatIdr(item.unitPrice),
-      formatIdr(item.subtotal),
-    ];
+  const drawRow = (cells, aligns, { bold = false } = {}) => {
+    fillRect(doc, MARGIN, y, CONTENT, rowH, C.white);
     cells.forEach((cell, i) => {
-      setFill(doc, C.text).font('Helvetica').fontSize(10)
-        .text(cell, colX[i] + 6, y + 8, { width: colWidths[i] - 12, align: aligns[i], lineBreak: false });
+      setFill(doc, C.text).font(bold ? F.semibold : F.regular).fontSize(10)
+        .text(cell, colX[i] + (i >= 2 ? moneyPad : 8), y + 9, {
+          width: colWidths[i] - (i >= 2 ? moneyPad * 2 : 16),
+          align: aligns[i],
+          lineBreak: false,
+        });
     });
+    strokeRect(doc, MARGIN, y, CONTENT, rowH);
+    for (let i = 1; i < 4; i++) {
+      doc.save().moveTo(colX[i], y).lineTo(colX[i], y + rowH).lineWidth(0.75).stroke().restore();
+    }
+    y += rowH;
+  };
 
-    hRule(doc, MARGIN, y + rowH, CONTENT, C.border, 0.4);
+  tableRows.forEach((row) => {
+    if (row.kind === 'item') {
+      const item = row.item;
+      drawRow(
+        [item.description, formatLineQty(item), formatIdr(item.unitPrice), formatIdr(item.subtotal)],
+        ['left', 'center', 'right', 'right']
+      );
+      return;
+    }
+
+    const mergedW = colWidths[0] + colWidths[1] + colWidths[2];
+    fillRect(doc, MARGIN, y, CONTENT, rowH, C.white);
+    setFill(doc, C.text).font(F.regular).fontSize(10)
+      .text(row.label, MARGIN + 8, y + 9, { width: mergedW - 16, align: 'left', lineBreak: false });
+    setFill(doc, C.text).font(F.regular).fontSize(10)
+      .text(`- ${formatIdr(row.amount)}`, colX[3] + moneyPad, y + 9, {
+        width: colWidths[3] - moneyPad * 2,
+        align: 'right',
+        lineBreak: false,
+      });
+    strokeRect(doc, MARGIN, y, CONTENT, rowH);
+    doc.save().moveTo(colX[3], y).lineTo(colX[3], y + rowH).lineWidth(0.75).stroke().restore();
     y += rowH;
   });
 
-  // Discount row (optional)
-  if (discountAmount > 0) {
-    fillRect(doc, MARGIN, y, CONTENT, rowH, C.cream);
-    const label = `Discount${discountCode ? ` (${discountCode})` : ''}`;
-    setFill(doc, C.text).font('Helvetica-Bold').fontSize(10)
-      .text(label, colX[0] + 6, y + 8, { width: colWidths[0] + colWidths[1] + colWidths[2] - 12, align: 'right', lineBreak: false });
-    setFill(doc, C.red).font('Helvetica-Bold').fontSize(10)
-      .text(`- ${formatIdr(discountAmount)}`, colX[3] + 6, y + 8, { width: colWidths[3] - 12, align: 'right', lineBreak: false });
-    hRule(doc, MARGIN, y + rowH, CONTENT, C.border, 0.4);
-    y += rowH;
-  }
+  const mergedW = colWidths[0] + colWidths[1] + colWidths[2];
+  fillRect(doc, MARGIN, y, CONTENT, rowH, C.white);
+  setFill(doc, C.text).font(F.semibold).fontSize(10)
+    .text('SUB TOTAL (IDR)', MARGIN + 8, y + 9, { width: mergedW - 16, align: 'right', lineBreak: false });
+  setFill(doc, C.text).font(F.semibold).fontSize(10)
+    .text(formatIdr(total), colX[3] + moneyPad, y + 9, {
+      width: colWidths[3] - moneyPad * 2,
+      align: 'right',
+      lineBreak: false,
+    });
+  strokeRect(doc, MARGIN, y, CONTENT, rowH);
+  doc.save().moveTo(colX[3], y).lineTo(colX[3], y + rowH).lineWidth(0.75).stroke().restore();
+  y += rowH;
 
-  // Total row
-  fillRect(doc, MARGIN, y, CONTENT, rowH + 2, C.cream);
-  setFill(doc, C.text).font('Helvetica-Bold').fontSize(10)
-    .text('TOTAL (IDR)', colX[0] + 6, y + 9, { width: colWidths[0] + colWidths[1] + colWidths[2] - 12, align: 'right', lineBreak: false });
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(formatIdr(total), colX[3] + 6, y + 9, { width: colWidths[3] - 12, align: 'right', lineBreak: false });
-  hRule(doc, MARGIN, y + rowH + 2, CONTENT, C.border, 1);
-  y += rowH + 2;
-
-  return y + 6;
+  return y + 8;
 }
 
-// ─── Page 1: Confirmation letter ──────────────────────────────────────────────
+// ─── Confirmation detail table ────────────────────────────────────────────────
+
+function confirmationDetailTable(doc, rows, startY) {
+  const col1W = CONTENT * 0.38;
+  const col2W = CONTENT - col1W;
+  const rowH  = 28;
+  let y = startY;
+
+  rows.forEach((row) => {
+    fillRect(doc, MARGIN, y, CONTENT, rowH, C.white);
+
+    setFill(doc, C.text).font(F.semibold).fontSize(10)
+      .text(row[0], MARGIN + 6, y + 9, { width: col1W - 12, align: 'center', lineBreak: false });
+    setFill(doc, C.text).font(F.regular).fontSize(10)
+      .text(row[1], MARGIN + col1W + 10, y + 9, { width: col2W - 20, align: 'left', lineBreak: false });
+
+    strokeRect(doc, MARGIN, y, CONTENT, rowH);
+    doc.save()
+      .moveTo(MARGIN + col1W, y).lineTo(MARGIN + col1W, y + rowH)
+      .lineWidth(0.75).stroke().restore();
+
+    y += rowH;
+  });
+
+  return y + 4;
+}
+
+// ─── Invoice page ─────────────────────────────────────────────────────────────
+
+function drawInvoicePage(doc, summary) {
+  const booking     = summary.booking || summary;
+  const guestName   = summary.guestName  || booking.guests?.full_name  || 'Guest';
+  const phone       = summary.phone      || booking.guests?.phone_number || '—';
+  const displayId   = summary.displayId  || booking.display_id || `INV${String(booking.id || '000000').slice(0, 5).toUpperCase()}`;
+  const invoiceDate = formatInvoiceDate(booking.created_at || new Date().toISOString());
+
+  const lineItems = buildInvoiceLineItems(summary);
+  const subtotal  = summary.subtotalBeforeDiscount
+    ?? lineItems.reduce((s, i) => s + (i.subtotal || 0), 0);
+  const discountAmount = summary.discountAmount || 0;
+  const total = summary.total ?? Math.max(subtotal - discountAmount, 0);
+  const tableRows = buildInvoiceTableRows(lineItems, summary);
+
+  drawPageHeader(doc);
+
+  let y = HEADER_H + 28;
+
+  const metaColonX = colonXForLabels(doc, ['Invoice No', 'Date'], MARGIN);
+  drawColonField(doc, 'Invoice No', displayId, MARGIN, y, metaColonX);
+  y += 16;
+  drawColonField(doc, 'Date', invoiceDate, MARGIN, y, metaColonX);
+  y += 28;
+
+  const col1X = MARGIN;
+  const col2X = MARGIN + CONTENT * 0.52;
+  const colW  = CONTENT * 0.48;
+  const blockTop = y;
+
+  setFill(doc, C.text).font(F.semibold).fontSize(11)
+    .text(PROPERTY.name, col1X, blockTop, { width: colW });
+  let leftY = doc.y + 4;
+  setFill(doc, C.text).font(F.regular).fontSize(9)
+    .text(PROPERTY.address, col1X, leftY, { width: colW });
+  leftY = doc.y + 4;
+  const contactColonX = colonXForLabels(doc, ['Contact'], col1X, 9);
+  drawColonField(doc, 'Contact', PROPERTY.phone, col1X, leftY, contactColonX, { size: 9 });
+
+  setFill(doc, C.text).font(F.semibold).fontSize(11)
+    .text('Bill To', col2X, blockTop, { width: colW });
+  const billColonX = colonXForLabels(doc, ['Customer', 'Contact'], col2X, 9);
+  let rightY = doc.y + 6;
+  drawColonField(doc, 'Customer', guestName, col2X, rightY, billColonX, { size: 9 });
+  rightY += 14;
+  drawColonField(doc, 'Contact', phone, col2X, rightY, billColonX, { size: 9 });
+
+  y = Math.max(leftY, rightY) + 26;
+
+  y = invoiceTable(doc, tableRows, total, y);
+  y += 12;
+
+  setFill(doc, C.text).font(F.semibold).fontSize(11)
+    .text('Payment Instruction (IDR)', MARGIN, y);
+  y = doc.y + 10;
+
+  const paymentLabels = ['Bank Details', 'Bank Account', 'Name'];
+  const paymentColonX = colonXForLabels(doc, paymentLabels, MARGIN);
+  const paymentRows = [
+    ['Bank Details', PROPERTY.bankName],
+    ['Bank Account', PROPERTY.bankAccount],
+    ['Name', PROPERTY.bankAccountName],
+  ];
+  paymentRows.forEach(([label, value]) => {
+    drawColonField(doc, label, value, MARGIN, y, paymentColonX);
+    y += 14;
+  });
+  y += 6;
+
+  setFill(doc, C.text).font(F.regular).fontSize(10)
+    .text(
+      'Please send your payment details to complete your booking through our contact person.',
+      MARGIN, y, { width: CONTENT }
+    );
+
+  setFill(doc, C.text).font(F.semibold).fontSize(12)
+    .text('Thank you for staying with us!', MARGIN, PH - MARGIN - 20, { width: CONTENT });
+}
+
+// ─── Confirmation letter page ─────────────────────────────────────────────────
 
 function drawConfirmationPage(doc, summary) {
   const booking    = summary.booking || summary;
@@ -250,294 +661,107 @@ function drawConfirmationPage(doc, summary) {
     Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24)), 1
   );
 
-  let y = MARGIN;
+  drawPageHeader(doc);
 
-  // ── Brand title ──────────────────────────────────────────────────────────
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(28)
-    .text('Umalila', MARGIN, y, { align: 'center', width: CONTENT });
-  y = doc.y + 20;
+  let y = HEADER_H + 28;
 
-  // ── Guest / stay summary grid (two columns) ───────────────────────────────
-  const col1X = MARGIN;
-  const col2X = MARGIN + CONTENT * 0.52;
-  const colW  = CONTENT * 0.48;
-
-  // Left column
-  setFill(doc, C.textMuted).font('Helvetica-Bold').fontSize(9)
-    .text('Guest Name', col1X, y, { width: colW });
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(guestName, col1X, doc.y + 2, { width: colW });
-  const leftY1 = doc.y + 10;
-
-  setFill(doc, C.textMuted).font('Helvetica-Bold').fontSize(9)
-    .text('Villa Type', col1X, leftY1, { width: colW });
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(villaName, col1X, doc.y + 2, { width: colW });
-  const leftY2 = doc.y + 10;
-
-  setFill(doc, C.textMuted).font('Helvetica-Bold').fontSize(9)
-    .text('No. of Guests', col1X, leftY2, { width: colW });
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(`${guestCount} Guest${guestCount !== 1 ? 's' : ''}`, col1X, doc.y + 2, { width: colW });
-
-  // Right column (reset y to top of grid)
-  setFill(doc, C.textMuted).font('Helvetica-Bold').fontSize(9)
-    .text('Check-in Date', col2X, y, { width: colW });
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(formatStayDate(checkIn, 'After 2 PM'), col2X, doc.y + 2, { width: colW });
-  const rightY1 = doc.y + 10;
-
-  setFill(doc, C.textMuted).font('Helvetica-Bold').fontSize(9)
-    .text('Check-out Date', col2X, rightY1, { width: colW });
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(formatStayDate(checkOut, 'Before 11 AM'), col2X, doc.y + 2, { width: colW });
-
-  y = doc.y + 20;
-
-  // ── Contact row ───────────────────────────────────────────────────────────
-  const contactItems = [PROPERTY.email, PROPERTY.instagram, PROPERTY.phone];
-  const contactW = CONTENT / contactItems.length;
-
-  contactItems.forEach((item, i) => {
-    setFill(doc, C.textMuted).font('Helvetica').fontSize(9)
-      .text(item, MARGIN + i * contactW, y, { width: contactW, align: 'center', lineBreak: false });
-  });
-  y += 24;
-
-  // ── Headline ──────────────────────────────────────────────────────────────
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(16)
+  setFill(doc, C.text).font(F.semibold).fontSize(14)
     .text('Your reservation is confirmed!', MARGIN, y, { width: CONTENT });
-  y = doc.y + 12;
-
-  // ── Greeting body ─────────────────────────────────────────────────────────
-  setFill(doc, C.text).font('Helvetica').fontSize(10);
-  doc.text('Dear ', MARGIN, y, { continued: true, lineGap: 2 });
-  doc.font('Helvetica-Bold').text(`${guestFirstName(guestName)},`, { continued: false });
-  doc.moveDown(0.5);
-  doc.font('Helvetica').text(
-    `Thank you for choosing to stay at Villa Umalila. We're pleased to confirm your reservation for `,
-    { continued: true }
-  );
-  doc.font('Helvetica-Bold').text(stayDurationLabel(nights), { continued: false });
   y = doc.y + 16;
 
-  // ── Reservation Details table ─────────────────────────────────────────────
-  y = sectionTitle(doc, 'Reservation Details', y) + 4;
-  y = detailTable(doc, [
-    ['Guest Name',    guestName],
-    ['Villa Type',    villaName],
-    ['No. of Guests', `${guestCount} Guest${guestCount !== 1 ? 's' : ''}`],
+  setFill(doc, C.text).font(F.regular).fontSize(10);
+  doc.text(`Dear ${guestFirstName(guestName)},`, MARGIN, y, { lineGap: 2 });
+  doc.moveDown(0.6);
+  doc.text(
+    `Thank you for choosing to stay at Villa Umalila. We're pleased to confirm your reservation for ${stayDurationLabel(nights)}.`,
+    MARGIN, doc.y, { width: CONTENT, lineGap: 2 }
+  );
+  y = doc.y + 18;
+
+  y = drawSectionBar(doc, 'Reservation Details', y);
+  y = confirmationDetailTable(doc, [
+    ['Guest Name',     guestName],
+    ['Villa Type',     villaName],
+    ['No. of Guests',  `${guestCount} Guest${guestCount !== 1 ? 's' : ''}`],
     ['Check-in Date',  formatStayDate(checkIn,  'After 2 PM')],
     ['Check-out Date', formatStayDate(checkOut, 'Before 11 AM')],
   ], y);
   y += 14;
 
-  // ── Closing line ──────────────────────────────────────────────────────────
-  setFill(doc, C.text).font('Helvetica').fontSize(10)
+  setFill(doc, C.text).font(F.regular).fontSize(10)
     .text('We look forward to welcoming you to Villa Umalila.', MARGIN, y, { width: CONTENT });
-  y = doc.y + 18;
+  y = doc.y + 20;
 
-  // ── Important Notice ──────────────────────────────────────────────────────
-  y = sectionTitle(doc, 'Important Notice', y) + 6;
-
-  const notices = [
+  const noticePad   = 12;
+  const noticeItems = [
     'Please present your KTP and booking details during check-in.',
-    'Villa Umalila does not accommodate unmarried couples.',
+    'Villa Umalila does not accomodate unmarried couples.',
   ];
-  notices.forEach((notice) => {
-    setFill(doc, C.text).font('Helvetica').fontSize(10)
-      .text(`•  ${notice}`, MARGIN + 12, y, { width: CONTENT - 12 });
-    y = doc.y + 4;
+  const noticeTitleH = 18;
+  const noticeItemH  = 16;
+  const noticeBoxH   = noticePad + noticeTitleH + noticeItems.length * noticeItemH + noticePad;
+
+  strokeRect(doc, MARGIN, y, CONTENT, noticeBoxH, C.brandBlue, 1);
+
+  setFill(doc, C.text).font(F.semibold).fontSize(11)
+    .text('Important Notice', MARGIN + noticePad, y + noticePad, { width: CONTENT - noticePad * 2 });
+
+  let noticeY = y + noticePad + noticeTitleH;
+  noticeItems.forEach((notice) => {
+    setFill(doc, C.text).font(F.regular).fontSize(10)
+      .text(`•  ${notice}`, MARGIN + noticePad, noticeY, { width: CONTENT - noticePad * 2 });
+    noticeY += noticeItemH;
   });
-  y += 16;
 
-  // ── Footer ────────────────────────────────────────────────────────────────
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(12)
-    .text(PROPERTY.name, MARGIN, y);
-  y = doc.y + 2;
-  PROPERTY.addressLines.forEach((line) => {
-    setFill(doc, C.text).font('Helvetica').fontSize(9).text(line, MARGIN, y);
-    y = doc.y + 1;
-  });
-}
+  const footerY = PH - MARGIN - 72;
+  const footerLeftW  = CONTENT * 0.55;
+  const footerRightX = MARGIN + CONTENT * 0.58;
 
-// ─── Page 2: Invoice ──────────────────────────────────────────────────────────
+  setFill(doc, C.text).font(F.semibold).fontSize(11)
+    .text(PROPERTY.name, MARGIN, footerY, { width: footerLeftW });
+  setFill(doc, C.text).font(F.regular).fontSize(9)
+    .text(PROPERTY.address, MARGIN, doc.y + 4, { width: footerLeftW });
 
-function drawInvoicePage(doc, summary) {
-  const booking    = summary.booking || summary;
-  const guestName  = summary.guestName  || booking.guests?.full_name  || 'Guest';
-  const phone      = summary.phone      || booking.guests?.phone_number || '—';
-  const displayId  = summary.displayId  || booking.display_id || `INV${(booking.id || '000000').slice(0, 6).toUpperCase()}`;
-  const invoiceDate = formatInvoiceDate(booking.created_at || new Date().toISOString());
-
-  // ── Build line items ──────────────────────────────────────────────────────
-  const lineItems = [];
-
-  if (Array.isArray(summary.accommodationLines) && summary.accommodationLines.length) {
-    summary.accommodationLines.forEach(line => {
-      lineItems.push({
-        description: line.name || line.description || 'Accommodation',
-        name:        line.name || 'Accommodation',
-        quantity:    line.quantity || 1,
-        unitPrice:   line.unitPrice || 0,
-        subtotal:    line.subtotal  || 0,
-        type:        'accommodation',
-      });
-    });
-  } else if (Array.isArray(summary.villas)) {
-    summary.villas.forEach(villa => {
-      const lineNights = villa.nights || 1;
-      const rate = villa.rate || 0;
-      lineItems.push({
-        description: villa.name || 'Accommodation',
-        name:        villa.name || 'Accommodation',
-        quantity:    lineNights,
-        unitPrice:   rate,
-        subtotal:    villa.subtotal ?? rate * lineNights,
-        type:        'accommodation',
-      });
-    });
-  }
-
-  if (Array.isArray(summary.addonLines) && summary.addonLines.length) {
-    summary.addonLines.forEach(line => {
-      lineItems.push({
-        description: line.name || line.description || 'Add-on',
-        name:        line.name || 'Add-on',
-        quantity:    line.quantity || 1,
-        unitPrice:   line.unitPrice || 0,
-        subtotal:    line.subtotal  || 0,
-        type:        'addon',
-      });
-    });
-  } else if (Array.isArray(summary.addons)) {
-    summary.addons.forEach(addon => {
-      lineItems.push({
-        description: addon.name || 'Add-on',
-        name:        addon.name || 'Add-on',
-        quantity:    addon.quantity || 1,
-        unitPrice:   addon.unitPrice || 0,
-        subtotal:    addon.subtotal ?? (addon.unitPrice || 0) * (addon.quantity || 1),
-        type:        'addon',
-      });
-    });
-  }
-
-  const subtotal       = summary.subtotalBeforeDiscount
-    ?? lineItems.reduce((s, i) => s + (i.subtotal || 0), 0);
-  const discountAmount = summary.discountAmount || 0;
-  const total          = summary.total ?? Math.max(subtotal - discountAmount, 0);
-
-  let y = MARGIN;
-
-  // ── Brand title ───────────────────────────────────────────────────────────
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(28)
-    .text('Umalila', MARGIN, y, { align: 'center', width: CONTENT });
-  y = doc.y + 20;
-
-  // ── Invoice meta (two columns) ────────────────────────────────────────────
-  const col1X = MARGIN;
-  const col2X = MARGIN + CONTENT * 0.5;
-  const colW  = CONTENT * 0.5;
-
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text('Invoice No', col1X, y, { width: colW });
-  setFill(doc, C.text).font('Helvetica').fontSize(10)
-    .text(`: ${displayId}`, col1X, doc.y + 2, { width: colW });
-  const metaLeftY = doc.y + 6;
-
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text('Date', col1X, metaLeftY, { width: colW });
-  setFill(doc, C.text).font('Helvetica').fontSize(10)
-    .text(`: ${invoiceDate}`, col1X, doc.y + 2, { width: colW });
-
-  // Right column — Bill To
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text('Bill To', col2X, y, { width: colW });
-  y = doc.y + 4;
-  setFill(doc, C.text).font('Helvetica').fontSize(9)
-    .text(`Customer : ${guestName}`, col2X, y, { width: colW });
-  y = doc.y + 2;
-  setFill(doc, C.text).font('Helvetica').fontSize(9)
-    .text(`Contact   : ${phone}`, col2X, y, { width: colW });
-
-  y = doc.y + 16;
-
-  // ── Property address (left) ───────────────────────────────────────────────
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(PROPERTY.name, col1X, y - 16 - (16 * (PROPERTY.addressLines.length + 1)), { width: colW });
-
-  // Re-draw address below meta block to avoid collision — position after y
-  setFill(doc, C.brandDark).font('Helvetica-Bold').fontSize(11)
-    .text(PROPERTY.name, col1X, y, { width: colW });
-  y = doc.y + 2;
-  PROPERTY.addressLines.forEach(line => {
-    setFill(doc, C.text).font('Helvetica').fontSize(9)
-      .text(line, col1X, y, { width: colW });
-    y = doc.y + 1;
-  });
-  setFill(doc, C.text).font('Helvetica').fontSize(9)
-    .text(`Contact: ${PROPERTY.phone}`, col1X, y, { width: colW });
-  y = doc.y + 20;
-
-  // ── Invoice table ─────────────────────────────────────────────────────────
-  y = invoiceTable(doc, lineItems, discountAmount, summary.discountCode, total, y);
-  y += 10;
-
-  // ── Payment instructions ──────────────────────────────────────────────────
-  y = sectionTitle(doc, 'Payment Instruction (IDR)', y) + 8;
-
-  const paymentLines = [
-    `Bank Details   : ${PROPERTY.bankName}`,
-    `Bank Account : ${PROPERTY.bankAccount}`,
-    `Name              : ${PROPERTY.bankAccountName}`,
+  const contacts = [
+    { type: 'email',     label: PROPERTY.email },
+    { type: 'phone',     label: PROPERTY.phone },
+    { type: 'instagram', label: PROPERTY.instagram },
   ];
-  paymentLines.forEach(line => {
-    setFill(doc, C.text).font('Helvetica').fontSize(10)
-      .text(line, MARGIN, y, { width: CONTENT });
-    y = doc.y + 3;
+  let contactY = footerY + 2;
+  contacts.forEach(({ type, label }) => {
+    drawContactRow(doc, type, label, footerRightX, contactY);
+    contactY += 18;
   });
-  y += 10;
-
-  setFill(doc, C.text).font('Helvetica').fontSize(10)
-    .text(
-      'Please send your payment details to complete your booking through our contact person.',
-      MARGIN, y, { width: CONTENT }
-    );
-  y = doc.y + 24;
-
-  // ── Thank you ─────────────────────────────────────────────────────────────
-  setFill(doc, C.brandMid || C.brandAccent).font('Helvetica-Bold').fontSize(12)
-    .text('Thank you for staying with us!', MARGIN, y, { align: 'center', width: CONTENT });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Generate a booking confirmation PDF and return it as a Buffer.
- * @param {object} summary  — output of buildFinancialSummary() from pdfHelpers.js
+ * Page 1 — confirmation letter, Page 2 — invoice.
+ * @param {object} summary — output of buildFinancialSummary()
  * @returns {Promise<Buffer>}
  */
 export async function generateBookingConfirmationPdf(summary) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size:    'A4',
-      margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
+      margins: { top: 0, bottom: MARGIN, left: MARGIN, right: MARGIN },
       info: {
         Title:   'Booking Confirmation — Villa Umalila',
         Author:  'Villa Umalila PMS',
       },
     });
 
-    const chunks = [];
-    doc.on('data',  chunk => chunks.push(chunk));
-    doc.on('end',   ()    => resolve(Buffer.concat(chunks)));
-    doc.on('error', err   => reject(err));
+    registerFonts(doc);
 
-    // Page 1 — confirmation letter
+    const chunks = [];
+    doc.on('data',  (chunk) => chunks.push(chunk));
+    doc.on('end',   () => resolve(Buffer.concat(chunks)));
+    doc.on('error', (err) => reject(err));
+
     drawConfirmationPage(doc, summary);
 
-    // Page 2 — invoice
     doc.addPage();
     drawInvoicePage(doc, summary);
 

@@ -1,6 +1,6 @@
 import React from 'react';
 
-function SubmittingOverlay() {
+function SubmittingOverlay({ message = 'Saving…', subtitle = 'Please wait a moment' }) {
   return (
     <div style={{
       position: 'absolute',
@@ -33,10 +33,10 @@ function SubmittingOverlay() {
           animation: 'spin 0.8s linear infinite',
         }} />
         <p style={{ margin: 0, fontWeight: 500, color: '#0f172a' }}>
-          Saving reservation...
+          {message}
         </p>
         <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
-          Please wait a moment
+          {subtitle}
         </p>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

@@ -25,6 +25,11 @@ export const PHASE_CONFIG = {
     color: '#374151',
     bg: '#f3f4f6',
   },
+  cancelled: { 
+    label: 'Cancelled', 
+    color: '#991b1b', 
+    bg: '#fee2e2' 
+  },
 };
 
 export const STATUS_CONFIG = {
@@ -91,6 +96,50 @@ export const PAYMENT_FILTER_OPTIONS = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
+export const USER_STATUS_CONFIG = {
+  active: {
+    label: 'Active',
+    color: '#065f46',
+    bg: '#d1fae5',
+  },
+  deactivated: {
+    label: 'Deactivated',
+    color: '#374151',
+    bg: '#f3f4f6',
+  },
+};
+
+export const EXPENSE_STATUS_CONFIG = {
+  pending: {
+    label: 'Pending',
+    color: '#92400e',
+    bg: '#fef3c7',
+  },
+  approved: {
+    label: 'Approved',
+    color: '#065f46',
+    bg: '#d1fae5',
+  },
+  rejected: {
+    label: 'Rejected',
+    color: '#991b1b',
+    bg: '#fee2e2',
+  },
+};
+
+export const EXPENSE_CATEGORY_OPTIONS = [
+  { value: 'operational', label: 'Operational' },
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'salary', label: 'Salary' },
+  { value: 'f&b_cost', label: 'F&B Cost' },
+  { value: 'marketing', label: 'Marketing' },
+  { value: 'other_expense', label: 'Other' },
+];
+
+export const EXPENSE_CATEGORY_LABELS = Object.fromEntries(
+  EXPENSE_CATEGORY_OPTIONS.map(({ value, label }) => [value, label])
+);
+
 export const TIMEFRAME_FILTER_OPTIONS = [
   { key: 'all', label: 'All Time' },
   { key: 'today', label: 'Today' },
@@ -109,6 +158,10 @@ export function getStatusConfig(key, type = 'status') {
     return PHASE_CONFIG[key] || PHASE_CONFIG[Object.keys(PHASE_CONFIG)[0]];
   } else if (type === 'payment') {
     return PAYMENT_STATUS_CONFIG[key] || PAYMENT_STATUS_CONFIG['pending'];
+  } else if (type === 'expense') {
+    return EXPENSE_STATUS_CONFIG[key] || EXPENSE_STATUS_CONFIG.pending;
+  } else if (type === 'user') {
+    return USER_STATUS_CONFIG[key] || USER_STATUS_CONFIG.active;
   }
   return STATUS_CONFIG[key] || STATUS_CONFIG[Object.keys(STATUS_CONFIG)[0]];
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Eye,
@@ -15,12 +15,18 @@ import {
 import Badge from '../ui/Badge';
 import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
-import ReservationPaymentModal from './ReservationPaymentModal';
-import PublicReservationForm from './PublicReservationForm';
-import { Modal, Button, Alert, Textarea } from '../ui';
+import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
+import { PendingQueueCard, PendingQueueList } from '../ui/PendingQueueCard';
+import { Button, Modal, Alert, Textarea } from '../ui';
 import { downloadReservationInvoice } from '../../utils/invoiceUtils';
 import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../../utils/statusConfigs';
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
+import ReservationPaymentModal from './ReservationPaymentModal';
+import PublicReservationForm from './PublicReservationForm';
+import SummaryModal from '../financial/SummaryModal';
+import { useMutation } from '../../context/MutationProvider';
+import { sortReservationsByRecency } from '../../utils/bookingUtils';
+import { useReservationsData } from '../../hooks/api/useBookings';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -33,22 +39,17 @@ function DashboardMetrics({ stats, loading }) {
   ];
 
   return (
-    <div className="stats-grid">
-      {metrics.map(({ label, value, icon: Icon }) => (
-        <div key={label} className="metric-card">
-          <div className="metric-card__icon-bg">
-            <Icon color="var(--navy)" />
-          </div>
-          <div className="metric-card__label-row">
-            <Icon color="var(--text-muted)" />
-            <span className="metric-card__label">{label}</span>
-          </div>
-          <div className={loading ? 'metric-card__value--loading' : 'metric-card__value'}>
-            {loading ? '—' : value}
-          </div>
-        </div>
+    <KpiCardGrid>
+      {metrics.map(({ label, value, icon }) => (
+        <KpiCard
+          key={label}
+          icon={icon}
+          label={label}
+          value={value}
+          loading={loading}
+        />
       ))}
-    </div>
+    </KpiCardGrid>
   );
 }
 
@@ -138,70 +139,79 @@ function DeclineRequestModal({ request, onClose, onConfirm, submitting, error })
   );
 }
 
-function PendingRequestsTable({ requests, onApprove, onDecline, loading }) {
+function PendingRequestsTable({ requests, onApprove, onDecline, onView, loading }) {
+  const [actionId, setActionId] = useState(null);
+
   if (loading) {
     return <div className="empty-state">Loading pending requests…</div>;
   }
 
   if (requests.length === 0) {
     return (
-      <div className="empty-state empty-state--dashed">
-        <CheckCircle size={32} color="var(--green)" style={{ marginBottom: 10, opacity: 0.7 }} />
-        <h3 className="section-card__title" style={{ marginBottom: 6 }}>All clear — no pending requests</h3>
-        <p className="text-muted" style={{ fontSize: '0.8rem' }}>All reservation requests have been processed.</p>
-      </div>
+      <PendingQueueList
+        empty
+        emptyMessage="No reservation requests awaiting approval."
+      />
     );
   }
 
+  const handleApprove = async (requestId) => {
+    setActionId(requestId);
+    try {
+      await onApprove(requestId);
+    } finally {
+      setActionId(null);
+    }
+  };
+
   return (
-    <div className="table-scroll-wrap" style={{ border: 'none', borderRadius: 0 }}>
-      <table className="pms-table">
-        <thead>
-          <tr>
-            <th>Guest</th>
-            <th>Check-In</th>
-            <th>Check-Out</th>
-            <th className="text-center">Adults / Children</th>
-            <th className="text-center">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {requests.map((request) => (
-            <tr key={request.id}>
-              <td className="cell-guest">{request.guest_full_name}</td>
-              <td>{request.check_in_date}</td>
-              <td>{request.check_out_date}</td>
-              <td className="text-center">{request.adults} / {request.children}</td>
-              <td className="text-center">
-                <div className="table-action-group">
-                  <TableActionButton
-                    title="View details"
-                    variant="default"
-                    onClick={() => alert(`Details for ${request.guest_full_name} — TBD`)}
-                  >
-                    <Eye size={13} />
-                  </TableActionButton>
-                  <TableActionButton
-                    title="Approve request"
-                    variant="success"
-                    onClick={() => onApprove(request.id)}
-                  >
-                    <CheckCircle size={13} />
-                  </TableActionButton>
-                  <TableActionButton
-                    title="Decline request"
-                    variant="danger"
-                    onClick={() => onDecline(request)}
-                  >
-                    <XCircle size={13} />
-                  </TableActionButton>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <PendingQueueList>
+      {requests.map((request) => (
+        <PendingQueueCard
+          key={request.id}
+          id={request.display_id || request.guest_full_name}
+          meta={(
+            <>
+              <span>{request.check_in_date}</span>
+              <span className="pending-queue-card__dot">→</span>
+              <span>{request.check_out_date}</span>
+              <span className="pending-queue-card__dot">·</span>
+              <span>{request.adults} adults, {request.children} children</span>
+            </>
+          )}
+          description={request.display_id ? request.guest_full_name : null}
+          actions={(
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Eye}
+                onClick={() => onView(request)}
+              >
+                View
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                icon={CheckCircle}
+                loading={actionId === request.id}
+                onClick={() => handleApprove(request.id)}
+              >
+                Approve
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                icon={XCircle}
+                onClick={() => onDecline(request)}
+              >
+                Decline
+              </Button>
+            </>
+          )}
+        />
+      ))}
+    </PendingQueueList>
   );
 }
 
@@ -365,8 +375,8 @@ function AllReservationsTable({
           <p className="text-muted" style={{ fontSize: '0.8rem' }}>Try adjusting your filters or search term.</p>
         </div>
       ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table">
+        <div className="table-scroll-wrap table-scroll-wrap--cards-mobile">
+          <table className="pms-table pms-table--cards-mobile">
             <thead>
               <tr>
                 <th>Guest</th>
@@ -384,20 +394,20 @@ function AllReservationsTable({
                 const isCancelled = res.status === 'cancelled';
                 return (
                   <tr key={res.id}>
-                    <td className="cell-guest">{res.guest_full_name}</td>
-                    <td className="cell-truncate">{res.villa_names || '—'}</td>
-                    <td>{res.check_in_date}</td>
-                    <td>{res.check_out_date}</td>
-                    <td className="text-right cell-amount">
-                      Rp {res.total_price?.toLocaleString() || '0'}
+                    <td className="cell-guest" data-label="Guest">{res.guest_full_name}</td>
+                    <td className="cell-truncate" data-label="Villas">{res.villa_names || '—'}</td>
+                    <td data-label="Check-In">{res.check_in_date}</td>
+                    <td data-label="Check-Out">{res.check_out_date}</td>
+                    <td className="text-right cell-amount" data-label="Amount">
+                      Rp {(Number(res.ledger_total ?? res.total_price) || 0).toLocaleString('id-ID')}
                     </td>
-                    <td className="text-center">
+                    <td className="text-center" data-label="Payment">
                       <Badge type="payment" value={res.payment_status || 'pending'} />
                     </td>
-                    <td className="text-center">
+                    <td className="text-center" data-label="Status">
                       <Badge type="status" value={res.status} />
                     </td>
-                    <td className="text-center">
+                    <td className="text-center" data-label="Action">
                       <div className="table-action-group">
                         <TableActionButton
                           title="Edit Reservation"
@@ -445,63 +455,30 @@ function AllReservationsTable({
 // 🎯 MAIN COMPONENT: RESERVATION PAGE
 // =====================================================
 function ReservationPage() {
-  const [pendingRequests, setPendingRequests] = useState([]);
-  const [allReservations, setAllReservations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState(null);
-  const [statsLoading, setStatsLoading] = useState(true);
+  const { runMutation } = useMutation();
+  const {
+    pendingRequests: basePending,
+    allReservations: baseReservations,
+    stats,
+    isLoading: loading,
+    isFetching,
+    refetch,
+  } = useReservationsData();
   const [editBooking, setEditBooking] = useState(null);
   const [paymentBooking, setPaymentBooking] = useState(null);
+  const [viewRequest, setViewRequest] = useState(null);
   const [downloadingId, setDownloadingId] = useState(null);
   const [declineTarget, setDeclineTarget] = useState(null);
   const [declineSubmitting, setDeclineSubmitting] = useState(false);
   const [declineError, setDeclineError] = useState(null);
+  const [prioritizeId, setPrioritizeId] = useState(null);
 
-  const processBookings = (bookingsData) => {
-    const pending = bookingsData
-      .filter((b) => b.status === 'pending')
-      .map((b) => ({
-        ...b,
-        guest_full_name: b.guests?.full_name || 'Unknown Guest',
-        adults: parseInt(b.notes?.match(/Adults:\s*(\d+)/)?.[1] || '0'),
-        children: parseInt(b.notes?.match(/Children:\s*(\d+)/)?.[1] || '0'),
-      }));
-
-    const approved = bookingsData
-      .filter((b) => b.status !== 'pending')
-      .map((b) => ({
-        ...b,
-        guest_full_name: b.guests?.full_name || 'Unknown Guest',
-        payment_status: b.payment_status || 'pending',
-      }));
-
-    setPendingRequests(pending);
-    setAllReservations(approved);
-    setStats({
-      totalBookings: bookingsData.length,
-      pendingApproval: pending.length,
-      confirmedBookings: approved.filter((b) => b.status === 'confirmed').length,
-    });
-  };
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const bookingsRes = await fetch('/api/bookings');
-      if (!bookingsRes.ok) throw new Error('Failed to fetch bookings');
-      const bookingsData = await bookingsRes.json();
-      processBookings(bookingsData);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-    } finally {
-      setLoading(false);
-      setStatsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const allReservations = useMemo(
+    () => (prioritizeId ? sortReservationsByRecency(baseReservations, prioritizeId) : baseReservations),
+    [baseReservations, prioritizeId],
+  );
+  const pendingRequests = basePending;
+  const statsLoading = loading;
 
   const handleDownloadInvoice = async (reservation) => {
     try {
@@ -515,76 +492,77 @@ function ReservationPage() {
     }
   };
 
-  const handlePaymentRecorded = () => {
-    fetchData();
-  };
+  const handlePaymentRecorded = () => runMutation({
+    mutation: async () => {},
+    refresh: () => refetch(),
+    showSuccess: false,
+    overlayMessage: 'Refreshing reservations…',
+  });
 
-  const handleReservationSaved = () => {
-    fetchData();
-  };
+  const handleReservationSaved = () => runMutation({
+    mutation: async () => {},
+    refresh: () => refetch(),
+    showSuccess: false,
+    overlayMessage: 'Refreshing reservations…',
+  });
 
   const handleDeclineRequest = async (reason) => {
     if (!declineTarget) return;
 
     setDeclineSubmitting(true);
     setDeclineError(null);
-    try {
-      const response = await fetch(`/api/bookings/${declineTarget.id}/cancel`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancellation_reason: reason }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to decline request');
-      }
 
-      setPendingRequests((prev) => prev.filter((r) => r.id !== declineTarget.id));
-      setStats((prev) => ({
-        ...prev,
-        pendingApproval: Math.max(0, prev.pendingApproval - 1),
-      }));
+    const result = await runMutation({
+      mutation: async () => {
+        const response = await fetch(`/api/bookings/${declineTarget.id}/cancel`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cancellation_reason: reason }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to decline request');
+        }
+        return response.json();
+      },
+      refresh: async () => {
+        setPrioritizeId(declineTarget.id);
+        await refetch();
+      },
+      successMessage: 'Reservation request declined.',
+      errorMessage: null,
+      overlayMessage: 'Declining request…',
+    });
+
+    setDeclineSubmitting(false);
+
+    if (result.ok) {
       setDeclineTarget(null);
-    } catch (err) {
-      setDeclineError(err.message);
-    } finally {
-      setDeclineSubmitting(false);
+      setPrioritizeId(declineTarget.id);
+    } else {
+      setDeclineError(result.error?.message || 'Failed to decline request');
     }
   };
 
   const handleApproveRequest = async (requestId) => {
-    try {
-      const response = await fetch(
-        `/api/bookings/${requestId}/status`,
-        {
+    await runMutation({
+      mutation: async () => {
+        const response = await fetch(`/api/bookings/${requestId}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'confirmed' }),
-        }
-      );
-      if (!response.ok) throw new Error('Failed to approve request');
-
-      const approvedRequest = pendingRequests.find((r) => r.id === requestId);
-      if (approvedRequest) {
-        setPendingRequests(pendingRequests.filter((r) => r.id !== requestId));
-        setAllReservations([
-          ...allReservations,
-          {
-            ...approvedRequest,
-            status: 'confirmed',
-            payment_status: 'pending',
-          },
-        ]);
-        setStats((prev) => ({
-          ...prev,
-          pendingApproval: prev.pendingApproval - 1,
-          confirmedBookings: prev.confirmedBookings + 1,
-        }));
-      }
-    } catch (err) {
-      console.error('Error approving request:', err);
-      alert('Failed to approve request');
-    }
+        });
+        if (!response.ok) throw new Error('Failed to approve request');
+        return response.json();
+      },
+      refresh: async () => {
+        setPrioritizeId(requestId);
+        await refetch();
+      },
+      successMessage: 'Reservation approved successfully.',
+      overlayMessage: 'Approving reservation…',
+    });
+    setPrioritizeId(requestId);
   };
 
   return (
@@ -601,10 +579,11 @@ function ReservationPage() {
             </span>
           )}
         </div>
-        <div className="section-card__body--flush">
+        <div className="section-card__body">
           <PendingRequestsTable
             requests={pendingRequests}
             onApprove={handleApproveRequest}
+            onView={setViewRequest}
             onDecline={(request) => {
               setDeclineError(null);
               setDeclineTarget(request);
@@ -658,6 +637,14 @@ function ReservationPage() {
         onConfirm={handleDeclineRequest}
         submitting={declineSubmitting}
         error={declineError}
+      />
+
+      <SummaryModal
+        isOpen={!!viewRequest}
+        bookingId={viewRequest?.id}
+        guestName={viewRequest?.guest_full_name}
+        displayId={viewRequest?.display_id}
+        onClose={() => setViewRequest(null)}
       />
     </div>
   );

@@ -10,23 +10,27 @@ import {
   PricingActionCell,
   PricingLoadingState,
   PricingErrorState,
+  usePaginatedRows,
+  PricingTablePagination,
+  usePricingMutation,
   formatRp,
 } from './pricingShared';
 
-const CATEGORIES = ['food', 'beverage', 'snack', 'dessert', 'other'];
+const CATEGORIES = ['food', 'beverage', 'snack', 'dessert','partner_kitchen', 'other'];
 
 const CATEGORY_META = {
   food:     { label: 'Food',            color: '#b45309', bg: '#fffbeb' },
   beverage: { label: 'Beverage',        color: '#1e40af', bg: '#eff6ff' },
   snack:    { label: 'Snack',           color: '#7c3aed', bg: '#f5f3ff' },
   dessert:  { label: 'Dessert',         color: '#be185d', bg: '#fdf2f8' },
-  other:    { label: 'Partner Kitchen', color: '#374151', bg: '#f9fafb' },
+  partner_kitchen:  { label: 'Partner Kitchen',  color: '#bc6c8d', bg: '#fdf2f8', border: '#fbcfe8' },
+  other:    { label: 'Other',           color: '#374151', bg: '#f9fafb' },
 };
 
 function MenuModal({ isOpen, onClose, onSaved, initialData }) {
   const isEdit = !!initialData;
+  const { saveItem, isMutating } = usePricingMutation();
   const [form, setForm] = useState({ name: '', category: 'food', price: '', is_available: true });
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -53,33 +57,33 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
       setError('Name and price are required.');
       return;
     }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        category: form.category,
-        price: Number(form.price),
-        is_available: form.is_available,
-      };
-      const url = isEdit ? `/api/menu-items/${initialData.id}` : '/api/menu-items';
-      const method = isEdit ? 'PATCH' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || 'Failed to save menu item');
-      }
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSubmitting(false);
-    }
+    await saveItem({
+      isEdit,
+      entityName: 'Menu item',
+      setError,
+      onClose,
+      refresh: onSaved,
+      execute: async () => {
+        const payload = {
+          name: form.name.trim(),
+          category: form.category,
+          price: Number(form.price),
+          is_available: form.is_available,
+        };
+        const url = isEdit ? `/api/menu-items/${initialData.id}` : '/api/menu-items';
+        const method = isEdit ? 'PATCH' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || 'Failed to save menu item');
+        }
+        return res.json();
+      },
+    });
   };
 
   return (
@@ -153,8 +157,8 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
 
           <PricingFormFooter
             onCancel={onClose}
-            submitting={submitting}
-            submitLabel={submitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
+            submitting={isMutating}
+            submitLabel={isMutating ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
           />
         </form>
       </div>
@@ -163,6 +167,7 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
 }
 
 function MenuPricing() {
+  const { deleteItem } = usePricingMutation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -191,16 +196,16 @@ function MenuPricing() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
-    try {
-      const res = await fetch(`/api/menu-items/${deleteTarget.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete');
-      await fetchItems();
-      setDeleteTarget(null);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setDeleting(false);
-    }
+    await deleteItem({
+      entityName: 'Menu item',
+      refresh: fetchItems,
+      onDone: () => setDeleteTarget(null),
+      execute: async () => {
+        const res = await fetch(`/api/menu-items/${deleteTarget.id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete');
+      },
+    });
+    setDeleting(false);
   };
 
   const filtered = categoryFilter === 'all' ? items : items.filter((i) => i.category === categoryFilter);
@@ -219,6 +224,8 @@ function MenuPricing() {
       })),
     ];
   }, [items]);
+
+  const pagination = usePaginatedRows(filtered);
 
   return (
     <div className="pricing-pane">
@@ -254,7 +261,7 @@ function MenuPricing() {
               {filtered.length === 0 && (
                 <tr><td colSpan={5} className="pricing-empty">No menu items in this category.</td></tr>
               )}
-              {filtered.map((item) => {
+              {pagination.paginatedRows.map((item) => {
                 const meta = CATEGORY_META[item.category] || CATEGORY_META.other;
                 return (
                   <tr key={item.id}>
@@ -285,6 +292,7 @@ function MenuPricing() {
               })}
             </tbody>
           </table>
+          <PricingTablePagination rows={filtered} pagination={pagination} />
         </div>
       )}
 

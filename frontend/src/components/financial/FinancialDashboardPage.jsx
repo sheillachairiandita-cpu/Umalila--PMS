@@ -1,362 +1,254 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useState } from 'react';
+import { Plus, RefreshCw, TrendingDown, TrendingUp, Calculator } from 'lucide-react';
+import { PageTabs } from '../ui';
+import FinancialKpiCards from './FinancialKpiCards';
+import IncomeTable from './IncomeTable';
+import ExpensePendingQueue from './ExpensePendingQueue';
+import ExpenseLedgerTable from './ExpenseLedgerTable';
+import CogsTab from './COGS/CogsTab';
+import CogsProfileModal from './COGS/CogsProfileModal';
+import AddExpensePanel from './AddExpensePanel';
+import ExpenseProofModal from './ExpenseProofModal';
+import EditExpenseModal from './EditExpenseModal';
+import SummaryModal from './SummaryModal';
+import { useMutation } from '../../context/MutationProvider';
 import {
-  DollarSign, TrendingUp, TrendingDown, Eye,
-  RefreshCw, Search, X, Filter,
-  CreditCard, AlertCircle, CheckCircle,
-} from 'lucide-react';
-import { Badge } from '../ui';
-import TableActionButton from '../TableActionButton';
-import TablePagination from '../ui/TablePagination';
-import FinancialDetailsModal from './FinancialDetailsModal';
-import {
-  PAYMENT_FILTER_OPTIONS,
-  TIMEFRAME_FILTER_OPTIONS,
-} from '../../utils/statusConfigs';
-import { matchesTimeframeFilter } from '../../utils/tableFilters';
-
-function formatRp(amount) {
-  return `Rp ${(Number(amount) || 0).toLocaleString()}`;
-}
-
-function KpiStrip({ rows, loading }) {
-  const totals = useMemo(() => {
-    if (!rows.length) return { accommodation: 0, fb: 0, addons: 0, total: 0, paid: 0, balance: 0, unpaidCount: 0 };
-    return rows.reduce(
-      (acc, r) => ({
-        accommodation: acc.accommodation + (r.totalAccommodation || 0),
-        fb:            acc.fb            + (r.totalMenuItems    || 0),
-        addons:        acc.addons        + (r.totalAddons       || 0),
-        total:         acc.total         + (r.total             || 0),
-        paid:          acc.paid          + (r.amountPaid        || 0),
-        balance:       acc.balance       + (r.balanceDue        || 0),
-        unpaidCount:   acc.unpaidCount   + (r.paymentStatus !== 'complete' ? 1 : 0),
-      }),
-      { accommodation: 0, fb: 0, addons: 0, total: 0, paid: 0, balance: 0, unpaidCount: 0 }
-    );
-  }, [rows]);
-
-  const cards = [
-    { label: 'Accommodation',     value: totals.accommodation, icon: DollarSign },
-    { label: 'Food & Beverage',   value: totals.fb,            icon: TrendingUp  },
-    { label: 'Add-ons',           value: totals.addons,        icon: TrendingUp  },
-    { label: 'Gross Revenue',     value: totals.total,         icon: DollarSign  },
-    { label: 'Amount Collected',  value: totals.paid,          icon: CheckCircle },
-    { label: 'Outstanding',       value: totals.balance,       icon: AlertCircle },
-  ];
-
-  return (
-    <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
-      {cards.map(({ label, value, icon: Icon }) => (
-        <div key={label} className="metric-card">
-          <div className="metric-card__icon-bg">
-            <Icon color="var(--navy)" />
-          </div>
-          <div className="metric-card__label-row">
-            <Icon color="var(--text-muted)" />
-            <span className="metric-card__label">{label}</span>
-          </div>
-          <div className={loading ? 'metric-card__value--loading' : 'metric-card__value'} style={{ fontSize: '1.1rem' }}>
-            {loading ? '—' : formatRp(value)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function IncomeTable({ rows, loading, onViewDetails, onEdit }) {
-  const [search, setSearch]           = useState('');
-  const [payFilter, setPayFilter]     = useState('all');
-  const [timeframeFilter, setTimeframeFilter] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-
-  const unpaidCount = useMemo(() => rows.filter(r => r.paymentStatus !== 'complete').length, [rows]);
-
-  const filtered = useMemo(() => {
-    let data = [...rows];
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      data = data.filter(r =>
-        r.guestName?.toLowerCase().includes(q) ||
-        r.displayId?.toLowerCase().includes(q) ||
-        r.invoiceId?.toLowerCase().includes(q)
-      );
-    }
-
-    if (payFilter === 'unpaid') {
-      data = data.filter(r => r.paymentStatus !== 'complete');
-    } else if (payFilter !== 'all') {
-      data = data.filter(r => r.paymentStatus === payFilter);
-    }
-
-    if (timeframeFilter !== 'all') {
-      data = data.filter(r => matchesTimeframeFilter(r.checkIn, timeframeFilter));
-    }
-
-    return data;
-  }, [rows, search, payFilter, timeframeFilter]);
-
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
-  const startIdx = (currentPage - 1) * itemsPerPage;
-  const paginatedData = filtered.slice(startIdx, startIdx + itemsPerPage);
-
-  const hasActiveFilters = search || payFilter !== 'all' || timeframeFilter !== 'all';
-
-  const clearFilters = () => {
-    setSearch('');
-    setPayFilter('all');
-    setTimeframeFilter('all');
-    setCurrentPage(1);
-  };
-
-  const paymentOptions = PAYMENT_FILTER_OPTIONS.map((o) =>
-    o.key === 'unpaid' ? { ...o, label: `Unpaid / Outstanding (${unpaidCount})` } : o
-  );
-
-  return (
-    <div>
-      <div className="filter-bar filter-bar--financial">
-        <div>
-          <label className="filter-bar__label">Search</label>
-          <div className="filter-bar__search-wrap">
-            <Search size={13} className="filter-bar__search-icon" />
-            <input
-              type="text"
-              className="filter-bar__input filter-bar__input--search"
-              placeholder="Guest name or booking ID…"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="filter-bar__label">Payment</label>
-          <select
-            className="filter-bar__select"
-            value={payFilter}
-            onChange={(e) => { setPayFilter(e.target.value); setCurrentPage(1); }}
-          >
-            {paymentOptions.map((o) => (
-              <option key={o.key} value={o.key}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="filter-bar__label">Timeframe</label>
-          <select
-            className="filter-bar__select"
-            value={timeframeFilter}
-            onChange={(e) => { setTimeframeFilter(e.target.value); setCurrentPage(1); }}
-          >
-            {TIMEFRAME_FILTER_OPTIONS.map((o) => (
-              <option key={o.key} value={o.key}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {hasActiveFilters ? (
-          <button type="button" className="filter-bar__clear" onClick={clearFilters}>
-            <X size={11} /> Clear
-          </button>
-        ) : (
-          <div />
-        )}
-      </div>
-
-      <div className="table-result-count">
-        {filtered.length === 0
-          ? 'No results'
-          : `Showing ${startIdx + 1}–${Math.min(startIdx + itemsPerPage, filtered.length)} of ${filtered.length} record${filtered.length !== 1 ? 's' : ''}`}
-      </div>
-
-      {loading ? (
-        <div className="empty-state">Loading income records…</div>
-      ) : paginatedData.length === 0 ? (
-        <div className="empty-state empty-state--dashed">
-          <Filter size={30} color="var(--text-light)" style={{ marginBottom: 10 }} />
-          <h3 className="section-card__title" style={{ marginBottom: 6 }}>
-            {rows.length === 0 ? 'No income records found' : 'No records match your filters'}
-          </h3>
-          <p className="text-muted" style={{ fontSize: '0.8rem' }}>
-            {rows.length === 0
-              ? 'Income records will appear here once bookings are created.'
-              : 'Try adjusting your search, payment, or timeframe filter.'}
-          </p>
-        </div>
-      ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table">
-            <thead>
-              <tr>
-                <th>Booking ID</th>
-                <th>Guest</th>
-                <th>Check-In</th>
-                <th>Check-Out</th>
-                <th className="text-right">Accommodation</th>
-                <th className="text-right">F&B</th>
-                <th className="text-right">Add-ons</th>
-                <th className="text-right">Total</th>
-                <th className="text-right">Paid</th>
-                <th className="text-right">Balance Due</th>
-                <th className="text-center">Payment</th>
-                <th className="text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedData.map((row) => (
-                <tr key={row.bookingId}>
-                  <td>
-                    <span className="cell-booking-id">{row.displayId || row.invoiceId}</span>
-                  </td>
-                  <td className="cell-guest">{row.guestName}</td>
-                  <td>{row.checkIn}</td>
-                  <td>{row.checkOut}</td>
-                  <td className="text-right cell-amount">{formatRp(row.totalAccommodation)}</td>
-                  <td className="text-right cell-amount">
-                    {row.totalMenuItems > 0 ? formatRp(row.totalMenuItems) : '—'}
-                  </td>
-                  <td className="text-right cell-amount">
-                    {row.totalAddons > 0 ? formatRp(row.totalAddons) : '—'}
-                  </td>
-                  <td className="text-right cell-amount">{formatRp(row.total)}</td>
-                  <td className="text-right cell-amount">
-                    {row.amountPaid > 0 ? formatRp(row.amountPaid) : '—'}
-                  </td>
-                  <td className="text-right cell-amount">
-                    {(row.balanceDue || 0) > 0 ? formatRp(row.balanceDue) : 'Settled'}
-                  </td>
-                  <td className="text-center">
-                    <Badge type="payment" value={row.paymentStatus || 'pending'} />
-                  </td>
-                  <td className="text-center">
-                    <div className="table-action-group">
-                      <TableActionButton title="View Details" variant="default" onClick={() => onViewDetails(row)}>
-                        <Eye size={13} />
-                      </TableActionButton>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <TablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
-      />
-    </div>
-  );
-}
+  useFinancialKpis,
+  useFinancialIncome,
+  useFinancialExpenses,
+  useCogsData,
+  useInvalidateFinancial,
+} from '../../hooks/api/useFinancial';
+import { financialApi } from '../../api';
+import { apiJson } from '../../api/client';
 
 function FinancialDashboardPage() {
-  const [incomeRows, setIncomeRows] = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [detailsRow, setDetailsRow] = useState(null);
-  const [editRow, setEditRow]       = useState(null);
+  const { runMutation } = useMutation();
+  const invalidateFinancial = useInvalidateFinancial();
+  const [activeTab, setActiveTab] = useState('incomes');
 
-  const fetchIncome = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/financial/income');
-      if (!res.ok) throw new Error('Failed to load income data');
-      const data = await res.json();
-      const sorted = [...data].sort((a, b) => {
-        const order = { pending: 0, partial: 1, complete: 2 };
-        const diff = (order[a.paymentStatus] ?? 1) - (order[b.paymentStatus] ?? 1);
-        if (diff !== 0) return diff;
-        return (b.checkIn || '').localeCompare(a.checkIn || '');
-      });
-      setIncomeRows(sorted);
-    } catch (err) {
-      console.error(err);
-      setIncomeRows([]);
-    } finally {
-      setLoading(false);
+  const { data: kpis, isLoading: kpisLoading, refetch: refetchKpis } = useFinancialKpis();
+  const { data: incomeRows = [], isLoading: incomeLoading, refetch: refetchIncome } = useFinancialIncome({
+    enabled: activeTab === 'incomes',
+  });
+  const { data: expenses = [], isLoading: expensesLoading, refetch: refetchExpenses } = useFinancialExpenses({
+    enabled: activeTab === 'incomes' || activeTab === 'expenses',
+  });
+  const { data: cogsData, isLoading: cogsLoading, refetch: refetchCogs } = useCogsData({
+    enabled: activeTab === 'cogs',
+  });
+
+  const [cogsModal, setCogsModal] = useState(null);
+  const [detailsRow, setDetailsRow] = useState(null);
+  const [proofExpense, setProofExpense] = useState(null);
+  const [editExpense, setEditExpense] = useState(null);
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
+
+  const sortedIncome = [...incomeRows].sort((a, b) => {
+    const order = { pending: 0, partial: 1, complete: 2 };
+    const diff = (order[a.paymentStatus] ?? 1) - (order[b.paymentStatus] ?? 1);
+    if (diff !== 0) return diff;
+    return (b.checkIn || '').localeCompare(a.checkIn || '');
+  });
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([
+      refetchKpis(),
+      activeTab === 'incomes' ? refetchIncome() : Promise.resolve(),
+      activeTab !== 'cogs' ? refetchExpenses() : Promise.resolve(),
+      activeTab === 'cogs' ? refetchCogs() : Promise.resolve(),
+    ]);
+    await invalidateFinancial();
+  }, [activeTab, refetchKpis, refetchIncome, refetchExpenses, refetchCogs, invalidateFinancial]);
+
+  const patchExpense = async (expenseId, body, successMessage) => {
+    const result = await runMutation({
+      mutation: () => financialApi.patchExpense(expenseId, body),
+      refresh: async () => {
+        await Promise.all([refetchExpenses(), refetchKpis()]);
+      },
+      successMessage,
+      overlayMessage: 'Updating expense…',
+    });
+
+    if (!result.ok) {
+      throw result.error || new Error('Failed to update expense.');
     }
   };
 
-  useEffect(() => { fetchIncome(); }, []);
+  const handleApprove = (expenseId) => patchExpense(expenseId, { status: 'approved' }, 'Expense approved.');
+  const handleReject = (expenseId) => patchExpense(expenseId, { status: 'rejected' }, 'Expense rejected.');
+  const handleEditSave = (expenseId, payload) => patchExpense(expenseId, payload, 'Expense updated successfully.');
 
-  const editBooking = editRow
-    ? {
-        id: editRow.bookingId,
-        display_id: editRow.displayId,
-        guest_full_name: editRow.guestName,
-      }
-    : null;
+  const handleAddExpense = async (payload) => {
+    const result = await runMutation({
+      mutation: async () => {
+        const proofUrl = await financialApi.uploadExpenseProof(payload.proof);
+        return financialApi.createExpense({
+          category: payload.category,
+          description: payload.description,
+          amount: payload.amount,
+          transactionDate: payload.transactionDate,
+          proofUrl,
+        });
+      },
+      refresh: async () => {
+        await Promise.all([refetchExpenses(), refetchKpis()]);
+      },
+      successMessage: 'Expense submitted successfully.',
+      overlayMessage: 'Submitting expense…',
+    });
 
-  const unpaidCount = incomeRows.filter(r => r.paymentStatus !== 'complete').length;
+    if (!result.ok) {
+      throw result.error || new Error('Failed to create expense.');
+    }
+  };
+
+  const saveCogsProfile = async (payload) => {
+    const isEdit = !!cogsModal?.id;
+    const url = isEdit
+      ? `/api/financial/cogs/profiles/${cogsModal.id}`
+      : '/api/financial/cogs/profiles';
+
+    const result = await runMutation({
+      mutation: () => apiJson(url, {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+      refresh: refetchCogs,
+      successMessage: isEdit ? 'Cost profile updated.' : 'Cost profile created.',
+      overlayMessage: 'Saving cost profile…',
+    });
+
+    if (!result.ok) {
+      throw result.error || new Error('Failed to save cost profile.');
+    }
+  };
+
+  const deleteCogsProfile = async (profile) => {
+    if (!window.confirm(`Delete cost profile for ${profile.villaName}?`)) return;
+
+    const result = await runMutation({
+      mutation: () => apiJson(`/api/financial/cogs/profiles/${profile.id}`, { method: 'DELETE' }),
+      refresh: refetchCogs,
+      successMessage: 'Cost profile deleted.',
+      overlayMessage: 'Deleting cost profile…',
+    });
+
+    if (!result.ok) {
+      throw result.error || new Error('Failed to delete cost profile.');
+    }
+  };
+
+  const pendingCount = expenses.filter((e) => e.status === 'pending').length;
+  const isRefreshing = kpisLoading || incomeLoading || expensesLoading || cogsLoading;
 
   return (
-    <div className="reservation-page">
-      <KpiStrip rows={incomeRows} loading={loading} />
+    <div className="reservation-page financial-dashboard">
+      <FinancialKpiCards kpis={kpis} loading={kpisLoading} />
 
-      {!loading && unpaidCount > 0 && (
-        <div className="alert-banner alert-banner--danger">
-          <AlertCircle size={14} />
-          {unpaidCount} reservation{unpaidCount !== 1 ? 's' : ''} with outstanding balance
-        </div>
+      <div className="financial-dashboard__tab-row">
+        <PageTabs
+          ariaLabel="Financial sections"
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          tabs={[
+            { key: 'incomes', label: 'Incomes', icon: TrendingUp },
+            { key: 'expenses', label: 'Expenses', icon: TrendingDown, badge: pendingCount },
+            { key: 'cogs', label: 'COGS', icon: Calculator },
+          ]}
+        />
+        <button
+          type="button"
+          onClick={refreshAll}
+          title="Refresh"
+          className="icon-btn-ghost"
+        >
+          <RefreshCw size={14} className={isRefreshing ? 'spin-animation' : ''} />
+        </button>
+      </div>
+
+      {activeTab === 'incomes' && (
+        <>
+          <ExpensePendingQueue
+            expenses={expenses}
+            loading={expensesLoading}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+          <IncomeTable
+            rows={sortedIncome}
+            loading={incomeLoading}
+            onViewDetails={setDetailsRow}
+          />
+        </>
       )}
 
-      <div className="section-card section-card--spaced">
-        <div className="section-card__header">
-          <TrendingUp size={15} color="var(--green)" />
-          <h3 className="section-card__title">Income Ledger</h3>
-          <span className="section-card__count">{incomeRows.length} records</span>
-          {unpaidCount > 0 && (
-            <span className="section-card__count section-card__count--accent">
-              {unpaidCount} unpaid
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={fetchIncome}
-            title="Refresh"
-            className="icon-btn-ghost"
-            style={{ marginLeft: 'auto' }}
-          >
-            <RefreshCw size={14} className={loading ? 'spin-animation' : ''} />
-          </button>
-        </div>
-        <div className="section-card__body">
-          <IncomeTable
-            rows={incomeRows}
-            loading={loading}
-            onViewDetails={setDetailsRow}
-            onEdit={setEditRow}
-          />
-        </div>
-      </div>
-
-      <div className="section-card">
-        <div className="section-card__header">
-          <TrendingDown size={15} color="var(--text-muted)" />
-          <h3 className="section-card__title">Outcome</h3>
-          <span className="section-card__count">TBD</span>
-        </div>
-        <div className="section-card__body">
-          <div className="empty-state empty-state--dashed" style={{ padding: '24px' }}>
-            <p className="text-muted" style={{ fontSize: '0.88rem' }}>
-              Expense and outcome tracking will be available in a future release.
-            </p>
+      {activeTab === 'expenses' && (
+        <>
+          <div className="section-card__header section-card__header--actions">
+            <h2 className="section-card__title">Expense Ledger</h2>
+            <button type="button" className="btn btn-primary" onClick={() => setAddPanelOpen(true)}>
+              <Plus size={16} />
+              Add Expense
+            </button>
           </div>
-        </div>
-      </div>
+          <ExpenseLedgerTable
+            expenses={expenses}
+            loading={expensesLoading}
+            onViewProof={setProofExpense}
+            onEdit={setEditExpense}
+          />
+        </>
+      )}
 
-      <FinancialDetailsModal
+      {activeTab === 'cogs' && (
+        <CogsTab
+          profiles={cogsData?.profiles || []}
+          villas={cogsData?.villas || []}
+          loading={cogsLoading}
+          onCreate={() => setCogsModal({})}
+          onEdit={setCogsModal}
+          onDelete={deleteCogsProfile}
+        />
+      )}
+
+      <SummaryModal
         isOpen={!!detailsRow}
         bookingId={detailsRow?.bookingId}
         guestName={detailsRow?.guestName}
         displayId={detailsRow?.displayId}
         onClose={() => setDetailsRow(null)}
       />
+
+      {proofExpense && (
+        <ExpenseProofModal expense={proofExpense} onClose={() => setProofExpense(null)} />
+      )}
+
+      {editExpense && (
+        <EditExpenseModal
+          expense={editExpense}
+          onClose={() => setEditExpense(null)}
+          onSave={(payload) => handleEditSave(editExpense.id, payload)}
+        />
+      )}
+
+      {addPanelOpen && (
+        <AddExpensePanel
+          onClose={() => setAddPanelOpen(false)}
+          onSubmit={handleAddExpense}
+        />
+      )}
+
+      {cogsModal !== null && (
+        <CogsProfileModal
+          profile={cogsModal}
+          villas={cogsData?.villas || []}
+          onClose={() => setCogsModal(null)}
+          onSave={saveCogsProfile}
+        />
+      )}
     </div>
   );
 }
