@@ -853,18 +853,13 @@ body {
 }
 
 .section-card__header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-muted);
 }
 
-.section-card__header svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
+.section-card__header .section-header-row {
+  width: 100%;
 }
 
 .section-card__title {
@@ -1494,7 +1489,7 @@ body {
   margin: 0 !important;
 }
 
-.villa-rate { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; }
+.property-rate { color: var(--text-muted); font-size: 0.85rem; font-weight: 500; }
 
 .reservation-price-breakdown {
   margin: 12px 0 4px;
@@ -1735,6 +1730,13 @@ body {
   padding: 12px 20px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
+}
+
+.gantt-control-panel__filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .gantt-control-panel__group {
@@ -2003,7 +2005,7 @@ body {
   color: var(--text-light);
 }
 
-.villa-unavailable-tag {
+.property-unavailable-tag {
   color: var(--text-light);
   font-style: italic;
   margin-left: 6px;
@@ -2434,8 +2436,7 @@ body {
 }
 
 .financial-summary-balance-row td {
-  font-size: 0.9rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .financial-summary-discount {
@@ -2500,6 +2501,26 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.financial-expenses-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.expense-approval-section {
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.expense-ledger-section {
+  padding-top: 4px;
+}
+
+.expense-approval-section > .section-header-row {
+  margin-bottom: 12px;
 }
 
 /* --------------------------------------------------------------------------
@@ -2679,7 +2700,7 @@ body {
 }
 
 .cell-balance-due {
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text);
 }
 
@@ -2697,7 +2718,7 @@ body {
 .pending-queue-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .pending-queue-card {
@@ -3145,15 +3166,34 @@ body {
 .pricing-table tbody tr:last-child td { border-bottom: none; }
 .pricing-table tbody tr:hover { background: var(--bg-muted); }
 
+.pricing-table-category-row td {
+  padding: 10px 12px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-mid, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: none;
+  background: var(--bg-muted, #f8fafc);
+}
+
+.pricing-table-category-row:hover td {
+  background: var(--bg-muted, #f8fafc);
+}
+
+.pricing-table-category-row + tr td {
+  border-top: none;
+}
+
 .pricing-name-cell {
   font-weight: 600;
   color: var(--text);
 }
 
 .pricing-rate-cell {
-  font-weight: 700;
+
   color: var(--text);
-  font-family: var(--font-mono);
+
   font-size: 0.82rem;
 }
 
@@ -3347,7 +3387,7 @@ body {
   padding: 0 6px;
 }
 
-.discount-villa-picker {
+.discount-property-picker {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px 12px;

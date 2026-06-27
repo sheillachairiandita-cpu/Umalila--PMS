@@ -4,6 +4,7 @@ import {
   Users, CalendarClock,
 } from 'lucide-react';
 import { Badge } from '../ui';
+import SectionHeaderRow from '../ui/SectionHeaderRow';
 import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import { PHASE_CONFIG } from '../../utils/statusConfigs';
 import FilterButtonGroup from '../ui/FilterButtonGroup';
@@ -35,9 +36,19 @@ function getBookingStatus(booking) {
   return booking.booking_status || booking.status;
 }
 
+function getEffectiveBookingStatus(booking, todayISO) {
+  const raw = getBookingStatus(booking);
+  if (raw === 'cancelled') return 'cancelled';
+  if (raw === 'checked_out') return 'checked_out';
+  if (booking.check_out_date && booking.check_out_date < todayISO) return 'checked_out';
+  return raw;
+}
+
 function computePhaseConfig(booking, todayISO) {
-  const bookingStatus = getBookingStatus(booking);
+  const bookingStatus = getEffectiveBookingStatus(booking, todayISO);
   if (bookingStatus === 'cancelled') return 'cancelled';
+  if (bookingStatus === 'pending') return 'pending';
+  if (bookingStatus === 'checked_out') return 'departure';
   if (bookingStatus === 'checked_in') {
     if (isInHouseToday({ ...booking, booking_status: bookingStatus }, todayISO)) {
       return 'in-house';
@@ -53,7 +64,7 @@ function computePhaseConfig(booking, todayISO) {
 }
 
 function normalizeBooking(booking, todayISO) {
-  const bookingStatus = getBookingStatus(booking);
+  const bookingStatus = getEffectiveBookingStatus(booking, todayISO);
   const isCancelled = bookingStatus === 'cancelled';
 
   return {
@@ -170,7 +181,7 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
       <td className="cell-guest" data-label="Guest">
         {booking.guests?.full_name || 'Walk-in Guest'}
       </td>
-      <td className="cell-truncate" data-label="Unit">{booking.villa_names || '—'}</td>
+      <td className="cell-truncate" data-label="Unit">{booking.property_names || '—'}</td>
       <td data-label="Check In">{booking.check_in_date}</td>
       <td data-label="Check Out">{booking.check_out_date}</td>
       <td className="text-center cell-amount" data-label="Pax">{booking.total_guests ?? '—'}</td>
@@ -209,31 +220,32 @@ function BookingRow({ booking, todayISO, checkingInId, checkingOutId, onOrder, o
 }
 
 function SectionHeader({ smartFilter, setSmartFilter, loading, onRefresh, today }) {
+  const titleSuffix =
+    smartFilter === 'today' ? ' — Today'
+      : smartFilter === 'upcoming-7' ? ' — Next Week'
+        : smartFilter === 'all-phases' ? ' — All Reservations'
+          : '';
+
   return (
     <div className="section-title" style={{ padding: '10px 16px' }}>
-      <div className="section-header-row">
-        <div className="section-header-row__title">
-          <ClipboardList size={15} color="var(--navy)" />
-          <span>
-            Reservation
-            {smartFilter === 'today'      && ' — Today'}
-            {smartFilter === 'upcoming-7' && ' — Next Week'}
-            {smartFilter === 'all-phases' && ' — All Reservations'}
-          </span>
-          <span className="section-header-row__meta">{today}</span>
-        </div>
-        <div className="section-header-row__actions">
-          <FilterButtonGroup options={FILTER_OPTIONS} active={smartFilter} onChange={setSmartFilter} />
-          <button
-            type="button"
-            onClick={onRefresh}
-            title="Refresh"
-            className="icon-btn-ghost"
-          >
-            <RefreshCw size={14} className={loading ? 'spin-animation' : ''} />
-          </button>
-        </div>
-      </div>
+      <SectionHeaderRow
+        icon={ClipboardList}
+        title={`Reservation${titleSuffix}`}
+        meta={today}
+        actions={(
+          <>
+            <FilterButtonGroup options={FILTER_OPTIONS} active={smartFilter} onChange={setSmartFilter} />
+            <button
+              type="button"
+              onClick={onRefresh}
+              title="Refresh"
+              className="icon-btn-ghost"
+            >
+              <RefreshCw size={14} className={loading ? 'spin-animation' : ''} />
+            </button>
+          </>
+        )}
+      />
     </div>
   );
 }
@@ -300,17 +312,24 @@ function useActiveBookings(bookings, todayISO) {
 function usePhaseMetrics(activeBookings, todayISO) {
   return useMemo(() => {
     const counts = { arrival: 0, 'in-house': 0, departure: 0, upcoming: 0 };
+
     for (const booking of activeBookings) {
+      if (booking.check_out_date === todayISO) {
+        counts.departure += 1;
+      }
+
       if (isInHouseToday(booking, todayISO)) {
         counts['in-house'] += 1;
         continue;
       }
+
       const phase = booking.phase_config;
-      if (phase === 'in-house') continue;
+      if (phase === 'in-house' || phase === 'departure') continue;
       if (phase && phase !== 'cancelled' && Object.hasOwn(counts, phase)) {
         counts[phase] += 1;
       }
     }
+
     return counts;
   }, [activeBookings, todayISO]);
 }

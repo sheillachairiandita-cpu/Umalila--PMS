@@ -4,6 +4,7 @@ import Alert from '../ui/Alert';
 import Badge from '../ui/Badge';
 
 import { formatRp } from '../../utils/formatCurrency';
+import { computeIncomeTotals, pickIncomeAmounts } from '../../utils/financialUtils';
 
 function formatMetaValue(value) {
   if (value === null || value === undefined || value === '') return '—';
@@ -58,9 +59,15 @@ function SummaryContent({ data }) {
     0
   );
 
-  const subtotalBeforeDiscount = Number(data.subtotalBeforeDiscount) || (
-    chargeLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0)
-  );
+  const chargeSubtotal = chargeLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0);
+  const incomeTotals = computeIncomeTotals({
+    ...pickIncomeAmounts(data),
+    subtotalBeforeDiscount: Number(data.subtotalBeforeDiscount) || chargeSubtotal,
+    discountAmount,
+  });
+  const subtotalBeforeDiscount = incomeTotals.subtotalBeforeDiscount;
+  const summaryTotal = incomeTotals.total;
+  const summaryBalanceDue = incomeTotals.balanceDue;
 
   const hasSections = accommodationLines.length > 0 || addonLines.length > 0 || menuLines.length > 0;
 
@@ -73,8 +80,8 @@ function SummaryContent({ data }) {
         </div>
 
         <div className="financial-meta-row">
-          <span className="financial-meta-label">Villas</span>
-          <span className="financial-meta-value">{data.villaNames || '—'}</span>
+          <span className="financial-meta-label">Properties</span>
+          <span className="financial-meta-value">{data.propertyNames || '—'}</span>
         </div>
 
         <div className="financial-meta-row">
@@ -156,7 +163,7 @@ function SummaryContent({ data }) {
           <tfoot>
             <tr>
               <td colSpan={3} className="text-right">Total Charges</td>
-              <td className="text-right">{formatRp(data.total)}</td>
+              <td className="text-right">{formatRp(summaryTotal)}</td>
             </tr>
             <tr>
               <td colSpan={3} className="text-right">Total Paid</td>
@@ -164,7 +171,7 @@ function SummaryContent({ data }) {
             </tr>
             <tr className="financial-summary-balance-row">
               <td colSpan={3} className="text-right">Balance Due</td>
-              <td className="text-right financial-summary-balance">{formatRp(data.balanceDue)}</td>
+              <td className="text-right financial-summary-balance">{formatRp(summaryBalanceDue)}</td>
             </tr>
           </tfoot>
         </table>

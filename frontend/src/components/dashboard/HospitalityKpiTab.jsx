@@ -5,7 +5,7 @@ import ChartCard from '../ui/ChartCard';
 import DonutChart from '../ui/charts/DonutChart';
 import DualAxisLineChart from '../ui/charts/DualAxisLineChart';
 import HistogramChart from '../ui/charts/HistogramChart';
-import { formatRp, formatPct, formatNum } from './dashboardUtils';
+import { formatRpCompact, formatPct, formatNum } from './dashboardUtils';
 
 const HOSPITALITY_KPIS = [
   {
@@ -19,15 +19,15 @@ const HOSPITALITY_KPIS = [
     key: 'adr',
     label: 'ADR (Average Daily Rate)',
     icon: DollarSign,
-    format: formatRp,
+    format: formatRpCompact,
     mono: true,
-    tooltip: 'Average room revenue per sold room-night, based on tiered weekday, weekend (Fri–Sun), and holiday villa rates.',
+    tooltip: 'Average room revenue per sold room-night, based on tiered weekday, weekend (Fri–Sun), and holiday property rates.',
   },
   {
     key: 'revpar',
     label: 'RevPAR (Revenue Per Available Room)',
     icon: BarChart2,
-    format: formatRp,
+    format: formatRpCompact,
     mono: true,
     tooltip: 'Room revenue divided by available room-nights. Reflects tiered pricing yield across all inventory.',
   },
@@ -36,7 +36,7 @@ const HOSPITALITY_KPIS = [
     label: 'Total Room Nights Sold',
     icon: Moon,
     format: formatNum,
-    tooltip: 'Total villa-nights sold (each villa counts separately per night).',
+    tooltip: 'Total property-nights sold (each property counts separately per night).',
   },
 ];
 
@@ -69,7 +69,7 @@ export default function HospitalityKpiTab({ data, loading }) {
       >
         <DualAxisLineChart
           data={data.trendData}
-          formatRight={(v) => formatRp(v).replace('Rp ', '')}
+          formatRight={(v) => formatRpCompact(v).replace('Rp ', '')}
         />
       </ChartCard>
 

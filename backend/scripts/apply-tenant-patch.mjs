@@ -45,9 +45,9 @@ app.use(propertyMiddleware);`,
 
 // Route-level scoped table access (req in scope)
 const routeTables = [
-  'bookings', 'villas', 'guests', 'menu_items', 'addons', 'discounts',
-  'pricing_holidays', 'villa_date_blocks', 'finances', 'users', 'orders',
-  'villa_cost_profiles', 'reservation_profitability',
+  'bookings', 'properties', 'guests', 'menu_items', 'addons', 'discounts',
+  'pricing_holidays', 'property_date_blocks', 'finances', 'users', 'orders',
+  'property_cost_profiles', 'reservation_profitability',
 ];
 
 for (const table of routeTables) {

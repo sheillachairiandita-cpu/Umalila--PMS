@@ -1,0 +1,2 @@
+-- DEPRECATED: use 010_complete_tenant_setup.sql instead.
+-- This file fails if public.tenants does not exist yet.

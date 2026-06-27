@@ -12,10 +12,12 @@ import {
   usePricingMutation,
   formatRp,
 } from './pricingShared';
+import { apiFetch } from '../../api/client';
+import { toTitleCaseName } from '../../utils/stringUtils';
 
 const SCOPE_OPTIONS = [
   { value: 'all_items', label: 'All Items' },
-  { value: 'villas', label: 'Villas Only' },
+  { value: 'properties', label: 'Properties Only' },
   { value: 'addons', label: 'Add-ons Only' },
   { value: 'menu', label: 'Menu Only' },
 ];
@@ -31,15 +33,15 @@ const STATUS_OPTIONS = [
   { value: 'archived', label: 'Archived' },
 ];
 
-const APPLICABLE_VILLAS_OPTIONS = [
-  { value: 'all', label: 'All Villas' },
-  { value: 'selected', label: 'Selected Villas' },
+const APPLICABLE_PROPERTIES_OPTIONS = [
+  { value: 'all', label: 'All Properties' },
+  { value: 'selected', label: 'Selected Properties' },
 ];
 
 const APPLICATION_RULE_OPTIONS = [
   { value: 'all_items', label: 'Apply to all eligible items' },
-  { value: 'highest_priced_single', label: 'Apply to highest priced villa only' },
-  { value: 'lowest_priced_single', label: 'Apply to lowest priced villa only' },
+  { value: 'highest_priced_single', label: 'Apply to highest priced property only' },
+  { value: 'lowest_priced_single', label: 'Apply to lowest priced property only' },
 ];
 
 const EMPTY_FORM = {
@@ -55,8 +57,8 @@ const EMPTY_FORM = {
   stay_start_date: '',
   stay_end_date: '',
   scope: 'all_items',
-  applicable_villas: 'all',
-  villa_ids: [],
+  applicable_properties: 'all',
+  property_ids: [],
   application_rule: 'all_items',
   min_booking_amount: '',
   min_nights: '',
@@ -80,8 +82,8 @@ function mapInitialForm(data) {
     stay_start_date: data.stay_start_date || '',
     stay_end_date: data.stay_end_date || '',
     scope: data.scope === 'global' ? 'all_items' : (data.scope || 'all_items'),
-    applicable_villas: data.applicable_villas || 'all',
-    villa_ids: data.villa_ids || (data.villa_id ? [data.villa_id] : []),
+    applicable_properties: data.applicable_properties || 'all',
+    property_ids: data.property_ids || (data.property_id ? [data.property_id] : []),
     application_rule: data.application_rule || 'all_items',
     min_booking_amount: data.min_booking_amount ?? '',
     min_nights: data.min_nights ?? '',
@@ -122,8 +124,8 @@ function validateForm(form) {
     return 'Per guest limit cannot be negative.';
   }
 
-  if (form.scope === 'villas' && form.applicable_villas === 'selected' && form.villa_ids.length === 0) {
-    return 'Select at least one villa when scope is Villas Only and applicable villas is Selected Villas.';
+  if (form.scope === 'properties' && form.applicable_properties === 'selected' && form.property_ids.length === 0) {
+    return 'Select at least one property when scope is Properties Only and applicable properties is Selected Properties.';
   }
 
   return null;
@@ -135,7 +137,7 @@ function buildPayload(form) {
 
   return {
     promo_code: form.promo_code.trim().toUpperCase(),
-    name: form.name.trim(),
+    name: toTitleCaseName(form.name),
     description: form.description.trim() || null,
     status: form.status,
     type: form.type,
@@ -146,8 +148,8 @@ function buildPayload(form) {
     stay_start_date: form.stay_start_date || null,
     stay_end_date: form.stay_end_date || null,
     scope: form.scope,
-    applicable_villas: form.applicable_villas,
-    villa_ids: form.villa_ids,
+    applicable_properties: form.applicable_properties,
+    property_ids: form.property_ids,
     application_rule: form.application_rule,
     min_booking_amount: optionalNumber(form.min_booking_amount),
     min_nights: optionalInt(form.min_nights),
@@ -167,7 +169,7 @@ function FormSection({ title, children }) {
   );
 }
 
-function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
+function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
   const isEdit = !!initialData;
   const { saveItem, isMutating } = usePricingMutation();
   const [form, setForm] = useState(EMPTY_FORM);
@@ -182,12 +184,12 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
 
   if (!isOpen) return null;
 
-  const toggleVilla = (villaId) => {
+  const toggleProperty = (propertyId) => {
     setForm((prev) => {
-      const ids = prev.villa_ids.includes(villaId)
-        ? prev.villa_ids.filter((id) => id !== villaId)
-        : [...prev.villa_ids, villaId];
-      return { ...prev, villa_ids: ids };
+      const ids = prev.property_ids.includes(propertyId)
+        ? prev.property_ids.filter((id) => id !== propertyId)
+        : [...prev.property_ids, propertyId];
+      return { ...prev, property_ids: ids };
     });
   };
 
@@ -392,12 +394,12 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
 
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Applicable Villas</label>
+                <label>Applicable Properties</label>
                 <select
-                  value={form.applicable_villas}
-                  onChange={(e) => setForm({ ...form, applicable_villas: e.target.value })}
+                  value={form.applicable_properties}
+                  onChange={(e) => setForm({ ...form, applicable_properties: e.target.value })}
                 >
-                  {APPLICABLE_VILLAS_OPTIONS.map((o) => (
+                  {APPLICABLE_PROPERTIES_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
@@ -414,19 +416,19 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
               </div>
             </div>
 
-            {form.applicable_villas === 'selected' && (
+            {form.applicable_properties === 'selected' && (
               <div className="pricing-form-group" style={{ gridColumn: '1/-1' }}>
-                <label>Select Villas {form.scope === 'villas' ? '*' : ''}</label>
-                <div className="discount-villa-picker">
-                  {villas.length === 0 && <p className="pricing-form-hint">No villas available.</p>}
-                  {villas.map((villa) => (
-                    <label key={villa.id} className="pricing-checkbox-label">
+                <label>Select Properties {form.scope === 'properties' ? '*' : ''}</label>
+                <div className="discount-property-picker">
+                  {properties.length === 0 && <p className="pricing-form-hint">No properties available.</p>}
+                  {properties.map((property) => (
+                    <label key={property.id} className="pricing-checkbox-label">
                       <input
                         type="checkbox"
-                        checked={form.villa_ids.includes(villa.id)}
-                        onChange={() => toggleVilla(villa.id)}
+                        checked={form.property_ids.includes(property.id)}
+                        onChange={() => toggleProperty(property.id)}
                       />
-                      {villa.name}
+                      {property.name}
                     </label>
                   ))}
                 </div>
@@ -496,7 +498,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, villas }) {
               </label>
               {form.application_rule !== 'all_items' && (
                 <p className="pricing-form-hint">
-                  Application rule targets a single villa when multiple villas are booked.
+                  Application rule targets a single property when multiple properties are booked.
                 </p>
               )}
             </div>
@@ -529,7 +531,7 @@ function statusMeta(status) {
 function Discount() {
   const { deleteItem } = usePricingMutation();
   const [discounts, setDiscounts] = useState([]);
-  const [villas, setVillas] = useState([]);
+  const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -540,7 +542,7 @@ function Discount() {
   const fetchDiscounts = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/discounts');
+      const res = await apiFetch('/api/discounts');
       if (!res.ok) throw new Error('Failed to fetch discounts');
       setDiscounts(await res.json());
       setError(null);
@@ -551,18 +553,18 @@ function Discount() {
     }
   };
 
-  const fetchVillas = async () => {
+  const fetchProperties = async () => {
     try {
-      const res = await fetch('/api/villas');
-      if (res.ok) setVillas(await res.json());
+      const res = await apiFetch('/api/properties');
+      if (res.ok) setProperties(await res.json());
     } catch {
-      setVillas([]);
+      setProperties([]);
     }
   };
 
   useEffect(() => {
     fetchDiscounts();
-    fetchVillas();
+    fetchProperties();
   }, []);
 
   const handleArchive = async () => {
@@ -692,7 +694,7 @@ function Discount() {
         onClose={() => { setModalOpen(false); setEditDiscount(null); }}
         onSaved={fetchDiscounts}
         initialData={editDiscount}
-        villas={villas}
+        properties={properties}
       />
 
       <PricingDeleteModal

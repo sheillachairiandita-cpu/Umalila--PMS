@@ -28,3 +28,14 @@ export function isInHouseToday(booking, todayISO) {
   if (!booking.check_in_date || !booking.check_out_date) return false;
   return booking.check_in_date <= todayISO && booking.check_out_date >= todayISO;
 }
+
+/** Trim, collapse spaces, and title-case each word (for guest names on save). */
+export function toProperCaseName(name) {
+  if (!name || typeof name !== 'string') return name;
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}

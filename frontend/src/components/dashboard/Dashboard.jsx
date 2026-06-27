@@ -24,10 +24,10 @@ function Dashboard() {
   const [preset, setPreset] = useState('month');
   const [customStart, setCustomStart] = useState(getISODate(startOf('month')));
   const [customEnd, setCustomEnd] = useState(getISODate(new Date()));
-  const [villaFilter, setVillaFilter] = useState('all');
+  const [propertyFilter, setPropertyFilter] = useState('all');
 
-  const { data, isLoading: loading, refetch } = useInsightsData();
-  const villas = data?.villas || [];
+  const { data, isLoading: loading, refetch } = useInsightsData(tab);
+  const properties = data?.properties || [];
   const bookings = data?.bookings || [];
   const incomeRows = data?.incomeRows || [];
   const transactions = data?.transactions || [];
@@ -61,11 +61,11 @@ function Dashboard() {
       profitability,
       rangeStart,
       rangeEnd,
-      villaFilter,
-      villas,
+      propertyFilter,
+      properties,
       pricingHolidays,
     }),
-    [bookings, incomeRows, transactions, expenses, profitability, rangeStart, rangeEnd, villaFilter, villas, pricingHolidays],
+    [bookings, incomeRows, transactions, expenses, profitability, rangeStart, rangeEnd, propertyFilter, properties, pricingHolidays],
   );
 
   const financialData = useMemo(
@@ -87,9 +87,9 @@ function Dashboard() {
         setCustomStart={setCustomStart}
         customEnd={customEnd}
         setCustomEnd={setCustomEnd}
-        villaFilter={villaFilter}
-        setVillaFilter={setVillaFilter}
-        villas={villas}
+        propertyFilter={propertyFilter}
+        setPropertyFilter={setPropertyFilter}
+        properties={properties}
         loading={loading}
         onRefresh={refetch}
       />

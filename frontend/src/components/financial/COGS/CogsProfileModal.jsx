@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Calculator } from 'lucide-react';
 import { Modal, Button, Input, Select, Alert } from '../../ui';
 
-function CogsProfileModal({ isOpen, onClose, onSave, profile, villas, existingVillaIds }) {
+function CogsProfileModal({ isOpen, onClose, onSave, profile, properties, existingPropertyIds }) {
   const isEdit = !!profile?.id;
-  const [villaId, setVillaId] = useState('');
+  const [propertyId, setPropertyId] = useState('');
   const [fixedStayCost, setFixedStayCost] = useState('');
   const [costPerNight, setCostPerNight] = useState('');
   const [error, setError] = useState('');
@@ -12,30 +12,30 @@ function CogsProfileModal({ isOpen, onClose, onSave, profile, villas, existingVi
 
   useEffect(() => {
     if (!isOpen) return;
-    setVillaId(profile?.villaId || '');
+    setPropertyId(profile?.propertyId || '');
     setFixedStayCost(profile?.fixedStayCost != null ? String(profile.fixedStayCost) : '');
     setCostPerNight(profile?.costPerNight != null ? String(profile.costPerNight) : '');
     setError('');
   }, [isOpen, profile]);
 
-  const availableVillas = (villas || []).filter((v) => {
-    if (isEdit && v.id === profile?.villaId) return true;
-    return !(existingVillaIds || []).includes(v.id);
+  const availableProperties = (properties || []).filter((v) => {
+    if (isEdit && v.id === profile?.propertyId) return true;
+    return !(existingPropertyIds || []).includes(v.id);
   });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    if (!isEdit && !villaId) {
-      setError('Please select a villa.');
+    if (!isEdit && !propertyId) {
+      setError('Please select a property.');
       return;
     }
 
     setSubmitting(true);
     try {
       await onSave({
-        villaId: isEdit ? profile.villaId : villaId,
+        propertyId: isEdit ? profile.propertyId : propertyId,
         fixedStayCost: Number(fixedStayCost) || 0,
         costPerNight: Number(costPerNight) || 0,
       });
@@ -51,7 +51,7 @@ function CogsProfileModal({ isOpen, onClose, onSave, profile, villas, existingVi
     <Modal isOpen={isOpen} onClose={onClose} size="md">
       <Modal.Header
         title={isEdit ? 'Edit Cost Profile' : 'Create Cost Profile'}
-        subtitle="Set operational costs per villa stay"
+        subtitle="Set operational costs per property stay"
         icon={Calculator}
         onClose={onClose}
       />
@@ -62,11 +62,11 @@ function CogsProfileModal({ isOpen, onClose, onSave, profile, villas, existingVi
           {!isEdit && (
             <div className="form-field">
               <Select
-                label="Villa"
-                value={villaId}
-                onChange={(e) => setVillaId(e.target.value)}
-                options={availableVillas.map((v) => ({ value: v.id, label: v.name }))}
-                placeholder="Select villa…"
+                label="Property"
+                value={propertyId}
+                onChange={(e) => setPropertyId(e.target.value)}
+                options={availableProperties.map((v) => ({ value: v.id, label: v.name }))}
+                placeholder="Select property…"
                 required
               />
             </div>
@@ -74,8 +74,8 @@ function CogsProfileModal({ isOpen, onClose, onSave, profile, villas, existingVi
 
           {isEdit && (
             <div className="form-field">
-              <label className="form-label">Villa</label>
-              <Input value={profile?.villaName || '—'} disabled />
+              <label className="form-label">Property</label>
+              <Input value={profile?.propertyName || '—'} disabled />
             </div>
           )}
 

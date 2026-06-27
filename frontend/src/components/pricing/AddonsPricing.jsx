@@ -14,6 +14,8 @@ import {
   usePricingMutation,
   formatRp,
 } from './pricingShared';
+import { apiFetch } from '../../api/client';
+import { toTitleCaseName } from '../../utils/stringUtils';
 
 function AddonModal({ isOpen, onClose, onSaved, initialData }) {
   const isEdit = !!initialData;
@@ -58,7 +60,7 @@ function AddonModal({ isOpen, onClose, onSaved, initialData }) {
       refresh: onSaved,
       execute: async () => {
         const payload = {
-          name: form.name.trim(),
+          name: toTitleCaseName(form.name),
           price_per_night: Number(form.price_per_night),
           price: Number(form.price_per_night),
           base_breakfast: Number(form.base_breakfast) || 0,
@@ -186,7 +188,7 @@ function AddonsPricing() {
   const fetchAddons = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/addons');
+      const res = await apiFetch('/api/addons');
       if (!res.ok) throw new Error('Failed to fetch add-ons');
       setAddons(await res.json());
       setError(null);

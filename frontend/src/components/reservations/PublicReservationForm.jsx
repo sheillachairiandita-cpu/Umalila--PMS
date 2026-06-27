@@ -8,11 +8,11 @@ import { Button, Modal, Alert, Select } from '../ui';
 import { COLORS } from '../../styles/theme';
 import SubmittingOverlay from '../SubmittingOverlay';
 import { useNotification } from '../../context/NotificationProvider';
-import { parseCancellationReason } from '../../utils/bookingUtils';
+import { parseCancellationReason, toProperCaseName } from '../../utils/bookingUtils';
 import {
   computeStayRateBreakdown,
-  formatVillaRateForDates,
-} from '../../utils/villaRateUtils';
+  formatPropertyRateForDates,
+} from '../../utils/propertyRateUtils';
 import '../../App.css';
 
 import { formatRp } from '../../utils/formatCurrency';
@@ -115,11 +115,11 @@ function PublicReservationForm({
   const isCancelled = isEditMode && booking?.status === 'cancelled';
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [villas, setVillas] = useState([]);
-  const [loadingVillas, setLoadingVillas] = useState(false);
-  const [selectedVillaIds, setSelectedVillaIds] = useState([]);
-  const [occupiedVillaIds, setOccupiedVillaIds] = useState([]);
-  const [blockedVillaIds, setBlockedVillaIds] = useState([]);
+  const [properties, setProperties] = useState([]);
+  const [loadingProperties, setLoadingProperties] = useState(false);
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState([]);
+  const [occupiedPropertyIds, setOccupiedPropertyIds] = useState([]);
+  const [blockedPropertyIds, setBlockedPropertyIds] = useState([]);
   const [blockWarning, setBlockWarning] = useState('');
   const [dateError, setDateError] = useState('');
   const [addons, setAddons] = useState([]);
@@ -141,27 +141,27 @@ function PublicReservationForm({
     if (isModal && !isOpen) return;
 
     const loadCatalog = async () => {
-      setLoadingVillas(true);
+      setLoadingProperties(true);
       try {
         const requests = [
-          fetch(`${API}/villas`).then((r) => (r.ok ? r.json() : [])),
+          fetch(`${API}/properties`).then((r) => (r.ok ? r.json() : [])),
           fetch(`${API}/addons`).then((r) => (r.ok ? r.json() : [])),
           fetch(`${API}/pricing/holidays`).then((r) => (r.ok ? r.json() : [])),
         ];
         if (isEditMode) {
           requests.push(fetch(`${API}/discounts`).then((r) => (r.ok ? r.json() : [])));
         }
-        const [villaData, addonData, holidayData, discountData] = await Promise.all(requests);
-        setVillas(villaData);
+        const [propertyData, addonData, holidayData, discountData] = await Promise.all(requests);
+        setProperties(propertyData);
         setAddons(addonData);
         setPricingHolidays(holidayData || []);
         if (isEditMode) {
-          setDiscounts((discountData || []).filter((d) => d.is_active !== false && d.status !== 'inactive'));
+          setDiscounts((discountData || []).filter((d) => d.status === 'active'));
         }
       } catch (err) {
         console.error('Failed to fetch form data:', err);
       } finally {
-        setLoadingVillas(false);
+        setLoadingProperties(false);
       }
     };
 
@@ -178,9 +178,9 @@ function PublicReservationForm({
         totalPrice: Number(booking.total_price) || 0,
         notes: booking.notes || '',
       });
-      setSelectedVillaIds(
-        (booking.booking_villas || [])
-          .map((row) => row.villa_id || row.villas?.id)
+      setSelectedPropertyIds(
+        (booking.booking_properties || [])
+          .map((row) => row.property_id || row.properties?.id)
           .filter(Boolean)
       );
       const addonMap = {};
@@ -196,10 +196,10 @@ function PublicReservationForm({
       setError(null);
     } else if (!isEditMode && isModal) {
       setFormData({ ...EMPTY_FORM });
-      setSelectedVillaIds([]);
+      setSelectedPropertyIds([]);
       setSelectedAddons({});
-      setOccupiedVillaIds([]);
-      setBlockedVillaIds([]);
+      setOccupiedPropertyIds([]);
+      setBlockedPropertyIds([]);
       setBlockWarning('');
       setDateError('');
       setError(null);
@@ -218,20 +218,20 @@ function PublicReservationForm({
     const checkLiveAvailability = async () => {
       try {
         const response = await apiFetch(
-          `/api/villas/availability?check_in=${debouncedCheckIn}&check_out=${debouncedCheckOut}`,
+          `/api/properties/availability?check_in=${debouncedCheckIn}&check_out=${debouncedCheckOut}`,
         );
         if (!response.ok) return;
         const data = await response.json();
-        const occupied = data.occupiedVillaIds || [];
-        const blocked = data.blockedVillaIds || [];
-        setOccupiedVillaIds(occupied);
-        setBlockedVillaIds(blocked);
+        const occupied = data.occupiedPropertyIds || [];
+        const blocked = data.blockedPropertyIds || [];
+        setOccupiedPropertyIds(occupied);
+        setBlockedPropertyIds(blocked);
 
-        setSelectedVillaIds((prev) =>
+        setSelectedPropertyIds((prev) =>
           prev.filter((id) => {
             if (blocked.includes(id)) return false;
-            const isOriginallyAssigned = isEditMode && (booking?.booking_villas || []).some(
-              (row) => (row.villa_id || row.villas?.id) === id
+            const isOriginallyAssigned = isEditMode && (booking?.booking_properties || []).some(
+              (row) => (row.property_id || row.properties?.id) === id
             );
             if (isOriginallyAssigned) return true;
             return !occupied.includes(id);
@@ -263,9 +263,9 @@ function PublicReservationForm({
     setDateError('');
   }, [checkInDate, checkOutDate]);
 
-  const selectedVillas = useMemo(
-    () => villas.filter((v) => selectedVillaIds.includes(v.id)),
-    [villas, selectedVillaIds]
+  const selectedProperties = useMemo(
+    () => properties.filter((v) => selectedPropertyIds.includes(v.id)),
+    [properties, selectedPropertyIds]
   );
 
   const emptyRateBreakdown = {
@@ -275,7 +275,7 @@ function PublicReservationForm({
     weekdayTotal: 0,
     weekendTotal: 0,
     holidayTotal: 0,
-    villaTotal: 0,
+    propertyTotal: 0,
     nights: 0,
   };
 
@@ -286,8 +286,8 @@ function PublicReservationForm({
     const checkOut = new Date(`${checkOutDate}T12:00:00`);
     if (checkOut <= checkIn) return emptyRateBreakdown;
 
-    return computeStayRateBreakdown(selectedVillas, checkInDate, checkOutDate, pricingHolidays);
-  }, [checkInDate, checkOutDate, dateError, selectedVillas, pricingHolidays]);
+    return computeStayRateBreakdown(selectedProperties, checkInDate, checkOutDate, pricingHolidays);
+  }, [checkInDate, checkOutDate, dateError, selectedProperties, pricingHolidays]);
 
   const nights = rateBreakdown.nights;
   const hasValidDates = nights > 0;
@@ -305,8 +305,8 @@ function PublicReservationForm({
 
   const estimatedTotal = useMemo(() => {
     if (!hasValidDates) return 0;
-    return rateBreakdown.villaTotal + addonTotal;
-  }, [hasValidDates, rateBreakdown.villaTotal, addonTotal]);
+    return rateBreakdown.propertyTotal + addonTotal;
+  }, [hasValidDates, rateBreakdown.propertyTotal, addonTotal]);
 
   const selectedDiscount = discounts.find((d) => d.id === discountId);
   const guestName = formData.fullName || booking?.guests?.full_name || booking?.guest_full_name;
@@ -314,33 +314,33 @@ function PublicReservationForm({
   if (isModal && !isOpen) return null;
   if (isEditMode && !booking) return null;
 
-  const isOriginallyAssignedVilla = (villaId) =>
-    isEditMode && (booking?.booking_villas || []).some(
-      (row) => (row.villa_id || row.villas?.id) === villaId
+  const isOriginallyAssignedProperty = (propertyId) =>
+    isEditMode && (booking?.booking_properties || []).some(
+      (row) => (row.property_id || row.properties?.id) === propertyId
     );
 
-  const handleVillaCheckboxChange = (villaId) => {
+  const handlePropertyCheckboxChange = (propertyId) => {
     if (
       cancelMode
-      || occupiedVillaIds.includes(villaId)
-      || blockedVillaIds.includes(villaId)
+      || occupiedPropertyIds.includes(propertyId)
+      || blockedPropertyIds.includes(propertyId)
     ) return;
-    setSelectedVillaIds((prev) =>
-      prev.includes(villaId) ? prev.filter((id) => id !== villaId) : [...prev, villaId]
+    setSelectedPropertyIds((prev) =>
+      prev.includes(propertyId) ? prev.filter((id) => id !== propertyId) : [...prev, propertyId]
     );
   };
 
   const validateBlockConflicts = () => {
-    const conflictIds = selectedVillaIds.filter((id) => blockedVillaIds.includes(id));
+    const conflictIds = selectedPropertyIds.filter((id) => blockedPropertyIds.includes(id));
     if (conflictIds.length === 0) return true;
 
-    const conflictNames = villas
+    const conflictNames = properties
       .filter((v) => conflictIds.includes(v.id))
       .map((v) => v.name)
       .join(', ');
 
     setError(
-      t(`publicReservation.errors.villaUnavailableBlock_${conflictIds.length === 1 ? 'one' : 'other'}`, {
+      t(`publicReservation.errors.propertyUnavailableBlock_${conflictIds.length === 1 ? 'one' : 'other'}`, {
         names: conflictNames,
       })
     );
@@ -380,8 +380,8 @@ function PublicReservationForm({
     }
 
     if (isEditMode) {
-      if (selectedVillaIds.length === 0) {
-        setError(t('publicReservation.errors.selectAtLeastOneVilla'));
+      if (selectedPropertyIds.length === 0) {
+        setError(t('publicReservation.errors.selectAtLeastOneProperty'));
         return;
       }
       if (!validateBlockConflicts()) return;
@@ -405,7 +405,7 @@ function PublicReservationForm({
             check_out_date: checkOutDate,
             total_guests: parseInt(formData.totalGuests, 10) || booking.total_guests,
             notes: formData.notes,
-            villa_ids: selectedVillaIds,
+            property_ids: selectedPropertyIds,
             selected_addons,
             apply_discount: applyDiscount,
             discount_id: applyDiscount ? discountId : null,
@@ -427,8 +427,8 @@ function PublicReservationForm({
     }
 
     // Create flow
-    if (selectedVillaIds.length === 0) {
-      setError(t('publicReservation.errors.selectAtLeastOneVilla'));
+    if (selectedPropertyIds.length === 0) {
+      setError(t('publicReservation.errors.selectAtLeastOneProperty'));
       return;
     }
     if (!validateBlockConflicts()) return;
@@ -440,7 +440,7 @@ function PublicReservationForm({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          full_name: formData.fullName,
+          full_name: toProperCaseName(formData.fullName),
           email: formData.email,
           phone_number: formData.phoneNumber,
         }),
@@ -462,7 +462,7 @@ function PublicReservationForm({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          villa_ids: selectedVillaIds,
+          property_ids: selectedPropertyIds,
           guest_id: newGuest.id,
           check_in_date: checkInDate,
           check_out_date: checkOutDate,
@@ -484,7 +484,7 @@ function PublicReservationForm({
         sessionStorage.setItem(`booking_token_${data.id}`, data.manage_token);
       }
 
-      setSelectedVillaIds([]);
+      setSelectedPropertyIds([]);
       if (isModal) {
         onSuccess?.();
         onClose?.();
@@ -673,15 +673,15 @@ function PublicReservationForm({
                 )}
               </label>
               <div className="checkbox-grid">
-                {loadingVillas ? (
+                {loadingProperties ? (
                   <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{t('publicReservation.syncingPortfolio')}</span>
-                ) : villas.length === 0 ? (
+                ) : properties.length === 0 ? (
                   <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{t('publicReservation.noPropertiesFound')}</span>
                 ) : (
-                  villas.map((villa) => {
-                    const isOccupied = occupiedVillaIds.includes(villa.id);
-                    const isBlocked = blockedVillaIds.includes(villa.id);
-                    const isOriginallyAssigned = isOriginallyAssignedVilla(villa.id);
+                  properties.map((property) => {
+                    const isOccupied = occupiedPropertyIds.includes(property.id);
+                    const isBlocked = blockedPropertyIds.includes(property.id);
+                    const isOriginallyAssigned = isOriginallyAssignedProperty(property.id);
                     const isUnavailable = isBlocked || (isOccupied && !isOriginallyAssigned);
                     const rowClass = [
                       'checkbox-row',
@@ -690,26 +690,26 @@ function PublicReservationForm({
                     ].filter(Boolean).join(' ');
 
                     return (
-                      <div key={villa.id} className={rowClass}>
+                      <div key={property.id} className={rowClass}>
                         <input
                           type="checkbox"
-                          id={`villa-${villa.id}-${isEditMode ? 'edit' : 'new'}`}
-                          checked={selectedVillaIds.includes(villa.id)}
+                          id={`property-${property.id}-${isEditMode ? 'edit' : 'new'}`}
+                          checked={selectedPropertyIds.includes(property.id)}
                           disabled={cancelMode || isUnavailable}
-                          onChange={() => handleVillaCheckboxChange(villa.id)}
+                          onChange={() => handlePropertyCheckboxChange(property.id)}
                         />
-                        <label htmlFor={`villa-${villa.id}-${isEditMode ? 'edit' : 'new'}`} className="checkbox-text">
+                        <label htmlFor={`property-${property.id}-${isEditMode ? 'edit' : 'new'}`} className="checkbox-text">
                           <span>
-                            {villa.name}
+                            {property.name}
                             {isBlocked && (
-                              <small className="villa-unavailable-tag">{t('publicReservation.datesBlocked')}</small>
+                              <small className="property-unavailable-tag">{t('publicReservation.datesBlocked')}</small>
                             )}
                             {isOccupied && !isBlocked && !isOriginallyAssigned && (
-                              <small className="villa-unavailable-tag">{t('publicReservation.unavailable')}</small>
+                              <small className="property-unavailable-tag">{t('publicReservation.unavailable')}</small>
                             )}
                           </span>
-                          <span className="villa-rate">
-                            {formatVillaRateForDates(villa, checkInDate, checkOutDate, pricingHolidays)}
+                          <span className="property-rate">
+                            {formatPropertyRateForDates(property, checkInDate, checkOutDate, pricingHolidays)}
                           </span>
                         </label>
                       </div>
@@ -727,7 +727,7 @@ function PublicReservationForm({
                     <div key={addon.id} className="checkbox-row" style={{ justifyContent: 'space-between' }}>
                       <label className="checkbox-text" style={{ flex: 1 }}>
                         <span>{addon.name}</span>
-                        <span className="villa-rate">
+                        <span className="property-rate">
                           Rp {addonPrice(addon).toLocaleString('id-ID')}
                           {addon.is_per_night !== false ? t('publicReservation.perNight') : t('publicReservation.oneTime')}
                         </span>
@@ -814,7 +814,7 @@ function PublicReservationForm({
               </div>
             )}
 
-            {hasValidDates && selectedVillaIds.length > 0 && (
+            {hasValidDates && selectedPropertyIds.length > 0 && (
               <div className="reservation-price-breakdown">
                 <p className="reservation-price-breakdown__title">{t('publicReservation.accommodationBreakdown')}</p>
                 <ul className="reservation-price-breakdown__list">
@@ -836,10 +836,10 @@ function PublicReservationForm({
                       <span>{formatRp(rateBreakdown.holidayTotal)}</span>
                     </li>
                   )}
-                  {selectedVillas.length > 1 && (
+                  {selectedProperties.length > 1 && (
                     <li className="reservation-price-breakdown__subtotal">
-                      <span>{t('publicReservation.villaSubtotal', { count: selectedVillas.length })}</span>
-                      <span>{formatRp(rateBreakdown.villaTotal)}</span>
+                      <span>{t('publicReservation.propertySubtotal', { count: selectedProperties.length })}</span>
+                      <span>{formatRp(rateBreakdown.propertyTotal)}</span>
                     </li>
                   )}
                 </ul>

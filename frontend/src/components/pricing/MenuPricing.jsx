@@ -15,6 +15,8 @@ import {
   usePricingMutation,
   formatRp,
 } from './pricingShared';
+import { apiFetch } from '../../api/client';
+import { toTitleCaseName } from '../../utils/stringUtils';
 
 const CATEGORIES = ['food', 'beverage', 'snack', 'dessert','partner_kitchen', 'other'];
 
@@ -65,7 +67,7 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
       refresh: onSaved,
       execute: async () => {
         const payload = {
-          name: form.name.trim(),
+          name: toTitleCaseName(form.name),
           category: form.category,
           price: Number(form.price),
           is_available: form.is_available,
@@ -180,7 +182,7 @@ function MenuPricing() {
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/menu-items?all=true');
+      const res = await apiFetch('/api/menu-items?all=true');
       if (!res.ok) throw new Error('Failed to fetch menu items');
       setItems(await res.json());
       setError(null);

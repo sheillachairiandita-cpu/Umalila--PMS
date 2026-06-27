@@ -4,8 +4,8 @@
 
 export const DISCOUNT_STATUSES = Object.freeze(['draft', 'active', 'archived']);
 export const DISCOUNT_TYPES = Object.freeze(['percentage', 'fixed']);
-export const DISCOUNT_SCOPES = Object.freeze(['all_items', 'villas', 'addons', 'menu']);
-export const APPLICABLE_VILLAS_MODES = Object.freeze(['all', 'selected']);
+export const DISCOUNT_SCOPES = Object.freeze(['all_items', 'properties', 'addons', 'menu']);
+export const APPLICABLE_PROPERTIES_MODES = Object.freeze(['all', 'selected']);
 export const APPLICATION_RULES = Object.freeze(['all_items', 'highest_priced_single', 'lowest_priced_single']);
 
 const LEGACY_SCOPE_MAP = { global: 'all_items' };
@@ -69,15 +69,15 @@ function capDiscountAmount(amount, discount) {
   return amount;
 }
 
-function filterVillaLines(villaLines, discount) {
-  const lines = villaLines || [];
-  const mode = discount.applicable_villas || 'all';
-  const ids = parseIdList(discount.villa_ids);
-  if (discount.villa_id) ids.push(String(discount.villa_id));
+function filterPropertyLines(propertyLines, discount) {
+  const lines = propertyLines || [];
+  const mode = discount.applicable_properties || 'all';
+  const ids = parseIdList(discount.property_ids);
+  if (discount.property_id) ids.push(String(discount.property_id));
   const uniqueIds = [...new Set(ids)];
 
   if (mode !== 'selected' || uniqueIds.length === 0) return lines;
-  return lines.filter((line) => uniqueIds.includes(String(line.villa_id || line.villaId)));
+  return lines.filter((line) => uniqueIds.includes(String(line.property_id || line.propertyId)));
 }
 
 function lastStayNight(checkOutDate) {
@@ -87,11 +87,11 @@ function lastStayNight(checkOutDate) {
   return date.toISOString().slice(0, 10);
 }
 
-function computeEligibleBase(scope, villaLines, addonLines, menuLines) {
+function computeEligibleBase(scope, propertyLines, addonLines, menuLines) {
   let eligibleBase = 0;
 
-  if (includesScope(scope, 'villas')) {
-    eligibleBase += villaLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0);
+  if (includesScope(scope, 'properties')) {
+    eligibleBase += propertyLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0);
   }
   if (includesScope(scope, 'addons')) {
     eligibleBase += addonLines.reduce((sum, line) => sum + (Number(line.subtotal) || 0), 0);
@@ -103,7 +103,7 @@ function computeEligibleBase(scope, villaLines, addonLines, menuLines) {
   return eligibleBase;
 }
 
-function computeRuleAmount(discount, villaLines, eligibleBase) {
+function computeRuleAmount(discount, propertyLines, eligibleBase) {
   const type = discount.type;
   const value = Number(discount.value) || 0;
   const rule = discount.application_rule || 'all_items';
@@ -111,39 +111,39 @@ function computeRuleAmount(discount, villaLines, eligibleBase) {
 
   if (
     rule === 'highest_priced_single' &&
-    includesScope(scope, 'villas') &&
-    villaLines.length > 0
+    includesScope(scope, 'properties') &&
+    propertyLines.length > 0
   ) {
-    const target = villaLines.reduce(
+    const target = propertyLines.reduce(
       (max, line) => ((Number(line.subtotal) || 0) > (Number(max.subtotal) || 0) ? line : max),
-      villaLines[0]
+      propertyLines[0]
     );
     const subtotal = Number(target.subtotal) || 0;
     const amount = type === 'percentage' ? subtotal * (value / 100) : Math.min(value, subtotal);
     return {
       amount,
       detail: type === 'percentage'
-        ? `${value}% off ${target.name || target.description || 'highest-priced villa'}`
-        : `Fixed Rp ${value.toLocaleString('id-ID')} off ${target.name || target.description || 'highest-priced villa'}`,
+        ? `${value}% off ${target.name || target.description || 'highest-priced property'}`
+        : `Fixed Rp ${value.toLocaleString('id-ID')} off ${target.name || target.description || 'highest-priced property'}`,
     };
   }
 
   if (
     rule === 'lowest_priced_single' &&
-    includesScope(scope, 'villas') &&
-    villaLines.length > 0
+    includesScope(scope, 'properties') &&
+    propertyLines.length > 0
   ) {
-    const target = villaLines.reduce(
+    const target = propertyLines.reduce(
       (min, line) => ((Number(line.subtotal) || 0) < (Number(min.subtotal) || 0) ? line : min),
-      villaLines[0]
+      propertyLines[0]
     );
     const subtotal = Number(target.subtotal) || 0;
     const amount = type === 'percentage' ? subtotal * (value / 100) : Math.min(value, subtotal);
     return {
       amount,
       detail: type === 'percentage'
-        ? `${value}% off ${target.name || target.description || 'lowest-priced villa'}`
-        : `Fixed Rp ${value.toLocaleString('id-ID')} off ${target.name || target.description || 'lowest-priced villa'}`,
+        ? `${value}% off ${target.name || target.description || 'lowest-priced property'}`
+        : `Fixed Rp ${value.toLocaleString('id-ID')} off ${target.name || target.description || 'lowest-priced property'}`,
     };
   }
 
@@ -219,18 +219,18 @@ export function isDiscountEligible(discount, context = {}) {
   }
 
   const scope = normalizeScope(discount.scope);
-  const applicableVillas = discount.applicable_villas || 'all';
-  const selectedVillaIds = parseIdList(discount.villa_ids);
-  if (discount.villa_id) selectedVillaIds.push(String(discount.villa_id));
-  const bookingVillaIds = (context.villaIds || []).map(String);
+  const applicableProperties = discount.applicable_properties || 'all';
+  const selectedPropertyIds = parseIdList(discount.property_ids);
+  if (discount.property_id) selectedPropertyIds.push(String(discount.property_id));
+  const bookingPropertyIds = (context.propertyIds || []).map(String);
 
-  if (scope === 'villas' && applicableVillas === 'selected') {
-    if (selectedVillaIds.length === 0) {
-      return { eligible: false, reason: 'Discount has no applicable villas configured.' };
+  if (scope === 'properties' && applicableProperties === 'selected') {
+    if (selectedPropertyIds.length === 0) {
+      return { eligible: false, reason: 'Discount has no applicable properties configured.' };
     }
-    const hasMatch = bookingVillaIds.some((id) => selectedVillaIds.includes(id));
+    const hasMatch = bookingPropertyIds.some((id) => selectedPropertyIds.includes(id));
     if (!hasMatch) {
-      return { eligible: false, reason: 'Discount does not apply to the selected villas.' };
+      return { eligible: false, reason: 'Discount does not apply to the selected properties.' };
     }
   }
 
@@ -241,8 +241,8 @@ export function validateDiscountPayload(payload, options = {}) {
   const errors = [];
   const { partial = false } = options;
   const scope = payload.scope !== undefined ? normalizeScope(payload.scope) : undefined;
-  const applicableVillas = payload.applicable_villas || 'all';
-  const villaIds = parseIdList(payload.villa_ids);
+  const applicableProperties = payload.applicable_properties || 'all';
+  const propertyIds = parseIdList(payload.property_ids);
 
   if (!partial) {
     if (!payload.code) errors.push('Promo code is required.');
@@ -303,8 +303,8 @@ export function validateDiscountPayload(payload, options = {}) {
     if (Number.isNaN(limit) || limit < 0) errors.push('Per guest limit cannot be negative.');
   }
 
-  if (scope === 'villas' && applicableVillas === 'selected' && villaIds.length === 0) {
-    errors.push('At least one villa must be selected when scope is Villas Only and applicable villas is Selected Villas.');
+  if (scope === 'properties' && applicableProperties === 'selected' && propertyIds.length === 0) {
+    errors.push('At least one property must be selected when scope is Properties Only and applicable properties is Selected Properties.');
   }
 
   return { valid: errors.length === 0, errors };
@@ -320,14 +320,14 @@ export function calculateDiscountAmount(discount, context = {}) {
   if (!eligibility.eligible) return { amount: 0, lines: [] };
 
   const scope = normalizeScope(discount.scope);
-  const villaLines = filterVillaLines(context.villaLines || [], discount);
+  const propertyLines = filterPropertyLines(context.propertyLines || [], discount);
   const addonLines = context.addonLines || [];
   const menuLines = context.menuLines || [];
 
-  const eligibleBase = computeEligibleBase(scope, villaLines, addonLines, menuLines);
+  const eligibleBase = computeEligibleBase(scope, propertyLines, addonLines, menuLines);
   if (eligibleBase <= 0) return { amount: 0, lines: [] };
 
-  const { amount: rawAmount, detail } = computeRuleAmount(discount, villaLines, eligibleBase);
+  const { amount: rawAmount, detail } = computeRuleAmount(discount, propertyLines, eligibleBase);
   let amount = capDiscountAmount(rawAmount, discount);
   amount = round2(amount);
 
@@ -396,9 +396,9 @@ export function mapDiscountRow(row) {
 
   const status = normalizeStatus(row.status);
   const scope = normalizeScope(row.scope);
-  const villaIds = parseIdList(row.villa_ids);
-  if (row.villa_id && !villaIds.includes(String(row.villa_id))) {
-    villaIds.push(String(row.villa_id));
+  const propertyIds = parseIdList(row.property_ids);
+  if (row.property_id && !propertyIds.includes(String(row.property_id))) {
+    propertyIds.push(String(row.property_id));
   }
 
   return {
@@ -414,9 +414,9 @@ export function mapDiscountRow(row) {
     status,
     is_active: status === 'active',
     application_rule: row.application_rule || 'all_items',
-    applicable_villas: row.applicable_villas || (row.villa_id ? 'selected' : 'all'),
-    villa_ids: villaIds,
-    villa_id: row.villa_id || null,
+    applicable_properties: row.applicable_properties || (row.property_id ? 'selected' : 'all'),
+    property_ids: propertyIds,
+    property_id: row.property_id || null,
     booking_start_date: row.booking_start_date || null,
     booking_end_date: row.booking_end_date || null,
     stay_start_date: row.stay_start_date || null,
@@ -455,14 +455,14 @@ export function discountPayloadFromBody(body, { partial = false, userId = null, 
   if (!partial || body.application_rule !== undefined) {
     assign('application_rule', body.application_rule || 'all_items');
   }
-  if (!partial || body.applicable_villas !== undefined) {
-    assign('applicable_villas', body.applicable_villas || 'all');
+  if (!partial || body.applicable_properties !== undefined) {
+    assign('applicable_properties', body.applicable_properties || 'all');
   }
-  if (!partial || body.villa_ids !== undefined) {
-    assign('villa_ids', parseIdList(body.villa_ids));
-  } else if (!partial && body.villa_id !== undefined) {
-    assign('villa_ids', body.villa_id ? [String(body.villa_id)] : []);
-    assign('villa_id', body.villa_id || null);
+  if (!partial || body.property_ids !== undefined) {
+    assign('property_ids', parseIdList(body.property_ids));
+  } else if (!partial && body.property_id !== undefined) {
+    assign('property_ids', body.property_id ? [String(body.property_id)] : []);
+    assign('property_id', body.property_id || null);
   }
   if (!partial || body.booking_start_date !== undefined) assign('booking_start_date', parseDate(body.booking_start_date));
   if (!partial || body.booking_end_date !== undefined) assign('booking_end_date', parseDate(body.booking_end_date));
@@ -506,7 +506,7 @@ export function buildDiscountBookingContext({
   checkOutDate,
   nights,
   bookingAmount,
-  villaIds,
+  propertyIds,
   guestId,
   totalUsageCount,
   guestUsageCount,
@@ -517,7 +517,7 @@ export function buildDiscountBookingContext({
     checkOutDate,
     nights,
     bookingAmount,
-    villaIds: villaIds || [],
+    propertyIds: propertyIds || [],
     guestId,
     totalUsageCount,
     guestUsageCount,

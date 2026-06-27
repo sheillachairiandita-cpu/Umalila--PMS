@@ -1,7 +1,7 @@
-/** Booking-scoped tenant helpers (child tables without property_id). */
+/** Booking-scoped tenant helpers (child tables without tenant_id). */
 
-export async function assertBookingInProperty(supabase, scopeQ, propertyId, bookingId) {
-  const { data, error } = await scopeQ(propertyId, 'bookings')
+export async function assertBookingInTenant(supabase, scopeQ, tenantId, bookingId) {
+  const { data, error } = await scopeQ(tenantId, 'bookings')
     .select('id')
     .eq('id', bookingId)
     .maybeSingle();
@@ -15,15 +15,17 @@ export async function assertBookingInProperty(supabase, scopeQ, propertyId, book
   return data;
 }
 
-export async function findVillaBookingConflicts(
+export const assertBookingInProperty = assertBookingInTenant;
+
+export async function findPropertyBookingConflicts(
   supabase,
-  { villaIds, checkIn, checkOut, propertyId, excludeBookingId = null },
+  { propertyIds, checkIn, checkOut, tenantId, excludeBookingId = null },
 ) {
   let query = supabase
-    .from('booking_villas')
-    .select('villa_id, booking_id, bookings!inner (id, check_in_date, check_out_date, status, property_id)')
-    .eq('bookings.property_id', propertyId)
-    .in('villa_id', villaIds)
+    .from('booking_properties')
+    .select('property_id, booking_id, bookings!inner (id, check_in_date, check_out_date, status, tenant_id)')
+    .eq('bookings.tenant_id', tenantId)
+    .in('property_id', propertyIds)
     .not('bookings.status', 'eq', 'cancelled')
     .lt('bookings.check_in_date', checkOut)
     .gt('bookings.check_out_date', checkIn);
@@ -39,10 +41,10 @@ export async function findVillaBookingConflicts(
 
 export async function deleteBookingChildren(supabase, bookingId) {
   await supabase.from('booking_addons').delete().eq('booking_id', bookingId);
-  await supabase.from('booking_villas').delete().eq('booking_id', bookingId);
+  await supabase.from('booking_properties').delete().eq('booking_id', bookingId);
 }
 
-export async function deleteBookingCascade(supabase, scopeQ, propertyId, bookingId) {
+export async function deleteBookingCascade(supabase, scopeQ, tenantId, bookingId) {
   await deleteBookingChildren(supabase, bookingId);
-  await scopeQ(propertyId, 'bookings').delete().eq('id', bookingId);
+  await scopeQ(tenantId, 'bookings').delete().eq('id', bookingId);
 }

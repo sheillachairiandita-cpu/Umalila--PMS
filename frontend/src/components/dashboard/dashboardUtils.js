@@ -1,8 +1,9 @@
 import {
-  computeVillasStayTotal,
-} from '../../utils/villaRateUtils';
+  computePropertiesStayTotal,
+} from '../../utils/propertyRateUtils';
+import { sumCountableFinanceIncome } from '../../utils/financeEligibility';
 
-export function formatRp(v) {
+export function formatRpCompact(v) {
   const n = Number(v) || 0;
   if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1)}M`;
@@ -121,13 +122,13 @@ function prorateAmount(amount, checkIn, checkOut, rangeStart, rangeEnd) {
   return (Number(amount) || 0) * (inRange / totalNights);
 }
 
-function matchesVilla(villaNames, villaFilter) {
-  if (villaFilter === 'all') return true;
-  return (villaNames || '').includes(villaFilter);
+function matchesProperty(propertyNames, propertyFilter) {
+  if (propertyFilter === 'all') return true;
+  return (propertyNames || '').includes(propertyFilter);
 }
 
-function villaCount(villas, villaFilter) {
-  if (villaFilter === 'all') return Math.max(villas?.length || 1, 1);
+function propertyCount(properties, propertyFilter) {
+  if (propertyFilter === 'all') return Math.max(properties?.length || 1, 1);
   return 1;
 }
 
@@ -156,15 +157,15 @@ const REVENUE_SEGMENTS = [
   { key: 'order_revenue', label: 'F&B Revenue', color: 'var(--green)' },
 ];
 
-function villaUnits(booking) {
-  return Math.max(booking?.booking_villas?.length || 1, 1);
+function propertyUnits(booking) {
+  return Math.max(booking?.booking_properties?.length || 1, 1);
 }
 
 function prorateTieredAccommodation(booking, rangeStart, rangeEnd, holidays = []) {
-  const villas = (booking.booking_villas || []).map((bv) => bv.villas).filter(Boolean);
-  if (!villas.length) return 0;
-  const fullTotal = computeVillasStayTotal(
-    villas,
+  const properties = (booking.booking_properties || []).map((bv) => bv.properties).filter(Boolean);
+  if (!properties.length) return 0;
+  const fullTotal = computePropertiesStayTotal(
+    properties,
     booking.check_in_date,
     booking.check_out_date,
     holidays
@@ -180,8 +181,8 @@ export function processFinancialData({
   profitability = [],
   rangeStart,
   rangeEnd,
-  villaFilter,
-  villas,
+  propertyFilter,
+  properties,
   pricingHolidays = [],
 }) {
   const incomeMap = {};
@@ -200,7 +201,7 @@ export function processFinancialData({
 
   (bookings || []).forEach((b) => {
     if (b.status === 'cancelled') return;
-    if (!matchesVilla(b.villa_names, villaFilter)) return;
+    if (!matchesProperty(b.property_names, propertyFilter)) return;
     if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
 
     const summary = incomeMap[b.id];
@@ -236,14 +237,14 @@ export function processFinancialData({
     }
   });
 
-  const amountCollected = (transactions || [])
-    .filter((t) => t.type === 'income' && t.status === 'approved')
-    .filter((t) => inDateRange(t.transaction_date, rangeStart, rangeEnd))
-    .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const amountCollected = sumCountableFinanceIncome(
+    (transactions || []).filter((t) => inDateRange(t.transaction_date, rangeStart, rangeEnd)),
+    bookingById,
+  );
 
   const pendingDeposit = (incomeRows || [])
     .filter((r) => ['confirmed', 'checked_in'].includes(r.bookingStatus))
-    .filter((r) => matchesVilla(bookingById[r.bookingId]?.villa_names, villaFilter))
+    .filter((r) => matchesProperty(bookingById[r.bookingId]?.property_names, propertyFilter))
     .reduce((s, r) => s + (Number(r.balanceDue) || 0), 0);
 
   const expenseByCategory = {};
@@ -265,11 +266,11 @@ export function processFinancialData({
   let proratedAddonFromProfit = 0;
   let proratedFbFromProfit = 0;
 
-  const villaAgg = {};
+  const propertyAgg = {};
 
   (profitability || []).forEach((row) => {
     if (row.bookingStatus === 'cancelled') return;
-    if (villaFilter !== 'all' && row.villaName !== villaFilter) return;
+    if (propertyFilter !== 'all' && row.propertyName !== propertyFilter) return;
     if (!row.checkIn || !row.checkOut) return;
     if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
 
@@ -287,18 +288,18 @@ export function processFinancialData({
     proratedAddonFromProfit += (Number(row.addonRevenue) || 0) * factor;
     proratedFbFromProfit += (Number(row.fbRevenue) || 0) * factor;
 
-    if (!villaAgg[row.villaId]) {
-      villaAgg[row.villaId] = {
-        villaId: row.villaId,
-        villaName: row.villaName,
+    if (!propertyAgg[row.propertyId]) {
+      propertyAgg[row.propertyId] = {
+        propertyId: row.propertyId,
+        propertyName: row.propertyName,
         revenue: 0,
         cogs: 0,
         grossProfit: 0,
       };
     }
-    villaAgg[row.villaId].revenue += rev;
-    villaAgg[row.villaId].cogs += cogs;
-    villaAgg[row.villaId].grossProfit += gp;
+    propertyAgg[row.propertyId].revenue += rev;
+    propertyAgg[row.propertyId].cogs += cogs;
+    propertyAgg[row.propertyId].grossProfit += gp;
   });
 
   const useProfitability = (profitability || []).length > 0;
@@ -312,7 +313,7 @@ export function processFinancialData({
   const grossProfit = grossRevenue - totalCogs;
   const netProfit = grossProfit - totalExpenses;
 
-  const rooms = villaCount(villas, villaFilter);
+  const rooms = propertyCount(properties, propertyFilter);
   const rangeDays = Math.max(1, Math.ceil((dateOnly(rangeEnd) - dateOnly(rangeStart)) / 86400000) + 1);
   const availableRoomNights = rooms * rangeDays;
   const goppar = availableRoomNights ? grossProfit / availableRoomNights : 0;
@@ -344,7 +345,7 @@ export function processFinancialData({
   if (useProfitability) {
     (profitability || []).forEach((row) => {
       if (row.bookingStatus === 'cancelled') return;
-      if (villaFilter !== 'all' && row.villaName !== villaFilter) return;
+      if (propertyFilter !== 'all' && row.propertyName !== propertyFilter) return;
       if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
 
       const totalNights = stayNights(row.checkIn, row.checkOut);
@@ -360,7 +361,7 @@ export function processFinancialData({
   } else {
     (bookings || []).forEach((b) => {
       if (b.status === 'cancelled') return;
-      if (!matchesVilla(b.villa_names, villaFilter)) return;
+      if (!matchesProperty(b.property_names, propertyFilter)) return;
       if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
       const summary = incomeMap[b.id];
       const total = summary
@@ -388,7 +389,7 @@ export function processFinancialData({
       netProfit: val.revenue - (val.cogs || 0) - val.expenses,
     }));
 
-  const villaProfitability = Object.values(villaAgg)
+  const propertyProfitability = Object.values(propertyAgg)
     .map((v) => {
       const expenseShare = grossRevenue > 0
         ? totalExpenses * (v.revenue / grossRevenue)
@@ -422,7 +423,7 @@ export function processFinancialData({
       expenses: totalExpenses,
       netProfit,
     },
-    villaProfitability,
+    propertyProfitability,
   };
 }
 
@@ -431,8 +432,8 @@ export function processHospitalityData({
   incomeRows,
   rangeStart,
   rangeEnd,
-  villaFilter,
-  villas,
+  propertyFilter,
+  properties,
   pricingHolidays = [],
 }) {
   const incomeMap = {};
@@ -448,13 +449,13 @@ export function processHospitalityData({
 
   const filtered = (bookings || []).filter((b) => {
     if (b.status === 'cancelled') return false;
-    if (!matchesVilla(b.villa_names, villaFilter)) return false;
+    if (!matchesProperty(b.property_names, propertyFilter)) return false;
     return stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
   });
 
   filtered.forEach((b) => {
     const nights = nightsInRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
-    roomNightsSold += nights * villaUnits(b);
+    roomNightsSold += nights * propertyUnits(b);
 
     const summary = incomeMap[b.id];
     if (summary) {
@@ -464,7 +465,7 @@ export function processHospitalityData({
     }
   });
 
-  const rooms = villaCount(villas, villaFilter);
+  const rooms = propertyCount(properties, propertyFilter);
   const rangeDays = Math.max(1, Math.ceil((dateOnly(rangeEnd) - dateOnly(rangeStart)) / 86400000) + 1);
   const availableRoomNights = rooms * rangeDays;
 
@@ -509,7 +510,7 @@ export function processHospitalityData({
 
   filtered.forEach((b) => {
     const summary = incomeMap[b.id];
-    const units = villaUnits(b);
+    const units = propertyUnits(b);
     let cur = dateOnly(b.check_in_date);
     const end = dateOnly(b.check_out_date);
     while (cur < end) {

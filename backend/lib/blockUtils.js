@@ -13,9 +13,9 @@ export function isBlockingBookingStatus(status) {
   return BLOCKING_BOOKING_STATUSES.includes(status);
 }
 
-export async function findBlockingReservationsForBlock(supabase, villaId, startDate, endDate) {
+export async function findBlockingReservationsForBlock(supabase, propertyId, startDate, endDate) {
   const { data, error } = await supabase
-    .from('booking_villas')
+    .from('booking_properties')
     .select(`
       booking_id,
       bookings (
@@ -27,7 +27,7 @@ export async function findBlockingReservationsForBlock(supabase, villaId, startD
         guests (full_name)
       )
     `)
-    .eq('villa_id', villaId);
+    .eq('property_id', propertyId);
 
   if (error) throw error;
 
