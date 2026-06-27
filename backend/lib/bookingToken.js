@@ -1,8 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { config } from '../config/index.js';
 
-const TOKEN_SECRET = process.env.BOOKING_TOKEN_SECRET
-  || process.env.SESSION_SECRET
-  || 'umalila-dev-booking-token-secret';
+const TOKEN_SECRET = config.session.bookingTokenSecret;
 
 function safeEqual(a, b) {
   const bufA = Buffer.from(a);

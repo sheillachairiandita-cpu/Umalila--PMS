@@ -2,11 +2,6 @@ import { hasPermission, PERMISSIONS } from './rbac/rbac.js';
 import { extractBookingToken, verifyBookingToken } from './bookingToken.js';
 import { finishScope } from './tenant/index.js';
 
-/**
- * Allow booking mutation if:
- * - authenticated user with BOOKINGS_WRITE in same property, OR
- * - valid manage_token for the booking
- */
 export function createBookingAccessMiddleware(supabase) {
   return async function bookingAccessMiddleware(req, res, next) {
     const bookingId = req.params.id || req.params.bookingId;
@@ -15,8 +10,8 @@ export function createBookingAccessMiddleware(supabase) {
     if (req.user && hasPermission(req.user.role, PERMISSIONS.BOOKINGS_WRITE)) {
       try {
         const { data, error } = await finishScope(
-          supabase.from('bookings').select('id, property_id').eq('id', bookingId),
-          req.propertyId,
+          supabase.from('bookings').select('id, tenant_id').eq('id', bookingId),
+          req.tenantId,
           'bookings',
         ).maybeSingle();
 
@@ -38,7 +33,7 @@ export function createBookingAccessMiddleware(supabase) {
     try {
       const { data, error } = await supabase
         .from('bookings')
-        .select('id, property_id, manage_token_hash')
+        .select('id, tenant_id, manage_token_hash')
         .eq('id', bookingId)
         .maybeSingle();
 
@@ -47,7 +42,7 @@ export function createBookingAccessMiddleware(supabase) {
         return res.status(404).json({ error: 'Booking not found.' });
       }
 
-      if (req.propertyId && data.property_id !== req.propertyId) {
+      if (req.tenantId && data.tenant_id !== req.tenantId) {
         return res.status(404).json({ error: 'Booking not found.' });
       }
 

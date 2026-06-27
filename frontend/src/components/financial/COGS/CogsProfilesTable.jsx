@@ -16,13 +16,13 @@ function formatDate(iso) {
 
 function CogsProfilesTable({
   profiles,
-  villas,
+  properties,
   loading,
   onCreate,
   onEdit,
   onDelete,
 }) {
-  const [villaFilter, setVillaFilter] = useState('all');
+  const [propertyFilter, setPropertyFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -30,17 +30,17 @@ function CogsProfilesTable({
   const filtered = useMemo(() => {
     let data = [...profiles];
 
-    if (villaFilter !== 'all') {
-      data = data.filter((p) => p.villaId === villaFilter);
+    if (propertyFilter !== 'all') {
+      data = data.filter((p) => p.propertyId === propertyFilter);
     }
 
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      data = data.filter((p) => (p.villaName || '').toLowerCase().includes(q));
+      data = data.filter((p) => (p.propertyName || '').toLowerCase().includes(q));
     }
 
-    return data.sort((a, b) => (a.villaName || '').localeCompare(b.villaName || ''));
-  }, [profiles, villaFilter, search]);
+    return data.sort((a, b) => (a.propertyName || '').localeCompare(b.propertyName || ''));
+  }, [profiles, propertyFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const startIdx = (currentPage - 1) * itemsPerPage;
@@ -50,14 +50,14 @@ function CogsProfilesTable({
     <div>
       <div className="filter-bar filter-bar--expense-ledger">
         <div>
-          <label className="filter-bar__label">Villa</label>
+          <label className="filter-bar__label">Property</label>
           <select
             className="filter-bar__select"
-            value={villaFilter}
-            onChange={(e) => { setVillaFilter(e.target.value); setCurrentPage(1); }}
+            value={propertyFilter}
+            onChange={(e) => { setPropertyFilter(e.target.value); setCurrentPage(1); }}
           >
-            <option value="all">All Villas</option>
-            {(villas || []).map((v) => (
+            <option value="all">All Properties</option>
+            {(properties || []).map((v) => (
               <option key={v.id} value={v.id}>{v.name}</option>
             ))}
           </select>
@@ -68,7 +68,7 @@ function CogsProfilesTable({
           <input
             className="filter-bar__select"
             type="search"
-            placeholder="Search villa name…"
+            placeholder="Search property name…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
           />
@@ -93,7 +93,7 @@ function CogsProfilesTable({
         <div className="empty-state empty-state--dashed">
           <Filter size={30} color="var(--text-light)" style={{ marginBottom: 10 }} />
           <p className="text-muted" style={{ fontSize: '0.85rem' }}>
-            No villa cost profiles yet. Create one to enable automatic COGS calculation.
+            No property cost profiles yet. Create one to enable automatic COGS calculation.
           </p>
         </div>
       ) : (
@@ -101,7 +101,7 @@ function CogsProfilesTable({
           <table className="pms-table pms-table--financial">
             <thead>
               <tr>
-                <th>Villa Name</th>
+                <th>Property Name</th>
                 <th className="text-right">Fixed Stay Cost</th>
                 <th className="text-right">Cost Per Night</th>
                 <th>Last Updated</th>
@@ -111,7 +111,7 @@ function CogsProfilesTable({
             <tbody>
               {paginated.map((p) => (
                 <tr key={p.id}>
-                  <td className="font-medium">{p.villaName}</td>
+                  <td className="font-medium">{p.propertyName}</td>
                   <td className="text-right font-mono">{formatRp(p.fixedStayCost)}</td>
                   <td className="text-right font-mono">{formatRp(p.costPerNight)}</td>
                   <td>{formatDate(p.updatedAt || p.createdAt)}</td>

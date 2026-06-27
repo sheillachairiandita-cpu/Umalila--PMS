@@ -193,7 +193,7 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
           <div>
             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>In-House Food Order</h3>
             <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-              Booking #{booking?.id?.substring(0,8) || '—'} — {booking?.guests?.full_name || 'Guest'} ({booking?.villa_names || '—'})
+              Booking #{booking?.id?.substring(0,8) || '—'} — {booking?.guests?.full_name || 'Guest'} ({booking?.property_names || '—'})
             </p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>

@@ -2,14 +2,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi } from '../../api';
 import { useFinancialIncome } from './useFinancial';
 import { sortReservationsByRecency } from '../../utils/bookingUtils';
+import { resolveBookingLedgerTotal } from '../../utils/financialUtils';
 
 function enrichBookingsWithLedger(bookings, incomeRows) {
-  const ledgerById = Object.fromEntries((incomeRows || []).map((row) => [row.bookingId, row]));
-  return (bookings || []).map((b) => ({
-    ...b,
-    ledger_total: ledgerById[b.id]?.total ?? b.total_price,
-    ledger_discount: ledgerById[b.id]?.discountAmount ?? 0,
-  }));
+  const ledgerById = Object.fromEntries(
+    (incomeRows || []).map((row) => [row.bookingId, row]),
+  );
+
+  return (bookings || []).map((b) => {
+    const ledger = ledgerById[b.id] || null;
+    return {
+      ...b,
+      ledger,
+      ledger_total: resolveBookingLedgerTotal(b, ledger).amount,
+      ledger_discount: ledger?.discountAmount ?? 0,
+    };
+  });
 }
 
 export function useBookings(options = {}) {

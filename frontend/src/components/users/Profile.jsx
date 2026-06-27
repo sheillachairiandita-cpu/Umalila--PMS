@@ -2,6 +2,7 @@ import React from 'react';
 import { User, KeyRound } from 'lucide-react';
 import { useAuth } from '../../context/AuthProvider';
 import ChangePasswordForm from './ChangePasswordForm';
+import SectionHeaderRow from '../ui/SectionHeaderRow';
 
 function Profile() {
   const { user } = useAuth();
@@ -11,8 +12,7 @@ function Profile() {
       <div className="profile-page">
         <div className="section-card">
           <div className="section-card__header">
-            <User size={15} color="var(--navy)" />
-            <h3 className="section-card__title">Profile</h3>
+            <SectionHeaderRow icon={User} title="Profile" />
           </div>
           <div className="section-card__body">
             <div className="profile-info">
@@ -30,8 +30,7 @@ function Profile() {
 
         <div className="section-card section-card--spaced">
           <div className="section-card__header">
-            <KeyRound size={15} color="var(--navy)" />
-            <h3 className="section-card__title">Change Password</h3>
+            <SectionHeaderRow icon={KeyRound} title="Change Password" />
           </div>
           <div className="section-card__body">
             <p className="pms-text-muted profile-password-desc">

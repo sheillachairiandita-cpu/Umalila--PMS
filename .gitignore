@@ -1,14 +1,19 @@
-# Ignore dependency folders
+# Dependencies
 node_modules/
 frontend/node_modules/
 backend/node_modules/
+frontend/dist/
 
-# Ignore sensitive info
+# Environment files (never commit secrets)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.*.example
+!.env.example
 
-# Ignore system files
+# Local overrides
+*.local
+
+# System
 .DS_Store
 Thumbs.db
 
@@ -17,4 +22,4 @@ dist/
 build/
 .next/
 .cache/
-*.log
+*.logs

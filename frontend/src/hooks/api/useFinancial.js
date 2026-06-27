@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { financialApi, villasApi } from '../../api';
+import { financialApi, propertiesApi } from '../../api';
 
 export function useFinancialIncome(options = {}) {
   const { enabled = true, limit = 500 } = options;
@@ -36,11 +36,11 @@ export function useCogsData(options = {}) {
   return useQuery({
     queryKey: ['financial', 'cogs'],
     queryFn: async () => {
-      const [profiles, villas] = await Promise.all([
+      const [profiles, properties] = await Promise.all([
         financialApi.cogsProfiles(),
-        villasApi.list(),
+        propertiesApi.list(),
       ]);
-      return { profiles, villas };
+      return { profiles, properties };
     },
     staleTime: 60_000,
     enabled,

@@ -111,7 +111,7 @@ function dayOverlapsBlock(block, year, month, dayNum) {
 function BlockDatesPanel({
   isOpen,
   onClose,
-  villas,
+  properties,
   form,
   onChange,
   onSubmit,
@@ -138,16 +138,16 @@ function BlockDatesPanel({
           {error && <Alert type="error" message={error} />}
 
           <div className="form-group">
-            <label className="form-label" htmlFor="block-villa">Villa</label>
+            <label className="form-label" htmlFor="block-property">Property</label>
             <select
-              id="block-villa"
+              id="block-property"
               className="form-input"
-              value={form.villaId}
-              onChange={(e) => onChange({ ...form, villaId: e.target.value })}
+              value={form.propertyId}
+              onChange={(e) => onChange({ ...form, propertyId: e.target.value })}
               required
             >
-              <option value="">Select villa…</option>
-              {villas.map((v) => (
+              <option value="">Select property…</option>
+              {properties.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
               ))}
             </select>
@@ -208,7 +208,7 @@ function BlockDatesPanel({
   );
 }
 
-function BlockDetailsModal({ block, villaName, onClose, onUnblock, canUnblock }) {
+function BlockDetailsModal({ block, propertyName, onClose, onUnblock, canUnblock }) {
   if (!block) return null;
 
   return (
@@ -216,7 +216,7 @@ function BlockDetailsModal({ block, villaName, onClose, onUnblock, canUnblock })
       <Modal.Header
         title="Blocked Date Details"
         icon={CalendarOff}
-        subtitle={villaName}
+        subtitle={propertyName}
         onClose={onClose}
       />
       <Modal.Body>
@@ -255,7 +255,7 @@ function BlockDetailsModal({ block, villaName, onClose, onUnblock, canUnblock })
   );
 }
 
-function UnblockConfirmModal({ block, villaName, isOpen, onClose, onConfirm, submitting }) {
+function UnblockConfirmModal({ block, propertyName, isOpen, onClose, onConfirm, submitting }) {
   if (!block) return null;
 
   return (
@@ -263,7 +263,7 @@ function UnblockConfirmModal({ block, villaName, isOpen, onClose, onConfirm, sub
       <Modal.Header title="Unblock Dates" icon={Ban} onClose={onClose} />
       <Modal.Body>
         <p className="pms-text-muted" style={{ fontSize: '0.88rem', margin: 0 }}>
-          Remove the block for <strong>{villaName}</strong> from{' '}
+          Remove the block for <strong>{propertyName}</strong> from{' '}
           <strong>{formatDisplayDate(block.startDate)}</strong> to{' '}
           <strong>{formatDisplayDate(block.endDate)}</strong>?
           These dates will become available for reservation again.
@@ -286,19 +286,20 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   const canBlockDates = usePermission(PERMISSIONS.CALENDAR_BLOCK);
   const today = useMemo(() => new Date(), []);
 
-  const [villasData, setVillasData] = useState([]);
+  const [propertiesData, setPropertiesData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
-  const [selectedVillaFilter, setSelectedVillaFilter] = useState('All');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [selectedPropertyFilter, setSelectedPropertyFilter] = useState('All');
 
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [dragState, setDragState] = useState(null);
   const [blockPanelOpen, setBlockPanelOpen] = useState(false);
   const [blockForm, setBlockForm] = useState({
-    villaId: '',
+    propertyId: '',
     startDate: '',
     endDate: '',
     reason: BLOCK_REASONS[0],
@@ -315,10 +316,10 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   const fetchGanttData = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
-      const response = await fetch(`${API}/villas/gantt`);
+      const response = await fetch(`${API}/properties/gantt`);
       if (!response.ok) throw new Error('Failed to fetch timeline data.');
       const data = await response.json();
-      setVillasData(data);
+      setPropertiesData(data);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -350,28 +351,63 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     setCurrentMonth(now.getMonth());
   };
 
-  const displayedVillas = selectedVillaFilter === 'All'
-    ? villasData
-    : villasData.filter((v) => v.name === selectedVillaFilter);
+  const registeredCategories = useMemo(
+    () => [...new Set(propertiesData.map((p) => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [propertiesData],
+  );
 
-  const isCellBlocked = useCallback((villa, dayNum) => {
-    return (villa.blocks || []).some((block) => dayOverlapsBlock(block, currentYear, currentMonth, dayNum));
+  const categoryFilterOptions = useMemo(() => {
+    const counts = registeredCategories.reduce((acc, cat) => {
+      acc[cat] = propertiesData.filter((p) => p.category === cat).length;
+      return acc;
+    }, {});
+
+    return [
+      { key: 'all', label: `All (${propertiesData.length})` },
+      ...registeredCategories.map((cat) => ({
+        key: cat,
+        label: `${cat} (${counts[cat] || 0})`,
+      })),
+    ];
+  }, [propertiesData, registeredCategories]);
+
+  const propertiesByCategory = useMemo(() => (
+    categoryFilter === 'all'
+      ? propertiesData
+      : propertiesData.filter((p) => p.category === categoryFilter)
+  ), [propertiesData, categoryFilter]);
+
+  const displayedProperties = selectedPropertyFilter === 'All'
+    ? propertiesByCategory
+    : propertiesByCategory.filter((v) => v.name === selectedPropertyFilter);
+
+  useEffect(() => {
+    if (
+      selectedPropertyFilter !== 'All'
+      && !propertiesByCategory.some((p) => p.name === selectedPropertyFilter)
+    ) {
+      setSelectedPropertyFilter('All');
+    }
+  }, [propertiesByCategory, selectedPropertyFilter]);
+
+  const isCellBlocked = useCallback((property, dayNum) => {
+    return (property.blocks || []).some((block) => dayOverlapsBlock(block, currentYear, currentMonth, dayNum));
   }, [currentYear, currentMonth]);
 
-  const hasBlockingBookingOnDay = useCallback((villa, dayNum) => {
-    return (villa.bookings || []).some(
+  const hasBlockingBookingOnDay = useCallback((property, dayNum) => {
+    return (property.bookings || []).some(
       (b) => isBlockingBookingStatus(b.status)
         && dayOverlapsBooking(b, currentYear, currentMonth, dayNum),
     );
   }, [currentYear, currentMonth]);
 
-  const isCellOccupied = useCallback((villa, dayNum) => {
-    return isCellBlocked(villa, dayNum) || hasBlockingBookingOnDay(villa, dayNum);
+  const isCellOccupied = useCallback((property, dayNum) => {
+    return isCellBlocked(property, dayNum) || hasBlockingBookingOnDay(property, dayNum);
   }, [currentYear, currentMonth, isCellBlocked, hasBlockingBookingOnDay]);
 
-  const openBlockPanel = useCallback((villaId, startDate, endDate) => {
+  const openBlockPanel = useCallback((propertyId, startDate, endDate) => {
     setBlockForm({
-      villaId: villaId || '',
+      propertyId: propertyId || '',
       startDate,
       endDate,
       reason: BLOCK_REASONS[0],
@@ -380,19 +416,19 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     setBlockPanelOpen(true);
   }, []);
 
-  const handleCellMouseDown = (villa, dayNum) => {
+  const handleCellMouseDown = (property, dayNum) => {
     if (!canBlockDates) return;
-    if (isCellOccupied(villa, dayNum)) return;
+    if (isCellOccupied(property, dayNum)) return;
     setDragState({
-      villaId: villa.id,
+      propertyId: property.id,
       startDay: dayNum,
       endDay: dayNum,
     });
   };
 
-  const handleCellMouseEnter = (villa, dayNum) => {
-    if (!dragState || dragState.villaId !== villa.id) return;
-    if (isCellOccupied(villa, dayNum)) return;
+  const handleCellMouseEnter = (property, dayNum) => {
+    if (!dragState || dragState.propertyId !== property.id) return;
+    if (isCellOccupied(property, dayNum)) return;
     setDragState((prev) => ({ ...prev, endDay: dayNum }));
   };
 
@@ -405,7 +441,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
       const startDay = Math.min(dragState.startDay, dragState.endDay);
       const endDay = Math.max(dragState.startDay, dragState.endDay);
       openBlockPanel(
-        dragState.villaId,
+        dragState.propertyId,
         toISODate(currentYear, currentMonth, startDay),
         toISODate(currentYear, currentMonth, endDay),
       );
@@ -417,10 +453,10 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   }, [dragState, currentYear, currentMonth, openBlockPanel, canBlockDates]);
 
   const handleOpenBlockPanel = () => {
-    const defaultVilla = displayedVillas[0];
+    const defaultProperty = displayedProperties[0];
     const now = new Date();
     openBlockPanel(
-      defaultVilla?.id || '',
+      defaultProperty?.id || '',
       toISODate(now.getFullYear(), now.getMonth(), now.getDate()),
       toISODate(now.getFullYear(), now.getMonth(), now.getDate()),
     );
@@ -430,7 +466,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     e.preventDefault();
     setBlockError('');
 
-    if (!blockForm.villaId || !blockForm.startDate || !blockForm.endDate || !blockForm.reason) {
+    if (!blockForm.propertyId || !blockForm.startDate || !blockForm.endDate || !blockForm.reason) {
       setBlockError('All fields are required.');
       return;
     }
@@ -439,8 +475,8 @@ const CalendarPage = ({ onOpenBookingModal }) => {
       return;
     }
 
-    const villa = villasData.find((v) => v.id === blockForm.villaId);
-    const conflicts = findBlockingConflicts(villa, blockForm.startDate, blockForm.endDate);
+    const property = propertiesData.find((v) => v.id === blockForm.propertyId);
+    const conflicts = findBlockingConflicts(property, blockForm.startDate, blockForm.endDate);
     if (conflicts.length > 0) {
       setBlockError(formatBlockConflictError(conflicts));
       return;
@@ -448,11 +484,11 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
     const result = await runMutation({
       mutation: async () => {
-        const response = await fetch(`${API}/villas/blocks`, {
+        const response = await fetch(`${API}/properties/blocks`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            villa_id: blockForm.villaId,
+            property_id: blockForm.propertyId,
             start_date: blockForm.startDate,
             end_date: blockForm.endDate,
             reason: blockForm.reason,
@@ -484,11 +520,11 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     });
   };
 
-  const handleBlockClick = (block, villa) => {
+  const handleBlockClick = (block, property) => {
     setSelectedBlock({
       ...block,
-      villaName: villa.name,
-      villaId: villa.id,
+      propertyName: property.name,
+      propertyId: property.id,
     });
   };
 
@@ -502,7 +538,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     const blockId = selectedBlock.id;
     const result = await runMutation({
       mutation: async () => {
-        const response = await fetch(`${API}/villas/blocks/${blockId}`, {
+        const response = await fetch(`${API}/properties/blocks/${blockId}`, {
           method: 'DELETE',
         });
         if (!response.ok) {
@@ -521,8 +557,8 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     }
   };
 
-  const getDragPreviewStyles = (villa) => {
-    if (!dragState || dragState.villaId !== villa.id) return null;
+  const getDragPreviewStyles = (property) => {
+    if (!dragState || dragState.propertyId !== property.id) return null;
     const startDay = Math.min(dragState.startDay, dragState.endDay);
     const endDay = Math.max(dragState.startDay, dragState.endDay);
     return {
@@ -584,19 +620,33 @@ const CalendarPage = ({ onOpenBookingModal }) => {
         </div>
 
         <div className="gantt-control-panel__actions">
-          <div className="gantt-control-panel__filter">
-            <Filter size={14} />
-            <select
-              className="filter-select"
-              value={selectedVillaFilter}
-              onChange={(e) => setSelectedVillaFilter(e.target.value)}
-              aria-label="Filter by accommodation"
-            >
-              <option value="All">All Accommodations</option>
-              {villasData.map((v) => (
-                <option key={v.id} value={v.name}>{v.name}</option>
-              ))}
-            </select>
+          <div className="gantt-control-panel__filters">
+            <div className="gantt-control-panel__filter">
+              <Filter size={14} />
+              {registeredCategories.length > 0 && (
+                <select
+                  className="filter-select"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  aria-label="Filter by category"
+                >
+                  {categoryFilterOptions.map(({ key, label }) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              )}
+              <select
+                className="filter-select"
+                value={selectedPropertyFilter}
+                onChange={(e) => setSelectedPropertyFilter(e.target.value)}
+                aria-label="Filter by accommodation"
+              >
+                <option value="All">All Accommodations</option>
+                {propertiesByCategory.map((v) => (
+                  <option key={v.id} value={v.name}>{v.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <RequirePermission permission={PERMISSIONS.CALENDAR_BLOCK}>
@@ -606,9 +656,9 @@ const CalendarPage = ({ onOpenBookingModal }) => {
           </RequirePermission>
 
           <RequirePermission permission={PERMISSIONS.CALENDAR_BOOK}>
-            <button type="button" className="btn primary sm" onClick={onOpenBookingModal}>
-              <Plus size={14} /> New Booking
-            </button>
+            <Button variant="primary" icon={Plus} onClick={onOpenBookingModal}>
+            New Booking
+            </Button>
           </RequirePermission>
         </div>
       </div>
@@ -654,9 +704,9 @@ const CalendarPage = ({ onOpenBookingModal }) => {
           </div>
 
           <div className="gantt-body">
-            {displayedVillas.map((villa) => (
-              <div key={villa.id} className="gantt-row">
-                <div className="gantt-sidebar-cell label-bold sticky-column">{villa.name}</div>
+            {displayedProperties.map((property) => (
+              <div key={property.id} className="gantt-row">
+                <div className="gantt-sidebar-cell label-bold sticky-column">{property.name}</div>
 
                 <div className="gantt-timeline-row-wrapper">
                   <div className="gantt-background-grid" style={{ gridTemplateColumns: gridColumns }}>
@@ -673,16 +723,16 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
                   <div className="gantt-interaction-grid" style={{ gridTemplateColumns: gridColumns }}>
                     {daysDataArray.map(({ dayNum }) => {
-                      const blocked = isCellBlocked(villa, dayNum);
-                      const occupied = !blocked && (villa.bookings || []).some(
+                      const blocked = isCellBlocked(property, dayNum);
+                      const occupied = !blocked && (property.bookings || []).some(
                         (b) => dayOverlapsBooking(b, currentYear, currentMonth, dayNum),
                       );
                       return (
                         <div
                           key={dayNum}
                           className={`gantt-interaction-cell${blocked ? ' gantt-interaction-cell--blocked' : ''}${occupied ? ' gantt-interaction-cell--occupied' : ''}`}
-                          onMouseDown={() => handleCellMouseDown(villa, dayNum)}
-                          onMouseEnter={() => handleCellMouseEnter(villa, dayNum)}
+                          onMouseDown={() => handleCellMouseDown(property, dayNum)}
+                          onMouseEnter={() => handleCellMouseEnter(property, dayNum)}
                           aria-hidden="true"
                         />
                       );
@@ -690,7 +740,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
                   </div>
 
                   <div className="gantt-bookings-overlay" style={{ gridTemplateColumns: gridColumns }}>
-                    {(villa.blocks || []).map((block) => {
+                    {(property.blocks || []).map((block) => {
                       const gridSpanStyles = getBlockSpanStyles(
                         block.startDate,
                         block.endDate,
@@ -710,12 +760,12 @@ const CalendarPage = ({ onOpenBookingModal }) => {
                           title={`Blocked: ${block.reason} (${block.startDate} – ${block.endDate})`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleBlockClick(block, villa);
+                            handleBlockClick(block, property);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
-                              handleBlockClick(block, villa);
+                              handleBlockClick(block, property);
                             }
                           }}
                         >
@@ -724,7 +774,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
                       );
                     })}
 
-                    {(villa.bookings || []).map((booking) => {
+                    {(property.bookings || []).map((booking) => {
                       const gridSpanStyles = getBookingSpanStyles(
                         booking.checkIn,
                         booking.checkOut,
@@ -739,7 +789,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
                       return (
                         <div
-                          key={`${booking.id}-${villa.id}`}
+                          key={`${booking.id}-${property.id}`}
                           role="button"
                           tabIndex={0}
                           className="gantt-booking-bar"
@@ -758,8 +808,8 @@ const CalendarPage = ({ onOpenBookingModal }) => {
                       );
                     })}
 
-                    {getDragPreviewStyles(villa) && (
-                      <div className="gantt-drag-preview" style={getDragPreviewStyles(villa)} />
+                    {getDragPreviewStyles(property) && (
+                      <div className="gantt-drag-preview" style={getDragPreviewStyles(property)} />
                     )}
                   </div>
                 </div>
@@ -772,7 +822,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
       <BlockDatesPanel
         isOpen={blockPanelOpen}
         onClose={() => setBlockPanelOpen(false)}
-        villas={villasData}
+        properties={propertiesData}
         form={blockForm}
         onChange={setBlockForm}
         onSubmit={handleBlockSubmit}
@@ -782,7 +832,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
       <BlockDetailsModal
         block={selectedBlock && !unblockConfirmOpen ? selectedBlock : null}
-        villaName={selectedBlock?.villaName}
+        propertyName={selectedBlock?.propertyName}
         onClose={() => {
           setSelectedBlock(null);
           setUnblockConfirmOpen(false);
@@ -793,7 +843,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
       <UnblockConfirmModal
         block={selectedBlock}
-        villaName={selectedBlock?.villaName}
+        propertyName={selectedBlock?.propertyName}
         isOpen={unblockConfirmOpen}
         onClose={() => setUnblockConfirmOpen(false)}
         onConfirm={handleUnblockConfirm}

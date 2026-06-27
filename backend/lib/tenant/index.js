@@ -1,98 +1,106 @@
-/** Tables that carry a direct property_id column. */
-export const PROPERTY_SCOPED_TABLES = new Set([
+import { config } from '../../config/index.js';
+
+/** Tables scoped by the `tenant_id` column. */
+export const TENANT_SCOPED_TABLES = new Set([
   'bookings',
-  'villas',
+  'properties',
   'guests',
   'menu_items',
   'addons',
   'discounts',
   'pricing_holidays',
-  'villa_date_blocks',
+  'property_date_blocks',
   'finances',
   'users',
   'orders',
-  'villa_cost_profiles',
+  'property_cost_profiles',
   'reservation_profitability',
 ]);
 
-const propertyCache = new Map();
+const tenantCache = new Map();
 
-export function assertPropertyId(propertyId) {
-  if (!propertyId) {
-    const err = new Error('Property context required.');
+export function assertTenantId(tenantId) {
+  if (!tenantId) {
+    const err = new Error('Tenant context required.');
     err.status = 400;
     throw err;
   }
-  return propertyId;
+  return tenantId;
 }
 
-/** Append .eq('property_id', …) when the query builder supports filters. */
-function applyPropertyFilter(query, propertyId) {
+function applyTenantFilter(query, tenantId) {
   if (typeof query?.eq === 'function') {
-    return query.eq('property_id', propertyId);
+    return query.eq('tenant_id', tenantId);
   }
   return query;
 }
 
-/** Append .eq('property_id', …) for tenant-scoped tables. */
-export function finishScope(query, propertyId, table) {
-  if (!PROPERTY_SCOPED_TABLES.has(table)) return query;
-  assertPropertyId(propertyId);
-  return applyPropertyFilter(query, propertyId);
+/** Append .eq('tenant_id', …) for tenant-scoped tables. */
+export function finishScope(query, tenantId, table) {
+  if (!TENANT_SCOPED_TABLES.has(table)) return query;
+  assertTenantId(tenantId);
+  return applyTenantFilter(query, tenantId);
 }
 
-/** Inject property_id into insert payloads. */
-export function withPropertyId(rows, propertyId, table) {
-  if (!PROPERTY_SCOPED_TABLES.has(table)) return rows;
-  assertPropertyId(propertyId);
+/** Inject tenant_id into insert/upsert payloads. */
+export function withTenantId(rows, tenantId, table) {
+  if (!TENANT_SCOPED_TABLES.has(table)) return rows;
+  assertTenantId(tenantId);
   if (Array.isArray(rows)) {
-    return rows.map((row) => ({ ...row, property_id: propertyId }));
+    return rows.map((row) => ({ ...row, tenant_id: tenantId }));
   }
-  return { ...rows, property_id: propertyId };
+  return { ...rows, tenant_id: tenantId };
 }
 
-export function getPropertySlug(req) {
+export function getTenantSlug(req) {
+  const headerSlug = req.headers[config.tenant.slugHeader]
+    || req.headers[config.tenant.legacySlugHeader];
   return (
-    req.query?.property
-    || req.headers['x-property-slug']
-    || process.env.DEFAULT_PROPERTY_SLUG
-    || 'umalila'
+    req.query?.tenant
+    || req.query?.property
+    || headerSlug
+    || config.tenant.slug
   );
 }
 
-export async function resolvePropertyId(supabase, req) {
-  if (req.user?.property_id) {
-    return req.user.property_id;
+export async function resolveTenantId(supabase, req) {
+  if (req.user) {
+    if (!req.user.tenant_id) {
+      const err = new Error('User is not assigned to a tenant.');
+      err.status = 403;
+      throw err;
+    }
+    return req.user.tenant_id;
   }
 
-  const slug = getPropertySlug(req);
-  if (propertyCache.has(slug)) {
-    return propertyCache.get(slug);
+  const slug = getTenantSlug(req);
+  if (tenantCache.has(slug)) {
+    return tenantCache.get(slug);
   }
 
   const { data, error } = await supabase
-    .from('properties')
+    .from('tenants')
     .select('id')
     .eq('slug', slug)
     .maybeSingle();
 
   if (error) throw error;
   if (!data?.id) {
-    const err = new Error(`Unknown property: ${slug}`);
+    const err = new Error(`Unknown tenant: ${slug}`);
     err.status = 404;
     throw err;
   }
 
-  propertyCache.set(slug, data.id);
+  tenantCache.set(slug, data.id);
   return data.id;
 }
 
-export function createPropertyMiddleware(supabase) {
-  return async function propertyMiddleware(req, res, next) {
+export function createTenantMiddleware(supabase) {
+  return async function tenantMiddleware(req, res, next) {
     if (!req.path.startsWith('/api')) return next();
 
     try {
-      req.propertyId = await resolvePropertyId(supabase, req);
+      req.tenantId = await resolveTenantId(supabase, req);
       return next();
     } catch (err) {
       return res.status(err.status || 500).json({ error: err.message });
@@ -104,28 +112,36 @@ export function createPropertyMiddleware(supabase) {
  * Tenant-scoped Supabase builder.
  * Supabase JS v2.50+ only exposes .eq() after select/update/delete — not on .from() directly.
  */
-export function scoped(supabase, propertyId, table) {
+export function scoped(supabase, tenantId, table) {
   const from = supabase.from(table);
-  if (!PROPERTY_SCOPED_TABLES.has(table)) {
+  if (!TENANT_SCOPED_TABLES.has(table)) {
     return from;
   }
-  assertPropertyId(propertyId);
+  assertTenantId(tenantId);
 
   return {
     select(columns, opts) {
-      return applyPropertyFilter(from.select(columns, opts), propertyId);
+      return applyTenantFilter(from.select(columns, opts), tenantId);
     },
     insert(rows, opts) {
-      return from.insert(withPropertyId(rows, propertyId, table), opts);
+      return from.insert(withTenantId(rows, tenantId, table), opts);
     },
     update(values, opts) {
-      return applyPropertyFilter(from.update(values, opts), propertyId);
+      return applyTenantFilter(from.update(values, opts), tenantId);
     },
     delete(opts) {
-      return applyPropertyFilter(from.delete(opts), propertyId);
+      return applyTenantFilter(from.delete(opts), tenantId);
     },
     upsert(rows, opts) {
-      return from.upsert(withPropertyId(rows, propertyId, table), opts);
+      return from.upsert(withTenantId(rows, tenantId, table), opts);
     },
   };
 }
+
+// Legacy aliases (deprecated)
+export const PROPERTY_SCOPED_TABLES = TENANT_SCOPED_TABLES;
+export const assertPropertyId = assertTenantId;
+export const withPropertyId = withTenantId;
+export const getPropertySlug = getTenantSlug;
+export const resolvePropertyId = resolveTenantId;
+export const createPropertyMiddleware = createTenantMiddleware;

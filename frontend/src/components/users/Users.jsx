@@ -3,7 +3,7 @@ import { Users as UsersIcon, Plus, Search, Pencil, UserCheck, UserX } from 'luci
 import Badge from '../ui/Badge';
 import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
-import { Button, Modal, Alert, Input, Select, PasswordInput } from '../ui';
+import { Button, Modal, Alert, Input, Select, PasswordInput, SectionHeaderRow } from '../ui';
 import { useMutation } from '../../context/MutationProvider';
 
 
@@ -392,14 +392,16 @@ function Users() {
     <div className="reservation-page">
       <div className="section-card">
         <div className="section-card__header">
-          <UsersIcon size={15} color="var(--navy)" />
-          <h3 className="section-card__title">System Users</h3>
-          <div className="section-header-row__actions" style={{ marginLeft: 'auto' }}>
-            <span className="section-card__count" style={{ marginLeft: 0 }}>{users.length} total</span>
-            <Button variant="primary" size="sm" icon={Plus} onClick={openCreateModal}>
-              Create New User
-            </Button>
-          </div>
+          <SectionHeaderRow
+            icon={UsersIcon}
+            title="System Users"
+            count={`${users.length} total`}
+            actions={(
+              <Button variant="primary" size="sm" icon={Plus} onClick={openCreateModal}>
+                Create New User
+              </Button>
+            )}
+          />
         </div>
         <div className="section-card__body">
           {error && !loading && <Alert type="error" message={error} className="pricing-alert" />}

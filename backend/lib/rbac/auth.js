@@ -6,17 +6,12 @@ import {
   getAuthenticatedPublicOverride,
 } from './rbac.js';
 
+import { config } from '../../config/index.js';
+import { resolveTenantByEmailDomain } from '../tenant/resolveTenantFromEmail.js';
+
 const SESSION_COOKIE = 'umalila_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-
-const SESSION_SECRET = process.env.SESSION_SECRET
-  || (process.env.NODE_ENV !== 'production' ? 'umalila-dev-session-secret' : null);
-if (!SESSION_SECRET) {
-  throw new Error('SESSION_SECRET environment variable is required in production.');
-}
-if (!process.env.SESSION_SECRET && process.env.NODE_ENV !== 'production') {
-  console.warn('WARNING: SESSION_SECRET not set — using insecure dev default.');
-}
+const SESSION_SECRET = config.session.secret;
 
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -89,7 +84,7 @@ function verifySessionToken(token) {
 }
 
 function cookieSecuritySuffix() {
-  return process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return config.isProduction ? '; Secure' : '';
 }
 
 function setSessionCookie(res, token) {
@@ -107,7 +102,7 @@ function clearSessionCookie(res) {
   );
 }
 
-export function mapAuthUser(row) {
+export function mapAuthUser(row, tenantSlug = null) {
   if (!row) return null;
   return {
     id: row.id,
@@ -116,14 +111,15 @@ export function mapAuthUser(row) {
     email: row.email,
     role: row.role,
     status: row.status || 'active',
-    property_id: row.property_id || null,
+    tenant_id: row.tenant_id || null,
+    tenant_slug: tenantSlug || row.tenant_slug || row.tenants?.slug || null,
   };
 }
 
 export async function loadUserById(supabase, userId) {
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, name, role, created_at, display_id, status, property_id')
+    .select('id, email, name, role, created_at, display_id, status, tenant_id, tenants(slug)')
     .eq('id', userId)
     .maybeSingle();
 
@@ -146,10 +142,17 @@ export function createAuthHandlers(supabase) {
     }
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const tenant = await resolveTenantByEmailDomain(supabase, normalizedEmail);
+      if (!tenant) {
+        return res.status(401).json({ error: 'Invalid email or password.' });
+      }
+
       const { data, error } = await supabase
         .from('users')
-        .select('id, email, name, role, password_hash, display_id, status, property_id')
-        .eq('email', email.trim().toLowerCase())
+        .select('id, email, name, role, password_hash, display_id, status, tenant_id')
+        .eq('email', normalizedEmail)
+        .eq('tenant_id', tenant.id)
         .maybeSingle();
 
       if (error) throw error;
@@ -162,7 +165,7 @@ export function createAuthHandlers(supabase) {
 
       const token = createSessionToken(data.id);
       setSessionCookie(res, token);
-      res.json(mapAuthUser(data));
+      res.json(mapAuthUser(data, tenant.slug));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -227,20 +230,27 @@ export function createAuthMiddleware(supabase) {
   return async function authMiddleware(req, res, next) {
     if (!req.path.startsWith('/api')) return next();
 
-    if (isPublicApiRoute(req.method, req.path)) {
-      return next();
-    }
-
     try {
       const user = await resolveRequestUser(req, supabase);
-      if (!user) {
+      if (user) {
+        if (user.status === 'deactivated') {
+          clearSessionCookie(res);
+          if (!isPublicApiRoute(req.method, req.path)) {
+            return res.status(403).json({ error: 'This account has been deactivated.' });
+          }
+        } else {
+          req.user = user;
+        }
+      }
+
+      if (isPublicApiRoute(req.method, req.path)) {
+        return next();
+      }
+
+      if (!req.user) {
         return res.status(401).json({ error: 'Authentication required.' });
       }
-      if (user.status === 'deactivated') {
-        clearSessionCookie(res);
-        return res.status(403).json({ error: 'This account has been deactivated.' });
-      }
-      req.user = user;
+
       return next();
     } catch (err) {
       return res.status(500).json({ error: err.message });

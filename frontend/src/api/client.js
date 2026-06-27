@@ -1,16 +1,22 @@
-const PROPERTY_SLUG = import.meta.env.VITE_PROPERTY_SLUG || 'umalila';
+import { config } from '../config/index.js';
 
 function buildHeaders(init = {}) {
   const headers = new Headers(init.headers || {});
-  if (!headers.has('X-Property-Slug')) {
-    headers.set('X-Property-Slug', PROPERTY_SLUG);
+  if (!headers.has(config.tenant.slugHeader)) {
+    headers.set(config.tenant.slugHeader, config.tenant.slug);
   }
   return headers;
 }
 
+function resolveUrl(path) {
+  const normalized = path.startsWith('/api') ? path : `/api${path}`;
+  const base = config.api.baseUrl;
+  if (!base) return normalized;
+  return `${base}${normalized}`;
+}
+
 export async function apiFetch(path, init = {}) {
-  const url = path.startsWith('/api') ? path : `/api${path}`;
-  const response = await fetch(url, {
+  const response = await fetch(resolveUrl(path), {
     ...init,
     credentials: 'include',
     headers: buildHeaders(init),
@@ -34,4 +40,10 @@ export function unwrapList(payload) {
   return [];
 }
 
-export { PROPERTY_SLUG };
+/** @deprecated Use config.tenant.slug */
+export const TENANT_SLUG = config.tenant.slug;
+
+/** @deprecated Use config.tenant.slug */
+export const PROPERTY_SLUG = config.tenant.slug;
+
+export { config };

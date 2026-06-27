@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pencil, Trash2, AlertTriangle, HelpCircle } from 'lucide-react';
-import { Button, Alert } from '../ui';
+import { Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { Button, Alert, SectionHeaderRow } from '../ui';
 import Modal from '../ui/Modal';
 import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
@@ -115,21 +115,16 @@ export function PricingPaneToolbar({
   actionVariant = 'primary',
 }) {
   return (
-    <div className="pricing-pane__toolbar">
-      <div className="pricing-pane__title-wrap">
-        <h4 className="pricing-pane__subtitle">
-          {title}
-          {description && (
-            <span className="pricing-pane__info-tip" title={description}>
-              <HelpCircle size={14} aria-label={description} />
-            </span>
-          )}
-        </h4>
-      </div>
-      <Button variant={actionVariant} size="sm" icon={actionIcon} onClick={onAction}>
-        {actionLabel}
-      </Button>
-    </div>
+    <SectionHeaderRow
+      className="pricing-pane__toolbar"
+      title={title}
+      hint={description}
+      actions={(
+        <Button variant={actionVariant} size="sm" icon={actionIcon} onClick={onAction}>
+          {actionLabel}
+        </Button>
+      )}
+    />
   );
 }
 

@@ -9,9 +9,9 @@ export default function GlobalFilterBar({
   setCustomStart,
   customEnd,
   setCustomEnd,
-  villaFilter,
-  setVillaFilter,
-  villas,
+  propertyFilter,
+  setPropertyFilter,
+  properties,
   loading,
   onRefresh,
 }) {
@@ -63,11 +63,11 @@ export default function GlobalFilterBar({
         <div className="dash-select-wrap">
           <select
             className="dash-select"
-            value={villaFilter}
-            onChange={(e) => setVillaFilter(e.target.value)}
+            value={propertyFilter}
+            onChange={(e) => setPropertyFilter(e.target.value)}
           >
             <option value="all">All Properties</option>
-            {(villas || []).map((v) => (
+            {(properties || []).map((v) => (
               <option key={v.id} value={v.name}>{v.name}</option>
             ))}
           </select>

@@ -12,12 +12,14 @@ import {
   CreditCard,
   XCircle,
 } from 'lucide-react';
+import { formatRp } from '../../utils/formatCurrency';
+import { resolveBookingLedgerTotal } from '../../utils/financialUtils';
 import Badge from '../ui/Badge';
 import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
 import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import { PendingQueueCard, PendingQueueList } from '../ui/PendingQueueCard';
-import { Button, Modal, Alert, Textarea } from '../ui';
+import { Button, Modal, Alert, Textarea, SectionHeaderRow } from '../ui';
 import { downloadReservationInvoice } from '../../utils/invoiceUtils';
 import { PAYMENT_FILTER_OPTIONS, TIMEFRAME_FILTER_OPTIONS } from '../../utils/statusConfigs';
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
@@ -248,7 +250,7 @@ function AllReservationsTable({
       if (
         searchTerm &&
         !res.guest_full_name?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-        !res.villa_names?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+        !res.property_names?.toLowerCase().includes(searchTerm.toLowerCase()) &&
         !res.display_id?.toLowerCase().includes(searchTerm.toLowerCase())
       )
         return false;
@@ -289,7 +291,7 @@ function AllReservationsTable({
             <input
               type="text"
               className="filter-bar__input filter-bar__input--search"
-              placeholder="Guest name or villa…"
+              placeholder="Guest name or property…"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -380,7 +382,7 @@ function AllReservationsTable({
             <thead>
               <tr>
                 <th>Guest</th>
-                <th>Villas</th>
+                <th>Properties</th>
                 <th>Check-In</th>
                 <th>Check-Out</th>
                 <th className="text-right">Amount</th>
@@ -395,11 +397,14 @@ function AllReservationsTable({
                 return (
                   <tr key={res.id}>
                     <td className="cell-guest" data-label="Guest">{res.guest_full_name}</td>
-                    <td className="cell-truncate" data-label="Villas">{res.villa_names || '—'}</td>
+                    <td className="cell-truncate" data-label="Properties">{res.property_names || '—'}</td>
                     <td data-label="Check-In">{res.check_in_date}</td>
                     <td data-label="Check-Out">{res.check_out_date}</td>
                     <td className="text-right cell-amount" data-label="Amount">
-                      Rp {(Number(res.ledger_total ?? res.total_price) || 0).toLocaleString('id-ID')}
+                      {(() => {
+                        const { amount } = resolveBookingLedgerTotal(res, res.ledger);
+                        return amount ? formatRp(amount) : '—';
+                      })()}
                     </td>
                     <td className="text-center" data-label="Payment">
                       <Badge type="payment" value={res.payment_status || 'pending'} />
@@ -571,13 +576,13 @@ function ReservationPage() {
 
       <div className="section-card section-card--spaced">
         <div className="section-card__header">
-          <Clock size={15} color="var(--text-muted)" />
-          <h3 className="section-card__title">Pending Requests</h3>
-          {pendingRequests.length > 0 && (
-            <span className="section-card__count section-card__count--accent">
-              {pendingRequests.length} awaiting
-            </span>
-          )}
+          <SectionHeaderRow
+            icon={Clock}
+            iconColor="var(--text-muted)"
+            title="Pending Requests"
+            count={pendingRequests.length > 0 ? `${pendingRequests.length} awaiting` : undefined}
+            countVariant="accent"
+          />
         </div>
         <div className="section-card__body">
           <PendingRequestsTable
@@ -595,9 +600,11 @@ function ReservationPage() {
 
       <div className="section-card">
         <div className="section-card__header">
-          <Calendar size={15} color="var(--navy)" />
-          <h3 className="section-card__title">All Reservations</h3>
-          <span className="section-card__count">{allReservations.length} total</span>
+          <SectionHeaderRow
+            icon={Calendar}
+            title="All Reservations"
+            count={`${allReservations.length} total`}
+          />
         </div>
         <div className="section-card__body">
           <AllReservationsTable

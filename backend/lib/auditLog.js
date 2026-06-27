@@ -1,5 +1,5 @@
 export async function auditLog(supabase, {
-  propertyId,
+  tenantId,
   userId = null,
   action,
   entityType,
@@ -8,11 +8,11 @@ export async function auditLog(supabase, {
   newValues = null,
   req = null,
 }) {
-  if (!propertyId || !action || !entityType || !entityId) return;
+  if (!tenantId || !action || !entityType || !entityId) return;
 
   try {
     await supabase.from('audit_log').insert([{
-      property_id: propertyId,
+      tenant_id: tenantId,
       user_id: userId,
       action,
       entity_type: entityType,

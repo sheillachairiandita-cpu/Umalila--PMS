@@ -72,8 +72,17 @@ const MANAGER_PERMISSIONS = [
   P.PRICING_READ,
 ];
 
-/** Legacy staff role — same as receptionist */
-const STAFF_PERMISSIONS = RECEPTIONIST_PERMISSIONS;
+/** Legacy staff role — calendar & overview without reservations list or new booking */
+const STAFF_PERMISSIONS = [
+  P.PAGE_DASHBOARD,
+  P.PAGE_CALENDAR,
+  P.BOOKINGS_READ,
+  P.BOOKINGS_WRITE,
+  P.OVERVIEW_OPERATE,
+  P.ORDERS_MANAGE,
+  P.MENU_READ,
+  P.CALENDAR_READ,
+];
 
 export const ROLE_PERMISSIONS = {
   owner: [ALL_PERMISSIONS],
@@ -99,11 +108,11 @@ export function hasAnyPermission(role, permissions = []) {
 /** Public API routes — no session required (property resolved via slug header/query). */
 export const PUBLIC_API_ROUTES = [
   { methods: ['POST'], pattern: /^\/api\/auth\/login$/ },
-  { methods: ['GET'], pattern: /^\/api\/villas$/ },
+  { methods: ['GET'], pattern: /^\/api\/properties$/ },
   { methods: ['GET'], pattern: /^\/api\/addons$/ },
   { methods: ['GET'], pattern: /^\/api\/pricing\/holidays$/ },
   { methods: ['GET'], pattern: /^\/api\/discounts$/ },
-  { methods: ['GET'], pattern: /^\/api\/villas\/availability$/ },
+  { methods: ['GET'], pattern: /^\/api\/properties\/availability$/ },
   { methods: ['POST'], pattern: /^\/api\/guests$/ },
   { methods: ['POST'], pattern: /^\/api\/bookings$/ },
 ];
@@ -133,9 +142,9 @@ export const API_ROUTE_RULES = [
 
   { methods: ['GET'], pattern: /^\/api\/menu-items$/, permission: P.MENU_READ },
 
-  { methods: ['GET'], pattern: /^\/api\/villas\/gantt$/, permission: P.CALENDAR_READ },
-  { methods: ['POST'], pattern: /^\/api\/villas\/blocks$/, permission: P.CALENDAR_BLOCK },
-  { methods: ['DELETE'], pattern: /^\/api\/villas\/blocks\/[^/]+$/, permission: P.CALENDAR_BLOCK },
+  { methods: ['GET'], pattern: /^\/api\/properties\/gantt$/, permission: P.CALENDAR_READ },
+  { methods: ['POST'], pattern: /^\/api\/properties\/blocks$/, permission: P.CALENDAR_BLOCK },
+  { methods: ['DELETE'], pattern: /^\/api\/properties\/blocks\/[^/]+$/, permission: P.CALENDAR_BLOCK },
 
   { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+\/status$/, permission: P.BOOKINGS_WRITE },
   { methods: ['PATCH'], pattern: /^\/api\/bookings\/[^/]+\/payment-status$/, permission: P.BOOKINGS_WRITE },
@@ -174,9 +183,9 @@ export const API_ROUTE_RULES = [
   { methods: ['POST'], pattern: /^\/api\/pricing\//, permission: P.PRICING_WRITE },
   { methods: ['DELETE'], pattern: /^\/api\/pricing\//, permission: P.PRICING_WRITE },
 
-  { methods: ['POST'], pattern: /^\/api\/villas$/, permission: P.PRICING_WRITE },
-  { methods: ['PATCH'], pattern: /^\/api\/villas\/[^/]+$/, permission: P.PRICING_WRITE },
-  { methods: ['DELETE'], pattern: /^\/api\/villas\/[^/]+$/, permission: P.PRICING_WRITE },
+  { methods: ['POST'], pattern: /^\/api\/properties$/, permission: P.PRICING_WRITE },
+  { methods: ['PATCH'], pattern: /^\/api\/properties\/[^/]+$/, permission: P.PRICING_WRITE },
+  { methods: ['DELETE'], pattern: /^\/api\/properties\/[^/]+$/, permission: P.PRICING_WRITE },
 ];
 
 export function isPublicApiRoute(method, path) {

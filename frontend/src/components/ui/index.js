@@ -12,6 +12,7 @@ export { default as KpiCard, KpiCardGrid } from './KpiCard';
 export { default as MetricTooltip } from './MetricTooltip';
 export { default as ChartCard } from './ChartCard';
 export { default as PageTabs } from './PageTabs';
+export { default as SectionHeaderRow } from './SectionHeaderRow';
 export { default as PendingQueueCard, PendingQueueList } from './PendingQueueCard';
 export { DataTable, TableFilterBar } from './DataTable';
 

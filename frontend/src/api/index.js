@@ -1,4 +1,5 @@
 import { apiJson, unwrapList } from './client';
+import { enrichIncomeRow } from '../utils/financialUtils';
 
 export const bookingsApi = {
   list: (params = {}) => {
@@ -10,7 +11,9 @@ export const bookingsApi = {
 export const financialApi = {
   income: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
-    return apiJson(`/api/financial/income${qs ? `?${qs}` : ''}`).then(unwrapList);
+    return apiJson(`/api/financial/income${qs ? `?${qs}` : ''}`)
+      .then(unwrapList)
+      .then((rows) => rows.map(enrichIncomeRow));
   },
   expenses: () => apiJson('/api/financial/expenses').then(unwrapList),
   kpis: () => apiJson('/api/financial/kpis'),
@@ -42,11 +45,11 @@ export const financialApi = {
   }),
 };
 
-export const villasApi = {
-  list: () => apiJson('/api/villas'),
+export const propertiesApi = {
+  list: () => apiJson('/api/properties'),
   availability: (checkIn, checkOut) =>
-    apiJson(`/api/villas/availability?check_in=${checkIn}&check_out=${checkOut}`),
-  gantt: () => apiJson('/api/villas/gantt'),
+    apiJson(`/api/properties/availability?check_in=${checkIn}&check_out=${checkOut}`),
+  gantt: () => apiJson('/api/properties/gantt'),
 };
 
 export const catalogApi = {
@@ -61,16 +64,50 @@ export const dashboardApi = {
 };
 
 export const insightsApi = {
-  bundle: async () => {
-    const [villas, bookings, incomeRows, transactions, expenses, profitability, holidays] = await Promise.all([
-      villasApi.list(),
+  /** Properties + bookings shared by both tabs */
+  async base() {
+    const [properties, bookings] = await Promise.all([
+      propertiesApi.list(),
       bookingsApi.list({ limit: 500 }),
+    ]);
+    return { properties, bookings };
+  },
+
+  async financialBundle() {
+    const [base, incomeRows, transactions, expenses, profitability, holidays] = await Promise.all([
+      this.base(),
       financialApi.income({ limit: 500 }),
       financialApi.transactions(),
       financialApi.expenses(),
       financialApi.profitability(),
       catalogApi.holidays(),
     ]);
-    return { villas, bookings, incomeRows, transactions, expenses, profitability, pricingHolidays: holidays };
+    return {
+      ...base,
+      incomeRows,
+      transactions,
+      expenses,
+      profitability,
+      pricingHolidays: holidays,
+    };
   },
+
+  async hospitalityBundle() {
+    const [base, incomeRows, holidays] = await Promise.all([
+      this.base(),
+      financialApi.income({ limit: 500 }),
+      catalogApi.holidays(),
+    ]);
+    return {
+      ...base,
+      incomeRows,
+      pricingHolidays: holidays,
+      transactions: [],
+      expenses: [],
+      profitability: [],
+    };
+  },
+
+  /** @deprecated Use financialBundle or hospitalityBundle */
+  bundle: async () => insightsApi.financialBundle(),
 };

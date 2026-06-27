@@ -10,6 +10,8 @@ import {
 import { matchesTimeframeFilter } from '../../utils/tableFilters';
 
 import { formatRp } from '../../utils/formatCurrency';
+import BalanceDueCell from './BalanceDueCell';
+
 function IncomeTable({ rows, loading, onViewDetails }) {
   const [search, setSearch] = useState('');
   const [payFilter, setPayFilter] = useState('all');
@@ -182,11 +184,7 @@ function IncomeTable({ rows, loading, onViewDetails }) {
                     {row.amountPaid > 0 ? formatRp(row.amountPaid) : '—'}
                   </td>
                   <td className="text-right" data-label="Balance Due">
-                    {(row.balanceDue || 0) > 0 ? (
-                      <span className="cell-balance-due">{formatRp(row.balanceDue)}</span>
-                    ) : (
-                      'Settled'
-                    )}
+                    <BalanceDueCell row={row} />
                   </td>
                   <td className="text-center" data-label="Payment">
                     <Badge type="payment" value={row.paymentStatus || 'pending'} />

@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { Plus, RefreshCw, TrendingDown, TrendingUp, Calculator } from 'lucide-react';
-import { PageTabs } from '../ui';
+import { RefreshCw, TrendingDown, TrendingUp, Calculator, Clock } from 'lucide-react';
+import { PageTabs, SectionHeaderRow } from '../ui';
 import FinancialKpiCards from './FinancialKpiCards';
 import IncomeTable from './IncomeTable';
 import ExpensePendingQueue from './ExpensePendingQueue';
@@ -21,9 +21,12 @@ import {
 } from '../../hooks/api/useFinancial';
 import { financialApi } from '../../api';
 import { apiJson } from '../../api/client';
+import { usePermission } from '../../auth/usePermission';
+import { PERMISSIONS } from '../../auth/permissions';
 
 function FinancialDashboardPage() {
   const { runMutation } = useMutation();
+  const canWriteExpenses = usePermission(PERMISSIONS.FINANCIAL_WRITE);
   const invalidateFinancial = useInvalidateFinancial();
   const [activeTab, setActiveTab] = useState('incomes');
 
@@ -32,7 +35,7 @@ function FinancialDashboardPage() {
     enabled: activeTab === 'incomes',
   });
   const { data: expenses = [], isLoading: expensesLoading, refetch: refetchExpenses } = useFinancialExpenses({
-    enabled: activeTab === 'incomes' || activeTab === 'expenses',
+    enabled: activeTab !== 'cogs',
   });
   const { data: cogsData, isLoading: cogsLoading, refetch: refetchCogs } = useCogsData({
     enabled: activeTab === 'cogs',
@@ -55,7 +58,7 @@ function FinancialDashboardPage() {
     await Promise.all([
       refetchKpis(),
       activeTab === 'incomes' ? refetchIncome() : Promise.resolve(),
-      activeTab !== 'cogs' ? refetchExpenses() : Promise.resolve(),
+      activeTab === 'expenses' ? refetchExpenses() : Promise.resolve(),
       activeTab === 'cogs' ? refetchCogs() : Promise.resolve(),
     ]);
     await invalidateFinancial();
@@ -100,7 +103,8 @@ function FinancialDashboardPage() {
     });
 
     if (!result.ok) {
-      throw result.error || new Error('Failed to create expense.');
+      const err = result.error;
+      throw err instanceof Error ? err : new Error(err?.message || 'Failed to create expense.');
     }
   };
 
@@ -127,7 +131,7 @@ function FinancialDashboardPage() {
   };
 
   const deleteCogsProfile = async (profile) => {
-    if (!window.confirm(`Delete cost profile for ${profile.villaName}?`)) return;
+    if (!window.confirm(`Delete cost profile for ${profile.propertyName}?`)) return;
 
     const result = await runMutation({
       mutation: () => apiJson(`/api/financial/cogs/profiles/${profile.id}`, { method: 'DELETE' }),
@@ -170,43 +174,44 @@ function FinancialDashboardPage() {
       </div>
 
       {activeTab === 'incomes' && (
-        <>
-          <ExpensePendingQueue
-            expenses={expenses}
-            loading={expensesLoading}
-            onApprove={handleApprove}
-            onReject={handleReject}
-          />
-          <IncomeTable
-            rows={sortedIncome}
-            loading={incomeLoading}
-            onViewDetails={setDetailsRow}
-          />
-        </>
+        <IncomeTable
+          rows={sortedIncome}
+          loading={incomeLoading}
+          onViewDetails={setDetailsRow}
+        />
       )}
 
       {activeTab === 'expenses' && (
-        <>
-          <div className="section-card__header section-card__header--actions">
-            <h2 className="section-card__title">Expense Ledger</h2>
-            <button type="button" className="btn btn-primary" onClick={() => setAddPanelOpen(true)}>
-              <Plus size={16} />
-              Add Expense
-            </button>
-          </div>
-          <ExpenseLedgerTable
-            expenses={expenses}
-            loading={expensesLoading}
-            onViewProof={setProofExpense}
-            onEdit={setEditExpense}
-          />
-        </>
+        <div className="financial-expenses-layout">
+          <section className="expense-approval-section" aria-label="Pending expense approvals">
+            <SectionHeaderRow
+              icon={Clock}
+              iconColor="var(--text-muted)"
+              title="Pending Approval"
+            />
+            <ExpensePendingQueue
+              expenses={expenses}
+              loading={expensesLoading}
+              onApprove={handleApprove}
+              onReject={handleReject}
+            />
+          </section>
+          <section className="expense-ledger-section" aria-label="Expense ledger">
+            <ExpenseLedgerTable
+              expenses={expenses}
+              loading={expensesLoading}
+              onViewProof={setProofExpense}
+              onEdit={setEditExpense}
+              onAddExpense={canWriteExpenses ? () => setAddPanelOpen(true) : undefined}
+            />
+          </section>
+        </div>
       )}
 
       {activeTab === 'cogs' && (
         <CogsTab
           profiles={cogsData?.profiles || []}
-          villas={cogsData?.villas || []}
+          properties={cogsData?.properties || []}
           loading={cogsLoading}
           onCreate={() => setCogsModal({})}
           onEdit={setCogsModal}
@@ -236,6 +241,7 @@ function FinancialDashboardPage() {
 
       {addPanelOpen && (
         <AddExpensePanel
+          isOpen={addPanelOpen}
           onClose={() => setAddPanelOpen(false)}
           onSubmit={handleAddExpense}
         />
@@ -244,7 +250,7 @@ function FinancialDashboardPage() {
       {cogsModal !== null && (
         <CogsProfileModal
           profile={cogsModal}
-          villas={cogsData?.villas || []}
+          properties={cogsData?.properties || []}
           onClose={() => setCogsModal(null)}
           onSave={saveCogsProfile}
         />

@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test test/**/*.test.js",
+    "config:check": "node -e \"import('./config/index.js').then(c => console.log('OK', c.config.env, c.config.tenant.slug))\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.0",

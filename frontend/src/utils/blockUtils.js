@@ -17,8 +17,8 @@ export function blockRangeOverlapsBooking(blockStart, blockEnd, checkIn, checkOu
   return blockStart < checkOut && blockEnd >= checkIn;
 }
 
-export function findBlockingConflicts(villa, startDate, endDate) {
-  return (villa?.bookings || []).filter((booking) => {
+export function findBlockingConflicts(property, startDate, endDate) {
+  return (property?.bookings || []).filter((booking) => {
     if (!isBlockingBookingStatus(booking.status)) return false;
     return blockRangeOverlapsBooking(startDate, endDate, booking.checkIn, booking.checkOut);
   });

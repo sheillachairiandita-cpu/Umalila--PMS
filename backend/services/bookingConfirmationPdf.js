@@ -326,16 +326,16 @@ function buildInvoiceLineItems(summary) {
         type:        'accommodation',
       });
     });
-  } else if (Array.isArray(summary.villas)) {
-    summary.villas.forEach((villa) => {
-      const lineNights = villa.nights || 1;
-      const rate = villa.rate || 0;
+  } else if (Array.isArray(summary.properties)) {
+    summary.properties.forEach((property) => {
+      const lineNights = property.nights || 1;
+      const rate = property.rate || 0;
       items.push({
-        description: villa.name || 'Accommodation',
-        name:        villa.name || 'Accommodation',
+        description: property.name || 'Accommodation',
+        name:        property.name || 'Accommodation',
         quantity:    lineNights,
         unitPrice:   rate,
-        subtotal:    villa.subtotal ?? rate * lineNights,
+        subtotal:    property.subtotal ?? rate * lineNights,
         type:        'accommodation',
       });
     });
@@ -410,7 +410,7 @@ function getDiscountAnchorIndex(lineItems, summary) {
   if (rule === 'lowest_priced_single' && accommodationIndices.length) {
     return pickExtremeAccommodation((a, b) => a < b);
   }
-  if (scope === 'villas' && accommodationIndices.length) {
+  if (scope === 'properties' && accommodationIndices.length) {
     return accommodationIndices[accommodationIndices.length - 1];
   }
   if (scope === 'addons' && addonIndices.length) {
@@ -653,7 +653,7 @@ function drawConfirmationPage(doc, summary) {
   const booking    = summary.booking || summary;
   const guestName  = summary.guestName  || booking.guests?.full_name  || 'Guest';
   const guestCount = summary.totalGuests || booking.total_guests       || 1;
-  const villaName  = summary.villaNames  || summary.villa_names        || '—';
+  const propertyName  = summary.propertyNames  || summary.property_names        || '—';
 
   const checkIn  = summary.checkIn  || summary.checkInDate  || booking.check_in_date;
   const checkOut = summary.checkOut || summary.checkOutDate || booking.check_out_date;
@@ -681,7 +681,7 @@ function drawConfirmationPage(doc, summary) {
   y = drawSectionBar(doc, 'Reservation Details', y);
   y = confirmationDetailTable(doc, [
     ['Guest Name',     guestName],
-    ['Villa Type',     villaName],
+    ['Property Type',     propertyName],
     ['No. of Guests',  `${guestCount} Guest${guestCount !== 1 ? 's' : ''}`],
     ['Check-in Date',  formatStayDate(checkIn,  'After 2 PM')],
     ['Check-out Date', formatStayDate(checkOut, 'Before 11 AM')],

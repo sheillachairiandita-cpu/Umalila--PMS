@@ -12,8 +12,8 @@ import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import ChartCard from '../ui/ChartCard';
 import HorizontalStackedBar from '../ui/charts/HorizontalStackedBar';
 import ComboBarLineChart from '../ui/charts/ComboBarLineChart';
-import VillaProfitabilityTable from './VillaProfitabilityTable';
-import { formatRp } from './dashboardUtils';
+import PropertyProfitabilityTable from './PropertyProfitabilityTable';
+import { formatRpCompact } from './dashboardUtils';
 
 const FINANCIAL_KPIS = [
   {
@@ -38,27 +38,6 @@ const FINANCIAL_KPIS = [
     tooltip: 'Outstanding balances not yet paid on active reservations.',
   },
   {
-    key: 'totalCogs',
-    label: 'Total COGS',
-    icon: Calculator,
-    mono: true,
-    tooltip: 'Direct operational costs from villa cost profiles (fixed stay + per-night costs).',
-  },
-  {
-    key: 'totalExpenses',
-    label: 'Total Expenses',
-    icon: Receipt,
-    mono: true,
-    tooltip: 'Approved operational expenses in this period.',
-  },
-  {
-    key: 'grossProfit',
-    label: 'Gross Profit',
-    icon: TrendingUp,
-    mono: true,
-    tooltip: 'Gross Revenue minus Total COGS.',
-  },
-  {
     key: 'netProfit',
     label: 'Net Profit',
     icon: PiggyBank,
@@ -79,7 +58,7 @@ export default function FinancialOverviewTab({ data, loading }) {
             key={key}
             icon={icon}
             label={label}
-            value={formatRp(data[key])}
+            value={formatRpCompact(data[key])}
             mono={mono}
             tooltip={tooltip}
           />
@@ -94,7 +73,7 @@ export default function FinancialOverviewTab({ data, loading }) {
         >
           <HorizontalStackedBar
             segments={data.revenueSegments}
-            formatValue={formatRp}
+            formatValue={formatRpCompact}
           />
         </ChartCard>
 
@@ -105,7 +84,7 @@ export default function FinancialOverviewTab({ data, loading }) {
         >
           <HorizontalStackedBar
             segments={data.expenseSegments}
-            formatValue={formatRp}
+            formatValue={formatRpCompact}
           />
         </ChartCard>
       </div>
@@ -125,12 +104,12 @@ export default function FinancialOverviewTab({ data, loading }) {
       </ChartCard>
 
       <ChartCard
-        title="Villa Profitability Ranking"
+        title="Property Profitability Ranking"
         subtitle="Sorted by net profit"
-        tooltip="Per-villa revenue, COGS, and profit. Expenses allocated proportionally by revenue share."
+        tooltip="Per-property revenue, COGS, and profit. Expenses allocated proportionally by revenue share."
         wide
       >
-        <VillaProfitabilityTable rows={data.villaProfitability} loading={loading} />
+        <PropertyProfitabilityTable rows={data.propertyProfitability} loading={loading} />
       </ChartCard>
     </div>
   );

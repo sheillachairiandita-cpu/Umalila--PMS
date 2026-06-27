@@ -1,5 +1,5 @@
 /**
- * COGS calculation from villa cost profiles.
+ * COGS calculation from property cost profiles.
  * Reservation COGS = Fixed Stay Cost + (Cost Per Night × Nights)
  */
 
@@ -15,15 +15,15 @@ export function calculateGrossProfit(revenue, cogs) {
 }
 
 /**
- * Split booking-level revenue (addons, F&B) across villas by room revenue share.
+ * Split booking-level revenue (addons, F&B) across properties by room revenue share.
  */
-export function allocateByRoomShare(villaRoomRevenues, amount) {
-  const total = villaRoomRevenues.reduce((s, v) => s + (Number(v.roomRevenue) || 0), 0);
+export function allocateByRoomShare(propertyRoomRevenues, amount) {
+  const total = propertyRoomRevenues.reduce((s, v) => s + (Number(v.roomRevenue) || 0), 0);
   const share = Number(amount) || 0;
   if (!total || !share) {
-    return villaRoomRevenues.map((v) => ({ ...v, allocated: 0 }));
+    return propertyRoomRevenues.map((v) => ({ ...v, allocated: 0 }));
   }
-  return villaRoomRevenues.map((v) => ({
+  return propertyRoomRevenues.map((v) => ({
     ...v,
     allocated: share * ((Number(v.roomRevenue) || 0) / total),
   }));
