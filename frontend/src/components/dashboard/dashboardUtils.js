@@ -132,14 +132,181 @@ function propertyCount(properties, propertyFilter) {
   return 1;
 }
 
-function monthKey(dateStr) {
-  return (dateStr || '').slice(0, 7);
+function buildTimeBuckets(rangeStart, rangeEnd) {
+  const rangeDays = Math.max(1, Math.ceil((dateOnly(rangeEnd) - dateOnly(rangeStart)) / 86400000) + 1);
+  const useWeekly = rangeDays > 14;
+  const buckets = [];
+
+  if (useWeekly) {
+    let wStart = dateOnly(rangeStart);
+    while (wStart <= dateOnly(rangeEnd)) {
+      const wEnd = addDays(wStart, 6);
+      const clippedEnd = dateOnly(wEnd) > dateOnly(rangeEnd) ? dateOnly(rangeEnd) : dateOnly(wEnd);
+      buckets.push({
+        key: getISODate(wStart),
+        label: `${wStart.getDate()}/${wStart.getMonth() + 1}`,
+        start: new Date(wStart),
+        end: new Date(clippedEnd),
+        revenue: 0,
+        expenses: 0,
+        cogs: 0,
+      });
+      wStart = addDays(wStart, 7);
+    }
+  } else {
+    let d = dateOnly(rangeStart);
+    while (d <= dateOnly(rangeEnd)) {
+      buckets.push({
+        key: getISODate(d),
+        label: `${d.getDate()}/${d.getMonth() + 1}`,
+        start: new Date(d),
+        end: new Date(d),
+        revenue: 0,
+        expenses: 0,
+        cogs: 0,
+      });
+      d = addDays(d, 1);
+    }
+  }
+
+  return { buckets, granularity: useWeekly ? 'weekly' : 'daily' };
 }
 
-function monthLabel(key) {
-  const [, mm] = key.split('-');
-  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return names[parseInt(mm, 10) - 1] || mm;
+function findTimeBucket(buckets, date) {
+  const d = dateOnly(date);
+  return buckets.find((b) => d >= dateOnly(b.start) && d <= dateOnly(b.end));
+}
+
+function precedingPeriodOfEqualLength(start, end) {
+  const priorEnd = addDays(dateOnly(start), -1);
+  priorEnd.setHours(23, 59, 59, 999);
+  const days = Math.ceil((dateOnly(end) - dateOnly(start)) / 86400000) + 1;
+  const priorStart = addDays(priorEnd, -(days - 1));
+  priorStart.setHours(0, 0, 0, 0);
+  return { start: priorStart, end: priorEnd };
+}
+
+export function getPriorPeriodRange(preset, rangeStart, rangeEnd) {
+  const start = dateOnly(rangeStart);
+  const end = dateOnly(rangeEnd);
+
+  if (preset === 'week') {
+    const priorEnd = addDays(start, -1);
+    priorEnd.setHours(23, 59, 59, 999);
+    const priorStart = addDays(start, -7);
+    priorStart.setHours(0, 0, 0, 0);
+    return { start: priorStart, end: priorEnd };
+  }
+
+  if (preset === 'month') {
+    const priorStart = new Date(start);
+    priorStart.setMonth(priorStart.getMonth() - 1);
+    priorStart.setDate(1);
+    priorStart.setHours(0, 0, 0, 0);
+    const priorEnd = new Date(start);
+    priorEnd.setDate(0);
+    priorEnd.setHours(23, 59, 59, 999);
+    return { start: priorStart, end: priorEnd };
+  }
+
+  if (preset === 'mtd') {
+    const priorStart = new Date(start);
+    priorStart.setMonth(priorStart.getMonth() - 1);
+    priorStart.setHours(0, 0, 0, 0);
+    const priorEnd = new Date(end);
+    priorEnd.setMonth(priorEnd.getMonth() - 1);
+    priorEnd.setHours(23, 59, 59, 999);
+    return { start: priorStart, end: priorEnd };
+  }
+
+  if (preset === '3m') {
+    return precedingPeriodOfEqualLength(start, end);
+  }
+
+  if (preset === 'ytd') {
+    const priorStart = new Date(start);
+    priorStart.setFullYear(priorStart.getFullYear() - 1);
+    priorStart.setHours(0, 0, 0, 0);
+    const priorEnd = new Date(end);
+    priorEnd.setFullYear(priorEnd.getFullYear() - 1);
+    priorEnd.setHours(23, 59, 59, 999);
+    return { start: priorStart, end: priorEnd };
+  }
+
+  return precedingPeriodOfEqualLength(start, end);
+}
+
+export function getComparisonPeriodLabel(preset) {
+  switch (preset) {
+    case 'week':
+      return 'from previous week';
+    case 'month':
+      return 'from previous month';
+    case '3m':
+      return 'from previous 3 months';
+    case 'mtd':
+      return 'from same period last month';
+    case 'ytd':
+      return 'from same period last year';
+    case 'custom':
+      return 'from previous period';
+    default:
+      return 'from previous period';
+  }
+}
+
+/**
+ * Build a KPI delta badge payload. Returns null when no meaningful comparison exists.
+ * @returns {{ percent: number, compareLabel: string } | { isNew: true } | null}
+ */
+export function buildKpiDelta(current, prior, compareLabel) {
+  const c = Number(current) || 0;
+  if (prior === undefined || prior === null) return null;
+  const p = Number(prior);
+  if (Number.isNaN(p)) return null;
+
+  if (c === 0 && p === 0) return null;
+  if (p === 0 && c > 0) return { isNew: true };
+  if (p === 0) return null;
+
+  const pct = ((c - p) / Math.abs(p)) * 100;
+  if (!Number.isFinite(pct)) return null;
+
+  return { percent: pct, compareLabel };
+}
+
+export function buildKpiDeltas(current, prior, preset, metricKeys, {
+  pendingDepositCurrent,
+  pendingDepositPrior,
+} = {}) {
+  const compareLabel = getComparisonPeriodLabel(preset);
+  const deltas = {};
+
+  metricKeys.forEach((key) => {
+    if (key === 'pendingDeposit') {
+      deltas[key] = buildKpiDelta(pendingDepositCurrent, pendingDepositPrior, compareLabel);
+    } else {
+      deltas[key] = buildKpiDelta(current[key], prior[key], compareLabel);
+    }
+  });
+
+  return deltas;
+}
+
+/** Period-scoped pending deposit for delta comparison (displayed KPI stays point-in-time). */
+export function pendingDepositComparisonValue(incomeRows, bookings, propertyFilter, rangeStart, rangeEnd) {
+  const bookingById = {};
+  (bookings || []).forEach((b) => { bookingById[b.id] = b; });
+
+  return (incomeRows || [])
+    .filter((r) => ['confirmed', 'checked_in'].includes(r.bookingStatus))
+    .filter((r) => matchesProperty(bookingById[r.bookingId]?.property_names, propertyFilter))
+    .filter((r) => {
+      const b = bookingById[r.bookingId];
+      if (!b?.check_in_date || !b?.check_out_date) return false;
+      return stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
+    })
+    .reduce((s, r) => s + (Number(r.balanceDue) || 0), 0);
 }
 
 const EXPENSE_CATEGORIES = [
@@ -333,14 +500,7 @@ export function processFinancialData({
     }[c.key] || 0,
   }));
 
-  const monthMap = {};
-  let cur = dateOnly(rangeStart);
-  const end = dateOnly(rangeEnd);
-  while (cur <= end) {
-    const mk = monthKey(getISODate(cur));
-    if (!monthMap[mk]) monthMap[mk] = { revenue: 0, expenses: 0, cogs: 0 };
-    cur = addDays(cur, 1);
-  }
+  const { buckets: trendBuckets, granularity: trendGranularity } = buildTimeBuckets(rangeStart, rangeEnd);
 
   if (useProfitability) {
     (profitability || []).forEach((row) => {
@@ -349,13 +509,21 @@ export function processFinancialData({
       if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
 
       const totalNights = stayNights(row.checkIn, row.checkOut);
-      const inRange = nightsInRange(row.checkIn, row.checkOut, rangeStart, rangeEnd);
-      if (!inRange || !totalNights) return;
-      const factor = inRange / totalNights;
-      const mk = monthKey(row.checkIn);
-      if (monthMap[mk]) {
-        monthMap[mk].revenue += (Number(row.revenue) || 0) * factor;
-        monthMap[mk].cogs += (Number(row.cogs) || 0) * factor;
+      if (!totalNights) return;
+      const nightlyRev = (Number(row.revenue) || 0) / totalNights;
+      const nightlyCogs = (Number(row.cogs) || 0) / totalNights;
+
+      let cur = dateOnly(row.checkIn);
+      const stayEnd = dateOnly(row.checkOut);
+      while (cur < stayEnd) {
+        if (cur >= dateOnly(rangeStart) && cur <= dateOnly(rangeEnd)) {
+          const bucket = findTimeBucket(trendBuckets, cur);
+          if (bucket) {
+            bucket.revenue += nightlyRev;
+            bucket.cogs += nightlyCogs;
+          }
+        }
+        cur = addDays(cur, 1);
       }
     });
   } else {
@@ -363,12 +531,40 @@ export function processFinancialData({
       if (b.status === 'cancelled') return;
       if (!matchesProperty(b.property_names, propertyFilter)) return;
       if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
+
       const summary = incomeMap[b.id];
-      const total = summary
-        ? prorateAmount(summary.total, b.check_in_date, b.check_out_date, rangeStart, rangeEnd)
-        : 0;
-      const mk = monthKey(b.check_in_date);
-      if (monthMap[mk]) monthMap[mk].revenue += total;
+      const stayN = Math.max(stayNights(b.check_in_date, b.check_out_date), 1);
+      let cur = dateOnly(b.check_in_date);
+      const stayEnd = dateOnly(b.check_out_date);
+
+      while (cur < stayEnd) {
+        if (cur >= dateOnly(rangeStart) && cur <= dateOnly(rangeEnd)) {
+          const bucket = findTimeBucket(trendBuckets, cur);
+          if (bucket) {
+            if (summary) {
+              bucket.revenue += (Number(summary.total) || 0) / stayN;
+            } else {
+              const nightlyRoom = prorateTieredAccommodation(
+                b,
+                b.check_in_date,
+                b.check_out_date,
+                pricingHolidays,
+              ) / stayN;
+              bucket.revenue += nightlyRoom;
+              (b.booking_addons || []).forEach((ba) => {
+                const unit = Number(ba.unit_price) || Number(ba.addons?.price) || 0;
+                const qty = ba.quantity || 1;
+                const perNight = ba.addons?.is_per_night !== false;
+                if (perNight) bucket.revenue += unit * qty;
+                else bucket.revenue += (Number(ba.subtotal) || unit * qty) / stayN;
+              });
+              const orderTotal = Number(b.order_total) || 0;
+              if (orderTotal > 0) bucket.revenue += orderTotal / stayN;
+            }
+          }
+        }
+        cur = addDays(cur, 1);
+      }
     });
   }
 
@@ -376,18 +572,17 @@ export function processFinancialData({
     .filter((e) => e.status === 'approved')
     .filter((e) => inDateRange(e.transactionDate || e.transaction_date, rangeStart, rangeEnd))
     .forEach((e) => {
-      const mk = monthKey(e.transactionDate || e.transaction_date);
-      if (monthMap[mk]) monthMap[mk].expenses += Number(e.amount) || 0;
+      const bucket = findTimeBucket(trendBuckets, e.transactionDate || e.transaction_date);
+      if (bucket) bucket.expenses += Number(e.amount) || 0;
     });
 
-  const monthlyComparison = Object.entries(monthMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, val]) => ({
-      label: monthLabel(key),
-      revenue: val.revenue,
-      expenses: val.expenses,
-      netProfit: val.revenue - (val.cogs || 0) - val.expenses,
-    }));
+  const revenueExpenseTrend = trendBuckets.map((b) => ({
+    label: b.label,
+    key: b.key,
+    revenue: b.revenue,
+    expenses: b.expenses,
+    netProfit: b.revenue - b.cogs - b.expenses,
+  }));
 
   const propertyProfitability = Object.values(propertyAgg)
     .map((v) => {
@@ -415,7 +610,8 @@ export function processFinancialData({
     maxGoppar,
     expenseSegments,
     revenueSegments,
-    monthlyComparison,
+    revenueExpenseTrend,
+    trendGranularity,
     profitabilityFlow: {
       revenue: grossRevenue,
       cogs: totalCogs,
@@ -536,6 +732,7 @@ export function processHospitalityData({
       label: t.label,
       occupancy: avail ? (t.roomNights / avail) * 100 : 0,
       revpar: avail ? t.roomRev / avail : 0,
+      adr: t.roomNights ? t.roomRev / t.roomNights : 0,
     };
   });
 

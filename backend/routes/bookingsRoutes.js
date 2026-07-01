@@ -1,6 +1,6 @@
 import { parsePagination, fetchCursorPage, paginatedJson } from '../lib/pagination.js';
 import { streamBookingConfirmationPdf } from '../lib/pdfHelpers.js';
-import { buildDiscountBookingContext } from '../lib/discountUtils.js';
+import { buildDiscountBookingContext, isDiscountEligible } from '../lib/discountUtils.js';
 import {
   calculateDiscountAmount,
   computeBookingCharges,
@@ -8,10 +8,12 @@ import {
   fetchPricingHolidays,
   buildBookingPropertyRows,
   buildBookingAddonRows,
+  fetchDiscountById,
 } from '../lib/bookingOperations.js';
 import { ORDER_STATUSES } from '../lib/bookingFinancialSummary.js';
 import { stayNights, todayISO } from '../lib/stayUtils.js';
 import { auditLog } from '../lib/auditLog.js';
+import { encodeExpenseProof } from '../lib/financialMappers.js';
 import {
   assertBookingInTenant,
   findPropertyBookingConflicts,
@@ -19,6 +21,10 @@ import {
   deleteBookingCascade,
 } from '../lib/tenant/bookingScope.js';
 import { generateBookingToken } from '../lib/bookingToken.js';
+import {
+  PAYMENT_PROOFS_BUCKET,
+  buildPaymentProofStoragePath,
+} from '../lib/storagePaths.js';
 
 export function registerBookingsRoutes(app, ctx) {
   const {
@@ -40,7 +46,7 @@ app.get('/api/bookings', async (req, res) => {
     const bookingSelect = `
         id, display_id, status, payment_status, check_in_date, check_out_date,
         total_price, amount_paid, total_guests, notes, created_at, discount_id, discount_amount,
-        discounts (id, code, name, type, value, scope, status, application_rule),
+        discounts (id, code, name, type, value, scope, status, application_rule, property_ids, max_discount_amount, min_nights, min_booking_amount),
         guests (full_name, phone_number),
         booking_properties (
           property_id, rate_per_night, nights,
@@ -423,7 +429,7 @@ app.patch('/api/bookings/:id', bookingAccessMiddleware, async (req, res) => {
             .single();
           if (currentBookingError) throw currentBookingError;
           if (currentBooking.discount_id) {
-            discountToApply = await fetchDiscountById(currentBooking.discount_id, req.tenantId);
+            discountToApply = await fetchDiscountById(scopeQ, currentBooking.discount_id, req.tenantId);
           }
         }
 
@@ -516,7 +522,7 @@ app.patch('/api/bookings/:id', bookingAccessMiddleware, async (req, res) => {
       .eq('id', id)
       .select(`
         *,
-        discounts (id, code, name, type, value, scope, status, application_rule),
+        discounts (id, code, name, type, value, scope, status, application_rule, property_ids, max_discount_amount, min_nights, min_booking_amount),
         guests (full_name, phone_number),
         booking_properties (
           property_id,
@@ -834,47 +840,41 @@ app.post('/api/bookings/:bookingId/upload-receipt', async (req, res) => {
   }
 
   try {
-    const { data: booking, error: bookingError } = await S(req, 'bookings')
-      .select('id, guest_id, payment_status, amount_paid')
+    const { error: bookingError } = await S(req, 'bookings')
+      .select('id')
       .eq('id', bookingId)
       .single();
 
     if (bookingError) throw bookingError;
 
-    let suffix = '_partial';
-    if (paymentType === 'final' || booking.payment_status === 'complete') {
-      suffix = '_full';
-    }
-
-    const dotIdx = fileName.lastIndexOf('.');
-    const baseName = dotIdx !== -1 ? fileName.slice(0, dotIdx) : fileName;
-    const ext      = dotIdx !== -1 ? fileName.slice(dotIdx)    : '';
-    const finalFileName = `${baseName}${suffix}${ext}`;
-
-    const storagePath = `receipt/guest/${booking.guest_id}/${bookingId}/${finalFileName}`;
+    const storagePath = buildPaymentProofStoragePath({
+      tenantId: req.tenantId,
+      bookingId,
+      paymentType,
+      fileName,
+    });
 
     const base64Data = fileData.replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('transaction_reservation')
+    const { error: uploadError } = await supabase.storage
+      .from(PAYMENT_PROOFS_BUCKET)
       .upload(storagePath, buffer, {
         contentType: fileType || 'application/octet-stream',
-        upsert: true,
+        upsert: false,
       });
 
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
-      .from('transaction_reservation')
+      .from(PAYMENT_PROOFS_BUCKET)
       .getPublicUrl(storagePath);
 
     res.json({
       message: 'Receipt uploaded successfully',
       path: storagePath,
       publicUrl: urlData?.publicUrl || null,
-      fileName: finalFileName,
-      suffix,
+      fileName: storagePath.split('/').pop(),
     });
   } catch (error) {
     console.error('Receipt upload error:', error);
@@ -969,6 +969,7 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
     paymentMethod = 'transfer',
     paymentType = 'general',
     proofFileName,
+    receiptUrl,
     notes,
   } = req.body;
 
@@ -1006,7 +1007,12 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
       else if (newAmountPaid >= grandTotal) newPaymentStatus = 'complete';
     }
 
-    const descriptiveAttachmentLabel = proofFileName ? `Proof: ${proofFileName}` : 'No document uploaded';
+    const paymentLabel = `${paymentType === 'final' ? 'Final' : 'Partial'} payment via ${paymentMethod}`;
+    const proofLabel = proofFileName ? `Proof: ${proofFileName}` : null;
+    const description = encodeExpenseProof(
+      [paymentLabel, proofLabel, notes].filter(Boolean).join('. '),
+      receiptUrl || null,
+    );
 
     await INS(req, 'finances', [{
       booking_id: bookingId,
@@ -1014,7 +1020,7 @@ app.post('/api/bookings/:bookingId/payments', async (req, res) => {
       amount: Number(amount),
       category: paymentType === 'final' ? 'final_payment' : 'partial_payment',
       transaction_date: new Date().toISOString().split('T')[0],
-      description: `${paymentType === 'final' ? 'Final' : 'Partial'} payment via ${paymentMethod}. ${descriptiveAttachmentLabel}${notes ? `. ${notes}` : ''}`,
+      description,
       status: 'approved',
     }]);
 

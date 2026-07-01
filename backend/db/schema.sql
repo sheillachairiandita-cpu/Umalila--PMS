@@ -7,12 +7,12 @@ CREATE TABLE public.guests (email text, full_name text NOT NULL, display_id text
 CREATE TABLE public.bookings (discount_amount numeric DEFAULT 0.00, display_id text, payment_status text DEFAULT 'pending'::text NOT NULL, notes text, id uuid DEFAULT gen_random_uuid() NOT NULL, guest_id uuid, check_in_date date NOT NULL, total_guests integer NOT NULL, check_out_date date NOT NULL, total_price numeric NOT NULL, status USER-DEFINED DEFAULT 'pending'::booking_status NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), amount_paid numeric DEFAULT 0.00, discount_id uuid);
 CREATE TABLE public.finances (order_id uuid, description text, category text NOT NULL, type text NOT NULL, amount numeric NOT NULL, booking_id uuid, transaction_date date DEFAULT CURRENT_DATE NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), display_id text, status text DEFAULT 'approved'::text NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL);
 CREATE TABLE public.addons (created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), base_breakfast smallint DEFAULT '0'::smallint NOT NULL, price numeric DEFAULT 0.00 NOT NULL, is_per_night boolean DEFAULT false NOT NULL, name text NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL);
-CREATE TABLE public.booking_addons (addon_id uuid, booking_id uuid, id uuid DEFAULT gen_random_uuid() NOT NULL, subtotal numeric, unit_price numeric DEFAULT 0.00 NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), quantity integer DEFAULT 1 NOT NULL);
+CREATE TABLE public.booking_addons (addon_id uuid, booking_id uuid, id uuid DEFAULT gen_random_uuid() NOT NULL, subtotal numeric, unit_price numeric DEFAULT 0.00 NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), quantity integer DEFAULT 1 NOT NULL, tenant_id uuid NOT NULL);
 CREATE TABLE public.menu_items (category USER-DEFINED DEFAULT 'food'::menu_category NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, price numeric NOT NULL, is_available boolean DEFAULT true NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), name text NOT NULL);
 CREATE TABLE public.orders (created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), id uuid DEFAULT gen_random_uuid() NOT NULL, staff_note text, booking_id uuid, total_amount numeric DEFAULT 0 NOT NULL, status text DEFAULT 'pending'::order_status NOT NULL);
-CREATE TABLE public.order_items (menu_item_id uuid, order_id uuid, id uuid DEFAULT gen_random_uuid() NOT NULL, unit_cost numeric DEFAULT 0.00 NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), subtotal numeric, unit_price numeric NOT NULL, quantity integer DEFAULT 1 NOT NULL);
-CREATE TABLE public.booking_properties (rate_per_night numeric NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), nights integer NOT NULL, booking_id uuid NOT NULL, property_id uuid NOT NULL);
-CREATE TABLE public.discounts (stackable boolean DEFAULT false NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, value numeric NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), property_id uuid, max_discount_amount numeric, booking_start_date date, booking_end_date date, stay_start_date date, stay_end_date date, property_ids jsonb DEFAULT '[]'::jsonb NOT NULL, min_booking_amount numeric, min_nights integer, total_usage_limit integer, per_guest_limit integer, usage_count integer DEFAULT 0 NOT NULL, updated_at timestamp with time zone, priority integer DEFAULT 0 NOT NULL, created_by uuid, updated_by uuid, applicable_properties text DEFAULT 'all'::text NOT NULL, code text NOT NULL, name text NOT NULL, type text NOT NULL, application_rule text DEFAULT 'all_items'::text NOT NULL, scope text NOT NULL, status text DEFAULT 'active'::text NOT NULL, description text);
+CREATE TABLE public.order_items (menu_item_id uuid, order_id uuid, id uuid DEFAULT gen_random_uuid() NOT NULL, unit_cost numeric DEFAULT 0.00 NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), subtotal numeric, unit_price numeric NOT NULL, quantity integer DEFAULT 1 NOT NULL, tenant_id uuid NOT NULL);
+CREATE TABLE public.booking_properties (rate_per_night numeric NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), nights integer NOT NULL, booking_id uuid NOT NULL, property_id uuid NOT NULL, tenant_id uuid NOT NULL);
+CREATE TABLE public.discounts (stackable boolean DEFAULT false NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, value numeric NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), max_discount_amount numeric, booking_start_date date, booking_end_date date, stay_start_date date, stay_end_date date, property_ids jsonb DEFAULT '[]'::jsonb NOT NULL, min_booking_amount numeric, min_nights integer, total_usage_limit integer, per_guest_limit integer, usage_count integer DEFAULT 0 NOT NULL, updated_at timestamp with time zone, priority integer DEFAULT 0 NOT NULL, created_by uuid, updated_by uuid, code text NOT NULL, name text NOT NULL, type text NOT NULL, application_rule text DEFAULT 'all_items'::text NOT NULL, scope text NOT NULL, status text DEFAULT 'active'::text NOT NULL, description text, tenant_id uuid NOT NULL);
 CREATE TABLE public.property_date_blocks (start_date date NOT NULL, end_date date NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), reason text NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, property_id uuid NOT NULL);
 CREATE TABLE public.pricing_holidays (start_date date NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL, name text NOT NULL, created_at timestamp with time zone DEFAULT timezone('utc'::text, now()), end_date date NOT NULL);
 CREATE TABLE public.reservation_profitability (fb_revenue numeric DEFAULT 0 NOT NULL, room_revenue numeric DEFAULT 0 NOT NULL, calculated_at timestamp with time zone DEFAULT timezone('utc'::text, now()), nights integer DEFAULT 0 NOT NULL, cost_per_night_snapshot numeric DEFAULT 0 NOT NULL, fixed_stay_cost_snapshot numeric DEFAULT 0 NOT NULL, gross_profit numeric DEFAULT 0 NOT NULL, cogs numeric DEFAULT 0 NOT NULL, addon_revenue numeric DEFAULT 0 NOT NULL, revenue numeric DEFAULT 0 NOT NULL, property_id uuid NOT NULL, booking_id uuid NOT NULL, id uuid DEFAULT gen_random_uuid() NOT NULL);
@@ -125,6 +125,7 @@ CREATE TABLE public.booking_addons (
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   unit_price numeric NOT NULL DEFAULT 0.00,
   subtotal numeric DEFAULT ((quantity)::numeric * unit_price),
+  tenant_id uuid NOT NULL,
   CONSTRAINT booking_addons_pkey PRIMARY KEY (id),
   CONSTRAINT booking_addons_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
   CONSTRAINT booking_addons_addon_id_fkey FOREIGN KEY (addon_id) REFERENCES public.addons(id)
@@ -157,6 +158,7 @@ CREATE TABLE public.order_items (
   subtotal numeric DEFAULT ((quantity)::numeric * unit_price),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   unit_cost numeric NOT NULL DEFAULT 0.00,
+  tenant_id uuid NOT NULL,
   CONSTRAINT order_items_pkey PRIMARY KEY (id),
   CONSTRAINT order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.orders(id),
   CONSTRAINT order_items_menu_item_id_fkey FOREIGN KEY (menu_item_id) REFERENCES public.menu_items(id)
@@ -168,6 +170,7 @@ CREATE TABLE public.booking_properties (
   rate_per_night numeric NOT NULL,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
   nights integer NOT NULL CHECK (nights > 0),
+  tenant_id uuid NOT NULL,
   CONSTRAINT booking_properties_pkey PRIMARY KEY (id),
   CONSTRAINT booking_properties_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES public.bookings(id),
   CONSTRAINT booking_properties_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id)
@@ -181,7 +184,6 @@ CREATE TABLE public.discounts (
   scope text NOT NULL CHECK (scope = ANY (ARRAY['global'::text, 'properties'::text, 'addons'::text, 'menu'::text])),
   status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['draft'::text, 'active'::text, 'archived'::text])),
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
-  property_id uuid,
   application_rule text NOT NULL DEFAULT 'all_items'::text CHECK (application_rule = ANY (ARRAY['all_items'::text, 'highest_priced_single'::text, 'lowest_priced_single'::text])),
   description text,
   max_discount_amount numeric,
@@ -189,7 +191,6 @@ CREATE TABLE public.discounts (
   booking_end_date date,
   stay_start_date date,
   stay_end_date date,
-  applicable_properties text NOT NULL DEFAULT 'all'::text,
   property_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   min_booking_amount numeric,
   min_nights integer,
@@ -201,8 +202,8 @@ CREATE TABLE public.discounts (
   created_by uuid,
   updated_by uuid,
   updated_at timestamp with time zone,
-  CONSTRAINT discounts_pkey PRIMARY KEY (id),
-  CONSTRAINT discounts_property_id_fkey FOREIGN KEY (property_id) REFERENCES public.properties(id)
+  tenant_id uuid NOT NULL,
+  CONSTRAINT discounts_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.property_date_blocks (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -40,7 +40,7 @@ export function createBuildFinancialSummary(scopeQ) {
     const { data: booking, error: bookingError } = await scopeQ(tenantId, 'bookings')
       .select(`
         *,
-        discounts (id, code, name, type, value, scope, status, application_rule),
+        discounts (id, code, name, type, value, scope, status, application_rule, property_ids, max_discount_amount, min_nights, min_booking_amount),
         guests (full_name, phone_number, email),
         booking_properties (
           rate_per_night,

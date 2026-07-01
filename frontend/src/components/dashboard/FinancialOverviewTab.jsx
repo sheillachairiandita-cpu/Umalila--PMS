@@ -1,18 +1,16 @@
 import React from 'react';
 import {
   DollarSign,
-  TrendingUp,
   Clock,
-  Receipt,
   Wallet,
-  Calculator,
   PiggyBank,
 } from 'lucide-react';
 import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import ChartCard from '../ui/ChartCard';
 import HorizontalStackedBar from '../ui/charts/HorizontalStackedBar';
-import ComboBarLineChart from '../ui/charts/ComboBarLineChart';
+import RevenueExpenseTrendChart from '../ui/charts/RevenueExpenseTrendChart';
 import PropertyProfitabilityTable from './PropertyProfitabilityTable';
+import { formatRp } from '../../utils/formatCurrency';
 import { formatRpCompact } from './dashboardUtils';
 
 const FINANCIAL_KPIS = [
@@ -50,58 +48,68 @@ export default function FinancialOverviewTab({ data, loading }) {
   if (loading) return <div className="dash-loading">Loading financial data…</div>;
   if (!data) return null;
 
+  const trendSubtitle = data.trendGranularity === 'weekly'
+    ? 'Weekly revenue, expenses, and net profit'
+    : 'Daily revenue, expenses, and net profit';
+
   return (
     <div className="dash-tab-content">
       <KpiCardGrid className="kpi-card-grid--profit">
-        {FINANCIAL_KPIS.map(({ key, label, icon, mono, tooltip }) => (
-          <KpiCard
-            key={key}
-            icon={icon}
-            label={label}
-            value={formatRpCompact(data[key])}
-            mono={mono}
-            tooltip={tooltip}
-          />
-        ))}
+        {FINANCIAL_KPIS.map(({ key, label, icon, mono, tooltip }) => {
+          const isPendingDeposit = key === 'pendingDeposit';
+          const showAlert = isPendingDeposit && data.pendingDepositAlert;
+
+          return (
+            <KpiCard
+              key={key}
+              icon={icon}
+              label={label}
+              value={formatRp(data[key])}
+              mono={mono}
+              tooltip={tooltip}
+              delta={data.kpiDeltas?.[key]}
+              variant={showAlert ? 'warning' : 'default'}
+              sub={showAlert ? 'Exceeds collected amount' : undefined}
+              subWarning={showAlert}
+            />
+          );
+        })}
       </KpiCardGrid>
 
-      <div className="dash-chart-grid">
-        <ChartCard
-          title="Revenue Breakdown"
-          subtitle="Room, add-on, and F&B"
-          tooltip="Accrual-based revenue split by source for the selected period."
-        >
-          <HorizontalStackedBar
-            segments={data.revenueSegments}
-            formatValue={formatRpCompact}
-          />
-        </ChartCard>
+      <div className="dash-chart-grid dash-chart-grid--breakdown-trend">
+        <div className="dash-chart-stack">
+          <ChartCard
+            title="Revenue Breakdown"
+            subtitle="Room, add-on, and F&B"
+            tooltip="Accrual-based revenue split by source for the selected period."
+          >
+            <HorizontalStackedBar
+              segments={data.revenueSegments}
+              formatValue={formatRpCompact}
+            />
+          </ChartCard>
+
+          <ChartCard
+            title="Expense Breakdown"
+            subtitle="By category"
+            tooltip="Distribution of approved operational expenses across categories."
+          >
+            <HorizontalStackedBar
+              segments={data.expenseSegments}
+              formatValue={formatRpCompact}
+            />
+          </ChartCard>
+        </div>
 
         <ChartCard
-          title="Expense Breakdown"
-          subtitle="By category"
-          tooltip="Distribution of approved operational expenses across categories."
+          title="Revenue vs Expense Trend"
+          subtitle={trendSubtitle}
+          tooltip="Gross revenue compared with expenses and resulting net profit, grouped by day or week within the selected range."
+          className="dash-chart-trend"
         >
-          <HorizontalStackedBar
-            segments={data.expenseSegments}
-            formatValue={formatRpCompact}
-          />
+          <RevenueExpenseTrendChart data={data.revenueExpenseTrend} />
         </ChartCard>
       </div>
-
-      <ChartCard
-        title="Revenue vs Expense Trend"
-        subtitle="Monthly revenue, expenses, and net profit"
-        tooltip="Monthly gross revenue compared with expenses and resulting net profit."
-        wide
-      >
-        <ComboBarLineChart
-          data={data.monthlyComparison}
-          barKey="revenue"
-          lineKey="expenses"
-          lineKey2="netProfit"
-        />
-      </ChartCard>
 
       <ChartCard
         title="Property Profitability Ranking"

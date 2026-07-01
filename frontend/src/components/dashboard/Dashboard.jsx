@@ -9,15 +9,22 @@ import PageTabs from '../ui/PageTabs';
 import GlobalFilterBar from './GlobalFilterBar';
 import FinancialOverviewTab from './FinancialOverviewTab';
 import HospitalityKpiTab from './HospitalityKpiTab';
+import { DASHBOARD_CONFIG } from './dashboardConfig';
 import {
   addDays,
+  buildKpiDeltas,
   getISODate,
+  getPriorPeriodRange,
   getRangeDates,
+  pendingDepositComparisonValue,
   processFinancialData,
   processHospitalityData,
   startOf,
 } from './dashboardUtils';
 import { useInsightsData } from '../../hooks/api/useInsights';
+
+const FINANCIAL_DELTA_KEYS = ['grossRevenue', 'amountCollected', 'pendingDeposit', 'netProfit'];
+const HOSPITALITY_DELTA_KEYS = ['occupancyRate', 'adr', 'revpar', 'roomNightsSold'];
 
 function Dashboard() {
   const [tab, setTab] = useState('financial');
@@ -52,6 +59,11 @@ function Dashboard() {
     return { rangeStart: start, rangeEnd: end };
   }, [preset, customStart, customEnd]);
 
+  const priorRange = useMemo(
+    () => getPriorPeriodRange(preset, rangeStart, rangeEnd),
+    [preset, rangeStart, rangeEnd],
+  );
+
   const filterCtx = useMemo(
     () => ({
       bookings,
@@ -68,15 +80,58 @@ function Dashboard() {
     [bookings, incomeRows, transactions, expenses, profitability, rangeStart, rangeEnd, propertyFilter, properties, pricingHolidays],
   );
 
-  const financialData = useMemo(
-    () => (tab === 'financial' ? processFinancialData(filterCtx) : null),
-    [tab, filterCtx],
+  const priorFilterCtx = useMemo(
+    () => ({
+      ...filterCtx,
+      rangeStart: priorRange.start,
+      rangeEnd: priorRange.end,
+    }),
+    [filterCtx, priorRange],
   );
 
-  const hospitalityData = useMemo(
-    () => (tab === 'hospitality' ? processHospitalityData(filterCtx) : null),
-    [tab, filterCtx],
-  );
+  const financialData = useMemo(() => {
+    if (tab !== 'financial') return null;
+
+    const current = processFinancialData(filterCtx);
+    const prior = processFinancialData(priorFilterCtx);
+    const threshold = DASHBOARD_CONFIG.pendingDepositAlertThreshold;
+
+    const pendingDepositCurrent = pendingDepositComparisonValue(
+      incomeRows,
+      bookings,
+      propertyFilter,
+      rangeStart,
+      rangeEnd,
+    );
+    const pendingDepositPrior = pendingDepositComparisonValue(
+      incomeRows,
+      bookings,
+      propertyFilter,
+      priorRange.start,
+      priorRange.end,
+    );
+
+    return {
+      ...current,
+      kpiDeltas: buildKpiDeltas(current, prior, preset, FINANCIAL_DELTA_KEYS, {
+        pendingDepositCurrent,
+        pendingDepositPrior,
+      }),
+      pendingDepositAlert: current.pendingDeposit > current.amountCollected * threshold,
+    };
+  }, [tab, filterCtx, priorFilterCtx, preset, incomeRows, bookings, propertyFilter, rangeStart, rangeEnd, priorRange]);
+
+  const hospitalityData = useMemo(() => {
+    if (tab !== 'hospitality') return null;
+
+    const current = processHospitalityData(filterCtx);
+    const prior = processHospitalityData(priorFilterCtx);
+
+    return {
+      ...current,
+      kpiDeltas: buildKpiDeltas(current, prior, preset, HOSPITALITY_DELTA_KEYS),
+    };
+  }, [tab, filterCtx, priorFilterCtx, preset]);
 
   return (
     <div className="dash-page">
@@ -108,7 +163,11 @@ function Dashboard() {
         <FinancialOverviewTab data={financialData} loading={loading} />
       )}
       {tab === 'hospitality' && (
-        <HospitalityKpiTab data={hospitalityData} loading={loading} />
+        <HospitalityKpiTab
+          data={hospitalityData}
+          loading={loading}
+          occupancyTarget={DASHBOARD_CONFIG.occupancyTarget}
+        />
       )}
     </div>
   );

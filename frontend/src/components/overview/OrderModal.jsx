@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, ShoppingCart, Plus, Minus, Trash2, ChefHat, Coffee, UtensilsCrossed, CheckCircle, ClipboardList } from 'lucide-react';
+import { X, ShoppingCart, Plus, Minus, ChefHat, Coffee, UtensilsCrossed, CheckCircle, ClipboardList } from 'lucide-react';
 import { Modal } from '../ui';
 import { useMutation } from '../../context/MutationProvider';
 
-// ─── category meta ────────────────────────────────────────────
 const CATEGORY_META = {
   food:     { label: 'Food',     icon: UtensilsCrossed, color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
   beverage: { label: 'Beverage', icon: Coffee,          color: '#1e40af', bg: '#eff6ff', border: '#bfdbfe' },
@@ -13,56 +12,32 @@ const CATEGORY_META = {
   other:    { label: 'Other',    icon: ChefHat,         color: '#374151', bg: '#f9fafb', border: '#e5e7eb' },
 };
 
-// ─── Qty stepper ──────────────────────────────────────────────
 function QtyStepper({ qty, onIncrease, onDecrease }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: '20px', padding: '2px' }}>
-      <button
-        onClick={onDecrease}
-        style={{
-          border: 'none', background: 'none', width: '24px', height: '24px',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', color: '#64748b', transition: 'all 0.1s'
-        }}
-      >
+    <div className="order-modal__qty-stepper">
+      <button type="button" className="order-modal__qty-btn" onClick={onDecrease} aria-label="Decrease quantity">
         <Minus size={12} strokeWidth={2.5} />
       </button>
-      <span style={{ minWidth: '20px', textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>
-        {qty}
-      </span>
-      <button
-        onClick={onIncrease}
-        style={{
-          border: 'none', background: 'none', width: '24px', height: '24px',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', color: '#1e3a8a', transition: 'all 0.1s'
-        }}
-      >
+      <span className="order-modal__qty-value">{qty}</span>
+      <button type="button" className="order-modal__qty-btn order-modal__qty-btn--add" onClick={onIncrease} aria-label="Increase quantity">
         <Plus size={12} strokeWidth={2.5} />
       </button>
     </div>
   );
 }
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────
 function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
   const { runMutation } = useMutation();
-  const [tab, setTab] = useState('menu'); // 'menu' | 'cart' | 'history'
+  const [tab, setTab] = useState('menu');
   const [menuItems, setMenuItems] = useState([]);
   const [loadingMenu, setLoadingMenu] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Cart state: { [itemId]: { item, qty, variant, notes } }
   const [cart, setCart] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-
-  // History state
   const [ordersHistory, setOrdersHistory] = useState([]);
-  const [loadingOrders, setLoadingOrders] = useState(false);
 
-  // Load menu items once modal opens
   useEffect(() => {
     if (isOpen) {
       fetchMenu();
@@ -90,7 +65,6 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
   const fetchOrderHistory = async () => {
     if (!booking?.id) return;
     try {
-      // FIX: Changed from /orders to /food-orders to match your backend formatter
       const response = await fetch(`/api/bookings/${booking.id}/food-orders`);
       if (!response.ok) throw new Error('Failed to fetch order history');
       const data = await response.json();
@@ -100,25 +74,23 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
     }
   };
 
-  // Filtered menu
   const filteredMenu = useMemo(() => {
-    return menuItems.filter(item => {
+    return menuItems.filter((item) => {
       const matchesCat = selectedCategory === 'all' || item.category === selectedCategory;
       const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCat && matchesSearch;
     });
   }, [menuItems, selectedCategory, searchQuery]);
 
-  // Cart calculations
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = useMemo(() => cartItems.reduce((acc, curr) => acc + curr.qty, 0), [cartItems]);
   const cartTotal = useMemo(() => cartItems.reduce((acc, curr) => acc + (curr.item.price * curr.qty), 0), [cartItems]);
 
   const updateQty = (item, delta) => {
-    setCart(prev => {
+    setCart((prev) => {
       const current = prev[item.id];
       if (!current && delta < 0) return prev;
-      
+
       const next = { ...prev };
       if (!current && delta > 0) {
         next[item.id] = { item, qty: 1, notes: '' };
@@ -141,11 +113,11 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
 
     const result = await runMutation({
       mutation: async () => {
-        const itemsPayload = cartItems.map(c => ({
+        const itemsPayload = cartItems.map((c) => ({
           menu_item_id: c.item.id,
           quantity: c.qty,
           price_at_order: c.item.price,
-          notes: c.notes || ''
+          notes: c.notes || '',
         }));
 
         const response = await fetch(`/api/bookings/${booking.id}/food-orders`, {
@@ -184,42 +156,35 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
   if (!isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg">
-      {/* Dynamic structural container fixing layout tag mismatches */}
-      <div style={{ display: 'flex', flexDirection: 'column', height: '80vh', background: '#fff' }}>
-        
-        {/* ── HEADER CONTAINER ── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>In-House Food Order</h3>
-            <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-              Booking #{booking?.id?.substring(0,8) || '—'} — {booking?.guests?.full_name || 'Guest'} ({booking?.property_names || '—'})
+    <Modal isOpen={isOpen} onClose={onClose} size="lg" className="order-modal-overlay">
+      <div className="order-modal">
+        <div className="order-modal__header">
+          <div className="order-modal__header-text">
+            <h3 className="order-modal__title">In-House Food Order</h3>
+            <p className="order-modal__subtitle">
+              Booking #{booking?.id?.substring(0, 8) || '—'} — {booking?.guests?.full_name || 'Guest'} ({booking?.property_names || '—'})
             </p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+          <button type="button" className="order-modal__close" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </div>
 
-        {/* ── TABS NAVIGATION ── */}
-        <div style={{ display: 'flex', padding: '0 24px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', gap: '16px' }}>
+        <div className="order-modal__tabs" role="tablist">
           {[
             { key: 'menu', label: 'Menu List', icon: ChefHat },
             { key: 'cart', label: `Cart (${cartCount})`, icon: ShoppingCart },
-            { key: 'history', label: 'Order History', icon: ClipboardList }
-          ].map(t => {
+            { key: 'history', label: 'Order History', icon: ClipboardList },
+          ].map((t) => {
             const isSel = tab === t.key;
             return (
               <button
                 key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={isSel}
+                className={`order-modal__tab${isSel ? ' order-modal__tab--active' : ''}`}
                 onClick={() => setTab(t.key)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  padding: '12px 4px', border: 'none', background: 'none',
-                  borderBottom: isSel ? '2px solid #1e3a8a' : '2px solid transparent',
-                  color: isSel ? '#1e3a8a' : '#64748b',
-                  fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.1s'
-                }}
               >
                 <t.icon size={14} />
                 {t.label}
@@ -229,22 +194,18 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
         </div>
 
         {error && (
-          <div style={{ padding: '10px 24px', background: '#fef2f2', color: '#b91c1c', fontSize: '0.8rem', borderBottom: '1px solid #fee2e2' }}>
-            ⚠️ {error}
+          <div className="order-modal__error" role="alert">
+            {error}
           </div>
         )}
 
-        {/* ── TAB CONTENT SCAFFOLDS ── */}
-        
-        {/* ── MENU LIST TAB ── */}
         {tab === 'menu' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {/* Menu Filters Frame */}
-            <div style={{ padding: '14px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '12px', alignItems: 'center', background: '#fff' }}>
+          <div className="order-modal__panel">
+            <div className="order-modal__filters">
               <select
+                className="order-modal__select"
                 value={selectedCategory}
-                onChange={e => setSelectedCategory(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}
+                onChange={(e) => setSelectedCategory(e.target.value)}
               >
                 <option value="all">All Categories</option>
                 <option value="food">Food</option>
@@ -253,40 +214,40 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
                 <option value="dessert">Dessert</option>
                 <option value="other">Other</option>
               </select>
-
               <input
-                type="text"
+                type="search"
+                className="order-modal__search"
                 placeholder="Search menu..."
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{ flex: 1, padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.8rem' }}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
 
-            {/* Menu Container Scroller */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#f8fafc' }}>
+            <div className="order-modal__scroll">
               {loadingMenu ? (
-                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Loading items...</div>
+                <div className="order-modal__empty">Loading items...</div>
               ) : filteredMenu.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', marginTop: '20px' }}>No items found.</div>
+                <div className="order-modal__empty order-modal__empty--center">No items found.</div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px' }}>
-                  {filteredMenu.map(item => {
+                <div className="order-modal__menu-grid">
+                  {filteredMenu.map((item) => {
                     const meta = CATEGORY_META[item.category] || CATEGORY_META.other;
                     const inCart = cart[item.id];
                     return (
-                      <div key={item.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'between', position: 'relative' }}>
+                      <div key={item.id} className="order-modal__menu-card">
                         <div>
-                          <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '2px 6px', borderRadius: '10px', background: meta.bg, color: meta.color, textTransform: 'uppercase' }}>
+                          <span
+                            className="order-modal__category-badge"
+                            style={{ background: meta.bg, color: meta.color }}
+                          >
                             {meta.label}
                           </span>
-                          <h4 style={{ margin: '8px 0 2px 0', fontSize: '0.85rem', fontWeight: 600, color: '#0f172a' }}>{item.name}</h4>
-                          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e3a8a', marginBottom: '8px' }}>
+                          <h4 className="order-modal__item-name">{item.name}</h4>
+                          <div className="order-modal__item-price">
                             Rp {item.price?.toLocaleString('id-ID')}
                           </div>
                         </div>
-
-                        <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end' }}>
+                        <div className="order-modal__item-actions">
                           {inCart ? (
                             <QtyStepper
                               qty={inCart.qty}
@@ -295,8 +256,9 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
                             />
                           ) : (
                             <button
+                              type="button"
+                              className="order-modal__add-btn"
                               onClick={() => updateQty(item, 1)}
-                              style={{ padding: '4px 10px', borderRadius: '20px', border: '1px solid #1e3a8a', background: 'none', color: '#1e3a8a', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
                             >
                               Add
                             </button>
@@ -311,28 +273,31 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
           </div>
         )}
 
-        {/* ── CART PREVIEW TAB ── */}
         {tab === 'cart' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' }}>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+          <div className="order-modal__panel order-modal__panel--cart">
+            <div className="order-modal__scroll order-modal__scroll--padded">
               {cartItems.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: '0.85rem' }}>Your cart is empty. Go add some delicious food!</div>
+                <div className="order-modal__empty order-modal__empty--center">
+                  Your cart is empty. Go add some delicious food!
+                </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {cartItems.map(c => (
-                    <div key={c.item.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: '16px', paddingBottom: '14px', borderBottom: '1px solid #f1f5f9' }}>
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: '#0f172a' }}>{c.item.name}</h4>
-                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>Rp {c.item.price?.toLocaleString('id-ID')}</div>
+                <div className="order-modal__cart-list">
+                  {cartItems.map((c) => (
+                    <div key={c.item.id} className="order-modal__cart-row">
+                      <div className="order-modal__cart-info">
+                        <h4 className="order-modal__item-name">{c.item.name}</h4>
+                        <div className="order-modal__cart-unit-price">
+                          Rp {c.item.price?.toLocaleString('id-ID')}
+                        </div>
                         <input
                           type="text"
+                          className="order-modal__notes-input"
                           placeholder="Add cooking notes (e.g., non-spicy)..."
                           value={c.notes || ''}
-                          onChange={e => {
+                          onChange={(e) => {
                             const val = e.target.value;
-                            setCart(prev => ({ ...prev, [c.item.id]: { ...prev[c.item.id], notes: val } }));
+                            setCart((prev) => ({ ...prev, [c.item.id]: { ...prev[c.item.id], notes: val } }));
                           }}
-                          style={{ width: '100%', maxWidth: '300px', border: 'none', borderBottom: '1px dashed #cbd5e1', fontSize: '0.75rem', padding: '4px 0', marginTop: '6px', color: '#475569', outline: 'none' }}
                         />
                       </div>
                       <QtyStepper
@@ -340,7 +305,7 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
                         onIncrease={() => updateQty(c.item, 1)}
                         onDecrease={() => updateQty(c.item, -1)}
                       />
-                      <div style={{ textAlign: 'right', minWidth: '80px', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
+                      <div className="order-modal__cart-line-total">
                         Rp {(c.item.price * c.qty).toLocaleString('id-ID')}
                       </div>
                     </div>
@@ -349,28 +314,23 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
               )}
             </div>
 
-            {/* Cart Sticky Receipt Footer */}
             {cartItems.length > 0 && (
-              <div style={{ padding: '20px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="order-modal__cart-footer">
                 <div>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Total Order:</span>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e3a8a' }}>Rp {cartTotal.toLocaleString('id-ID')}</div>
+                  <span className="order-modal__total-label">Total Order:</span>
+                  <div className="order-modal__total-value">Rp {cartTotal.toLocaleString('id-ID')}</div>
                 </div>
                 <button
+                  type="button"
+                  className="order-modal__place-btn"
                   onClick={handlePlaceOrder}
                   disabled={submitting || cartItems.length === 0}
-                  style={{
-                    padding: '10px 20px', borderRadius: '8px', border: 'none',
-                    background: cartItems.length === 0 ? '#e2e8f0' : '#0f172a',
-                    color: cartItems.length === 0 ? '#94a3b8' : '#fff',
-                    fontSize: '0.85rem', fontWeight: 700,
-                    cursor: cartItems.length === 0 ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  }}
                 >
                   {submitting ? 'Saving…' : (
-                    <><ShoppingCart size={14} /> Place Order</>
+                    <>
+                      <ShoppingCart size={14} />
+                      Place Order
+                    </>
                   )}
                 </button>
               </div>
@@ -378,36 +338,40 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
           </div>
         )}
 
-        {/* ── HISTORY TAB ── */}
         {tab === 'history' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-            {loadingOrders ? (
-              <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Loading order history…</div>
-            ) : ordersHistory.length === 0 ? (
-              <div style={{ color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center', marginTop: '20px' }}>No previous orders logged for this stay.</div>
+          <div className="order-modal__scroll order-modal__scroll--padded">
+            {ordersHistory.length === 0 ? (
+              <div className="order-modal__empty order-modal__empty--center">
+                No previous orders logged for this stay.
+              </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="order-modal__history-list">
                 {ordersHistory.map((order, idx) => (
-                  <div key={order.id || idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '8px', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Order Reference #{order.id?.substring(0,6) || idx + 1}</span>
-                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{order.created_at || 'Just Now'}</span>
+                  <div key={order.id || idx} className="order-modal__history-card">
+                    <div className="order-modal__history-header">
+                      <span className="order-modal__history-ref">
+                        Order Reference #{order.id?.substring(0, 6) || idx + 1}
+                      </span>
+                      <span className="order-modal__history-date">{order.created_at || 'Just Now'}</span>
                     </div>
-                    
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div className="order-modal__history-items">
                       {order.items?.map((it, itemIdx) => (
-                        <div key={itemIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                          <span style={{ color: '#0f172a' }}>{it.menu_item_name} <b style={{ color: '#64748b' }}>x{it.quantity}</b></span>
-                          <span style={{ color: '#475569', fontWeight: 500 }}>Rp {(it.price_at_order * it.quantity).toLocaleString('id-ID')}</span>
+                        <div key={itemIdx} className="order-modal__history-line">
+                          <span>
+                            {it.menu_item_name}
+                            {' '}
+                            <b>x{it.quantity}</b>
+                          </span>
+                          <span>Rp {(it.price_at_order * it.quantity).toLocaleString('id-ID')}</span>
                         </div>
                       ))}
                     </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#15803d', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <CheckCircle size={12} /> Logged to Folio
+                    <div className="order-modal__history-footer">
+                      <span className="order-modal__history-status">
+                        <CheckCircle size={12} />
+                        Logged to Folio
                       </span>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
+                      <span className="order-modal__history-total">
                         Rp {order.total_price?.toLocaleString('id-ID') || '—'}
                       </span>
                     </div>
@@ -417,7 +381,6 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
             )}
           </div>
         )}
-
       </div>
     </Modal>
   );

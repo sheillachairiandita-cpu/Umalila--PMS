@@ -28,8 +28,8 @@ export function TableFilterBar({
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
-      {filters}
-      {actions}
+      {filters && <div className="pms-table-toolbar__filters">{filters}</div>}
+      {actions && <div className="pms-table-toolbar__actions">{actions}</div>}
     </div>
   );
 }
@@ -41,6 +41,7 @@ export function DataTable({
   emptyMessage = 'No records found.',
   renderRow,
   tableClassName = 'pms-table',
+  mobileCards = true,
 }) {
   if (loading) {
     return <div className="empty-state">Loading…</div>;
@@ -50,18 +51,27 @@ export function DataTable({
     return <div className="empty-state">{emptyMessage}</div>;
   }
 
+  const wrapClass = mobileCards
+    ? 'table-scroll-wrap table-scroll-wrap--cards-mobile'
+    : 'table-scroll-wrap';
+  const tableClass = mobileCards
+    ? `${tableClassName} pms-table--cards-mobile`
+    : tableClassName;
+
   return (
-    <table className={tableClassName}>
-      <thead>
-        <tr>
-          {columns.map((col) => (
-            <th key={col.key || col.label}>{col.label}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => renderRow(row))}
-      </tbody>
-    </table>
+    <div className={wrapClass}>
+      <table className={tableClass}>
+        <thead>
+          <tr>
+            {columns.map((col) => (
+              <th key={col.key || col.label} className={col.className || ''}>{col.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => renderRow(row))}
+        </tbody>
+      </table>
+    </div>
   );
 }

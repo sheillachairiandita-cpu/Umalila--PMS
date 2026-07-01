@@ -210,7 +210,7 @@ function UsersTable({ users, loading, onEdit, onToggleStatus, togglingId }) {
 
   return (
     <div>
-      <div className="filter-bar">
+      <div className="filter-bar filter-bar--users">
         <div>
           <label className="filter-bar__label">Search</label>
           <div className="filter-bar__search-wrap">
@@ -237,8 +237,6 @@ function UsersTable({ users, loading, onEdit, onToggleStatus, togglingId }) {
             ))}
           </select>
         </div>
-
-        <div />
       </div>
 
       <div className="table-result-count">
@@ -258,8 +256,8 @@ function UsersTable({ users, loading, onEdit, onToggleStatus, togglingId }) {
           </p>
         </div>
       ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table">
+        <div className="table-scroll-wrap table-scroll-wrap--cards-mobile">
+          <table className="pms-table pms-table--cards-mobile">
             <thead>
               <tr>
                 <th>User ID</th>
@@ -275,16 +273,16 @@ function UsersTable({ users, loading, onEdit, onToggleStatus, togglingId }) {
                 const isActive = user.status === 'active';
                 return (
                   <tr key={user.id}>
-                    <td>
+                    <td data-label="User ID">
                       <span className="cell-booking-id">{user.display_id || '—'}</span>
                     </td>
-                    <td className="cell-guest">{user.name}</td>
-                    <td>{formatRole(user.role)}</td>
-                    <td className="text-center">
+                    <td className="cell-guest" data-label="Name">{user.name}</td>
+                    <td data-label="Role">{formatRole(user.role)}</td>
+                    <td className="text-center" data-label="Status">
                       <Badge type="user" value={user.status || 'active'} />
                     </td>
-                    <td>{formatCreatedAt(user.created_at)}</td>
-                    <td className="text-center">
+                    <td data-label="Created">{formatCreatedAt(user.created_at)}</td>
+                    <td className="text-center" data-label="Actions">
                       <div className="table-action-group">
                         <TableActionButton
                           title="Edit user"

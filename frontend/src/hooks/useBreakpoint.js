@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 
-const DESKTOP_MIN = 1024;
 const TABLET_MIN = 768;
+const LAPTOP_MIN = 1024;
+const DESKTOP_MIN = 1440;
 
 export function useBreakpoint() {
   const [width, setWidth] = useState(
-    typeof window !== 'undefined' ? window.innerWidth : DESKTOP_MIN,
+    typeof window !== 'undefined' ? window.innerWidth : LAPTOP_MIN,
   );
 
   useEffect(() => {
@@ -17,8 +18,10 @@ export function useBreakpoint() {
   return {
     width,
     isMobile: width < TABLET_MIN,
-    isTablet: width >= TABLET_MIN && width < DESKTOP_MIN,
-    isDesktop: width >= DESKTOP_MIN,
+    isTablet: width >= TABLET_MIN && width < LAPTOP_MIN,
+    isLaptop: width >= LAPTOP_MIN && width < DESKTOP_MIN,
+    isDesktop: width >= LAPTOP_MIN,
+    isLargeDesktop: width >= DESKTOP_MIN,
   };
 }
 

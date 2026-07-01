@@ -16,8 +16,13 @@ import {
   formatRp,
 } from './pricingShared';
 import { apiFetch, apiJson } from '../../api/client';
-import { toTitleCaseName } from '../../utils/stringUtils';
 import TableActionButton from '../TableActionButton';
+
+const PRESET_PROPERTY_CATEGORIES = [
+  'Villa',
+  'Cabin',
+  'Homestay',
+];
 
 const CUSTOM_CATEGORY = '__custom__';
 
@@ -98,7 +103,7 @@ function PropertyModal({ isOpen, onClose, onSaved, initialData, categoryOptions 
       refresh: onSaved,
       execute: async () => {
         const payload = {
-          name: toTitleCaseName(form.name),
+          name: form.name.trim(),
           base_rate_per_night: Number(form.base_rate_per_night),
           weekend_rate_per_night: form.weekend_rate_per_night === '' ? null : Number(form.weekend_rate_per_night),
           holiday_rate_per_night: form.holiday_rate_per_night === '' ? null : Number(form.holiday_rate_per_night),
@@ -198,7 +203,7 @@ function PropertyModal({ isOpen, onClose, onSaved, initialData, categoryOptions 
           </p>
           <div className="pricing-form-row pricing-form-row--3">
             <div className="pricing-form-group">
-              <label>Weekday (Mon–Thu) *</label>
+              <label>Weekday</label>
               <input
                 type="number"
                 min="0"
@@ -209,7 +214,7 @@ function PropertyModal({ isOpen, onClose, onSaved, initialData, categoryOptions 
               />
             </div>
             <div className="pricing-form-group">
-              <label>Weekend (Fri–Sun)</label>
+              <label>Weekend</label>
               <input
                 type="number"
                 min="0"
@@ -368,49 +373,6 @@ function HolidayModal({ isOpen, onClose, onSaved }) {
   );
 }
 
-function PropertyRow({ property: v, onEdit, onDelete }) {
-  return (
-    <tr>
-      <td><span className="pricing-id-pill">{v.display_id || v.id?.slice(0, 8)}</span></td>
-      <td className="pricing-name-cell">{v.name}</td>
-      <td className="text-right"><RateCell value={v.base_rate_per_night} /></td>
-      <td className="text-right">
-        <RateCell
-          value={v.weekend_rate_per_night}
-          fallback={v.base_rate_per_night}
-          fallbackLabel="No weekend rate set — uses weekday rate on Fri–Sun"
-        />
-      </td>
-      <td className="text-right">
-        <RateCell
-          value={v.holiday_rate_per_night}
-          fallback={v.weekend_rate_per_night ?? v.base_rate_per_night}
-          fallbackLabel="No holiday rate set — uses weekend rate (or weekday if weekend is also unset)"
-        />
-      </td>
-      <td className="text-center">
-        {v.base_breakfast > 0 ? (
-          <span className="pricing-badge pricing-badge--green">
-            <Coffee size={10} /> {v.base_breakfast}
-          </span>
-        ) : (
-          <span className="pricing-text-muted">—</span>
-        )}
-      </td>
-      <td className="text-center">{v.capacity ?? '—'}</td>
-      <td className="pricing-desc-cell">{v.description || <span className="pricing-text-muted">—</span>}</td>
-      <td className="text-center">
-        <PricingActionCell
-          editTitle="Edit property"
-          deleteTitle="Delete property"
-          onEdit={() => onEdit(v)}
-          onDelete={() => onDelete(v)}
-        />
-      </td>
-    </tr>
-  );
-}
-
 function PropertyPricing() {
   const { deleteItem } = usePricingMutation();
   const [properties, setProperties] = useState([]);
@@ -483,53 +445,31 @@ function PropertyPricing() {
   const openEdit = (property) => { setEditProperty(property); setModalOpen(true); };
   const closeModal = () => { setModalOpen(false); setEditProperty(null); };
 
-  const registeredCategories = useMemo(
-    () => [...new Set(properties.map((p) => p.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [properties],
-  );
+  const categoryOptions = useMemo(() => [...new Set([
+    ...PRESET_PROPERTY_CATEGORIES,
+    ...properties.map((p) => p.category).filter(Boolean),
+  ])].sort((a, b) => a.localeCompare(b)), [properties]);
 
   const filterOptions = useMemo(() => {
-    const counts = registeredCategories.reduce((acc, cat) => {
-      acc[cat] = properties.filter((p) => p.category === cat).length;
+    const counts = categoryOptions.reduce((acc, cat) => {
+      acc[cat] = properties.filter((p) => (p.category || 'Villa') === cat).length;
       return acc;
     }, {});
 
     return [
       { key: 'all', label: `All (${properties.length})` },
-      ...registeredCategories.map((cat) => ({
+      ...categoryOptions.map((cat) => ({
         key: cat,
         label: `${cat} (${counts[cat] || 0})`,
       })),
     ];
-  }, [properties, registeredCategories]);
+  }, [properties, categoryOptions]);
 
   const filteredProperties = categoryFilter === 'all'
     ? properties
-    : properties.filter((p) => p.category === categoryFilter);
+    : properties.filter((p) => (p.category || 'Villa') === categoryFilter);
 
-  const propertyTableRows = useMemo(() => {
-    const byCategory = filteredProperties.reduce((acc, property) => {
-      const category = property.category?.trim() || 'Uncategorized';
-      if (!acc[category]) acc[category] = [];
-      acc[category].push(property);
-      return acc;
-    }, {});
-
-    const categories = Object.keys(byCategory).sort((a, b) => a.localeCompare(b));
-    const rows = [];
-
-    for (const category of categories) {
-      rows.push({ type: 'category', key: `category-${category}`, category });
-      const sorted = [...byCategory[category]].sort((a, b) => a.name.localeCompare(b.name));
-      for (const property of sorted) {
-        rows.push({ type: 'property', key: property.id, property });
-      }
-    }
-
-    return rows;
-  }, [filteredProperties]);
-
-  const propertyPagination = usePaginatedRows(propertyTableRows);
+  const propertyPagination = usePaginatedRows(filteredProperties);
   const holidayPagination = usePaginatedRows(holidays);
 
   return (
@@ -576,23 +516,49 @@ function PropertyPricing() {
                   </td>
                 </tr>
               )}
-              {propertyPagination.paginatedRows.map((row) => (
-                row.type === 'category' ? (
-                  <tr key={row.key} className="pricing-table-category-row">
-                    <td colSpan={9}>{row.category}</td>
-                  </tr>
-                ) : (
-                  <PropertyRow
-                    key={row.key}
-                    property={row.property}
-                    onEdit={openEdit}
-                    onDelete={setDeleteTarget}
-                  />
-                )
+              {propertyPagination.paginatedRows.map((v) => (
+                <tr key={v.id}>
+                  <td><span className="pricing-id-pill">{v.display_id || v.id?.slice(0, 8)}</span></td>
+                  <td className="pricing-name-cell">{v.name}</td>
+                  <td className="text-right"><RateCell value={v.base_rate_per_night} /></td>
+                  <td className="text-right">
+                    <RateCell
+                      value={v.weekend_rate_per_night}
+                      fallback={v.base_rate_per_night}
+                      fallbackLabel="No weekend rate set — uses weekday rate on Fri–Sun"
+                    />
+                  </td>
+                  <td className="text-right">
+                    <RateCell
+                      value={v.holiday_rate_per_night}
+                      fallback={v.weekend_rate_per_night ?? v.base_rate_per_night}
+                      fallbackLabel="No holiday rate set — uses weekend rate (or weekday if weekend is also unset)"
+                    />
+                  </td>
+                  <td className="text-center">
+                    {v.base_breakfast > 0 ? (
+                      <span className="pricing-badge pricing-badge--green">
+                        <Coffee size={10} /> {v.base_breakfast}
+                      </span>
+                    ) : (
+                      <span className="pricing-text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="text-center">{v.capacity ?? '—'}</td>
+                  <td className="pricing-desc-cell">{v.description || <span className="pricing-text-muted">—</span>}</td>
+                  <td className="text-center">
+                    <PricingActionCell
+                      editTitle="Edit property"
+                      deleteTitle="Delete property"
+                      onEdit={() => openEdit(v)}
+                      onDelete={() => setDeleteTarget(v)}
+                    />
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
-          <PricingTablePagination rows={propertyTableRows} pagination={propertyPagination} />
+          <PricingTablePagination rows={filteredProperties} pagination={propertyPagination} />
         </div>
       )}
 
@@ -648,7 +614,7 @@ function PropertyPricing() {
         )}
       </div>
 
-      <PropertyModal isOpen={modalOpen} onClose={closeModal} onSaved={fetchData} initialData={editProperty} categoryOptions={registeredCategories} />
+      <PropertyModal isOpen={modalOpen} onClose={closeModal} onSaved={fetchData} initialData={editProperty} categoryOptions={categoryOptions} />
       <HolidayModal
         isOpen={holidayModalOpen}
         onClose={() => setHolidayModalOpen(false)}
