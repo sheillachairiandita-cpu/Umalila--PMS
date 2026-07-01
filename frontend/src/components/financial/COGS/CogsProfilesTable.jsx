@@ -97,8 +97,8 @@ function CogsProfilesTable({
           </p>
         </div>
       ) : (
-        <div className="table-scroll-wrap">
-          <table className="pms-table pms-table--financial">
+        <div className="table-scroll-wrap table-scroll-wrap--cards-mobile">
+          <table className="pms-table pms-table--financial pms-table--cards-mobile">
             <thead>
               <tr>
                 <th>Property Name</th>
@@ -111,11 +111,11 @@ function CogsProfilesTable({
             <tbody>
               {paginated.map((p) => (
                 <tr key={p.id}>
-                  <td className="font-medium">{p.propertyName}</td>
-                  <td className="text-right font-mono">{formatRp(p.fixedStayCost)}</td>
-                  <td className="text-right font-mono">{formatRp(p.costPerNight)}</td>
-                  <td>{formatDate(p.updatedAt || p.createdAt)}</td>
-                  <td>
+                  <td className="font-medium" data-label="Property Name">{p.propertyName}</td>
+                  <td className="text-right font-mono" data-label="Fixed Stay Cost">{formatRp(p.fixedStayCost)}</td>
+                  <td className="text-right font-mono" data-label="Cost Per Night">{formatRp(p.costPerNight)}</td>
+                  <td data-label="Last Updated">{formatDate(p.updatedAt || p.createdAt)}</td>
+                  <td data-label="Actions">
                     <div className="table-actions table-actions--center">
                       <TableActionButton
                         icon={Edit}

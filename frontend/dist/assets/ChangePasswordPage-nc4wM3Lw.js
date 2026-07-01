@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-bzQ4Vb5N.js";import{n as t}from"./chunk-6CSD65Y2-BY_qjmHG.js";var n=e();function r(){return(0,n.jsx)(t,{to:`/admin/profile`,replace:!0})}export{r as default};

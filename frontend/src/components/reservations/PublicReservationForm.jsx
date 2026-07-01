@@ -80,6 +80,11 @@ function RequiredLabel({ children }) {
   );
 }
 
+function formatMetaValue(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return value;
+}
+
 function getBookingManageToken(booking) {
   if (!booking?.id) return null;
   return booking.manage_token
@@ -569,13 +574,31 @@ function PublicReservationForm({
             </div>
           )}
 
-          {isEditMode && guestName && (
+          {isEditMode && (guestName || formData.phoneNumber || booking?.display_id) && (
             <div className="form-section">
-              <h4><User size={14} /> {t('publicReservation.guest')}</h4>
-              <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>{guestName}</p>
-              {formData.phoneNumber && (
-                <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>{formData.phoneNumber}</p>
-              )}
+              <h4><User size={14} /> {t('publicReservation.guestProfileDetails')}</h4>
+              <div className="financial-meta-header" style={{ marginBottom: 0 }}>
+                <div className="financial-meta-row">
+                  <span className="financial-meta-label">{t('publicReservation.fullName')}</span>
+                  <span className="financial-meta-value">{formatMetaValue(guestName)}</span>
+                </div>
+                <div className="financial-meta-row">
+                  <span className="financial-meta-label">{t('publicReservation.phoneWhatsApp')}</span>
+                  <span className="financial-meta-value">{formatMetaValue(formData.phoneNumber)}</span>
+                </div>
+                <div className="financial-meta-row">
+                  <span className="financial-meta-label">{t('publicReservation.bookingId')}</span>
+                  <span className="financial-meta-value financial-meta-value--mono">
+                    {formatMetaValue(booking?.display_id)}
+                  </span>
+                </div>
+                {formData.email && (
+                  <div className="financial-meta-row financial-meta-row--divider">
+                    <span className="financial-meta-label">{t('publicReservation.emailAddress')}</span>
+                    <span className="financial-meta-value">{formatMetaValue(formData.email)}</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

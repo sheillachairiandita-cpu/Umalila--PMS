@@ -69,15 +69,15 @@ function capDiscountAmount(amount, discount) {
   return amount;
 }
 
+function selectedPropertyIds(discount) {
+  return [...new Set(parseIdList(discount?.property_ids))];
+}
+
 function filterPropertyLines(propertyLines, discount) {
   const lines = propertyLines || [];
-  const mode = discount.applicable_properties || 'all';
-  const ids = parseIdList(discount.property_ids);
-  if (discount.property_id) ids.push(String(discount.property_id));
-  const uniqueIds = [...new Set(ids)];
-
-  if (mode !== 'selected' || uniqueIds.length === 0) return lines;
-  return lines.filter((line) => uniqueIds.includes(String(line.property_id || line.propertyId)));
+  const ids = selectedPropertyIds(discount);
+  if (ids.length === 0) return lines;
+  return lines.filter((line) => ids.includes(String(line.property_id || line.propertyId)));
 }
 
 function lastStayNight(checkOutDate) {
@@ -219,16 +219,11 @@ export function isDiscountEligible(discount, context = {}) {
   }
 
   const scope = normalizeScope(discount.scope);
-  const applicableProperties = discount.applicable_properties || 'all';
-  const selectedPropertyIds = parseIdList(discount.property_ids);
-  if (discount.property_id) selectedPropertyIds.push(String(discount.property_id));
+  const propertyIds = selectedPropertyIds(discount);
   const bookingPropertyIds = (context.propertyIds || []).map(String);
 
-  if (scope === 'properties' && applicableProperties === 'selected') {
-    if (selectedPropertyIds.length === 0) {
-      return { eligible: false, reason: 'Discount has no applicable properties configured.' };
-    }
-    const hasMatch = bookingPropertyIds.some((id) => selectedPropertyIds.includes(id));
+  if (scope === 'properties' && propertyIds.length > 0) {
+    const hasMatch = bookingPropertyIds.some((id) => propertyIds.includes(id));
     if (!hasMatch) {
       return { eligible: false, reason: 'Discount does not apply to the selected properties.' };
     }
@@ -397,9 +392,6 @@ export function mapDiscountRow(row) {
   const status = normalizeStatus(row.status);
   const scope = normalizeScope(row.scope);
   const propertyIds = parseIdList(row.property_ids);
-  if (row.property_id && !propertyIds.includes(String(row.property_id))) {
-    propertyIds.push(String(row.property_id));
-  }
 
   return {
     id: row.id,
@@ -414,9 +406,8 @@ export function mapDiscountRow(row) {
     status,
     is_active: status === 'active',
     application_rule: row.application_rule || 'all_items',
-    applicable_properties: row.applicable_properties || (row.property_id ? 'selected' : 'all'),
+    applicable_properties: propertyIds.length > 0 ? 'selected' : 'all',
     property_ids: propertyIds,
-    property_id: row.property_id || null,
     booking_start_date: row.booking_start_date || null,
     booking_end_date: row.booking_end_date || null,
     stay_start_date: row.stay_start_date || null,
@@ -455,14 +446,10 @@ export function discountPayloadFromBody(body, { partial = false, userId = null, 
   if (!partial || body.application_rule !== undefined) {
     assign('application_rule', body.application_rule || 'all_items');
   }
-  if (!partial || body.applicable_properties !== undefined) {
-    assign('applicable_properties', body.applicable_properties || 'all');
-  }
-  if (!partial || body.property_ids !== undefined) {
-    assign('property_ids', parseIdList(body.property_ids));
-  } else if (!partial && body.property_id !== undefined) {
-    assign('property_ids', body.property_id ? [String(body.property_id)] : []);
-    assign('property_id', body.property_id || null);
+  if (!partial || body.property_ids !== undefined || body.applicable_properties !== undefined) {
+    const mode = body.applicable_properties || 'all';
+    const ids = parseIdList(body.property_ids);
+    assign('property_ids', mode === 'selected' ? ids : []);
   }
   if (!partial || body.booking_start_date !== undefined) assign('booking_start_date', parseDate(body.booking_start_date));
   if (!partial || body.booking_end_date !== undefined) assign('booking_end_date', parseDate(body.booking_end_date));

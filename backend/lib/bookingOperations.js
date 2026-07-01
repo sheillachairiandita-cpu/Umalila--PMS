@@ -51,7 +51,7 @@ export function buildBookingAddonRows(bookingId, selectedAddons, addonCatalog, n
   });
 }
 
-async function fetchDiscountById(scopeQ, discountId, tenantId) {
+export async function fetchDiscountById(scopeQ, discountId, tenantId) {
   if (!discountId) return null;
   const { data, error } = await scopeQ(tenantId, 'discounts').select('*').eq('id', discountId).maybeSingle();
   if (error) throw error;

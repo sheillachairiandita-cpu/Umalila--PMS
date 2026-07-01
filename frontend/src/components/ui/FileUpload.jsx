@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { Upload, X, FileText } from 'lucide-react';
 import { COLORS, SPACING, BORDER_RADIUS, TYPOGRAPHY } from '../../styles/theme';
+import { compressImage, isCompressibleImage } from '../../utils/imageCompression';
 
 /**
  * FileUpload Component
@@ -19,8 +20,16 @@ function FileUpload({
   className = '',
 }) {
   const inputRef = useRef(null);
+  const [processing, setProcessing] = useState(false);
 
-  const handleFile = (file) => {
+  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const handleFile = async (file) => {
     if (!file) {
       onChange?.(null);
       return;
@@ -31,22 +40,31 @@ function FileUpload({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
+    setProcessing(true);
+    try {
+      const processedFile = isCompressibleImage(file)
+        ? await compressImage(file)
+        : file;
+
+      const dataUrl = await readFileAsDataUrl(processedFile);
       onChange?.({
-        file,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        dataUrl: reader.result,
+        file: processedFile,
+        name: processedFile.name,
+        type: processedFile.type,
+        size: processedFile.size,
+        dataUrl,
       });
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      onChange?.(null, 'Failed to process file. Please try another.');
+    } finally {
+      setProcessing(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
   };
 
   const handleInputChange = (e) => {
     const file = e.target.files?.[0];
-    handleFile(file || null);
+    void handleFile(file || null);
   };
 
   const clearFile = (e) => {
@@ -84,7 +102,7 @@ function FileUpload({
       {!value ? (
         <button
           type="button"
-          disabled={disabled}
+          disabled={disabled || processing}
           onClick={() => inputRef.current?.click()}
           style={{
             width: '100%',
@@ -103,7 +121,7 @@ function FileUpload({
         >
           <Upload size={20} color={COLORS.textTertiary} />
           <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
-            Click to upload proof of payment
+            {processing ? 'Processing file…' : 'Click to upload proof of payment'}
           </span>
           <span style={{ fontSize: '0.75rem', color: COLORS.textTertiary }}>
             PDF or image, max {maxSizeMB}MB

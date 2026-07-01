@@ -86,6 +86,9 @@ If production was set up via SQL Editor, ensure these ran in order before CLI ta
 12. `015_fix_dashboard_kpis.sql` — restore `get_dashboard_kpis` with `tenant_id` (fixes 014 breakage)
 13. `016_fix_discounts_status_check.sql` — allow `draft`, `active`, `archived` discount statuses
 14. `017_add_tenant_email_domains.sql` — map staff email domains to tenants (`@umalila.com`, `@kayuputih`)
+15. `018_rls_tenant_hardening.sql` — RLS on remaining tables, junction `tenant_id`, discount `property_ids` consolidation, `get_dashboard_kpis` uses `auth_tenant_id()`
+16. `019_bucket.sql` — `payment-proofs` bucket, `payment_proofs` table + sync trigger, tenant-scoped storage RLS (`payment_proofs_tenant_*` policies); object path `{tenant_id}/bookings/{booking_id}/{payment_type}-{timestamp}.{ext}`
+17. `020_update.sql` — replace legacy `objects_tenant_*` storage policies with `payment-proofs` bucket scope; add tenant-scoped query indexes on bookings, finances, orders, order_items, guests, properties, property_date_blocks, audit_log
 
 Then mark baseline in CLI or ensure `supabase_migrations.schema_migrations` matches.
 

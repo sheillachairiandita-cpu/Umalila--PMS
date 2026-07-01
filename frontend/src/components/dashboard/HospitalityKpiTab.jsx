@@ -3,9 +3,11 @@ import { BedDouble, DollarSign, BarChart2, Moon } from 'lucide-react';
 import { KpiCard, KpiCardGrid } from '../ui/KpiCard';
 import ChartCard from '../ui/ChartCard';
 import DonutChart from '../ui/charts/DonutChart';
-import DualAxisLineChart from '../ui/charts/DualAxisLineChart';
+import OccupancyRevparChart from '../ui/charts/OccupancyRevparChart';
+import AdrTrendChart from '../ui/charts/AdrTrendChart';
 import HistogramChart from '../ui/charts/HistogramChart';
-import { formatRpCompact, formatPct, formatNum } from './dashboardUtils';
+import { formatRp } from '../../utils/formatCurrency';
+import { formatPct, formatNum } from './dashboardUtils';
 
 const HOSPITALITY_KPIS = [
   {
@@ -17,17 +19,17 @@ const HOSPITALITY_KPIS = [
   },
   {
     key: 'adr',
-    label: 'ADR (Average Daily Rate)',
+    label: 'ADR',
     icon: DollarSign,
-    format: formatRpCompact,
+    format: formatRp,
     mono: true,
     tooltip: 'Average room revenue per sold room-night, based on tiered weekday, weekend (Fri–Sun), and holiday property rates.',
   },
   {
     key: 'revpar',
-    label: 'RevPAR (Revenue Per Available Room)',
+    label: 'RevPAR',
     icon: BarChart2,
-    format: formatRpCompact,
+    format: formatRp,
     mono: true,
     tooltip: 'Room revenue divided by available room-nights. Reflects tiered pricing yield across all inventory.',
   },
@@ -40,7 +42,7 @@ const HOSPITALITY_KPIS = [
   },
 ];
 
-export default function HospitalityKpiTab({ data, loading }) {
+export default function HospitalityKpiTab({ data, loading, occupancyTarget = 60 }) {
   if (loading) return <div className="dash-loading">Loading hospitality data…</div>;
   if (!data) return null;
 
@@ -52,11 +54,12 @@ export default function HospitalityKpiTab({ data, loading }) {
         {HOSPITALITY_KPIS.map(({ key, label, icon, format, mono, tooltip }) => (
           <KpiCard
             key={key}
-            icon={icon}
             label={label}
+            icon={icon}
             value={format(data[key])}
             mono={mono}
             tooltip={tooltip}
+            delta={data.kpiDeltas?.[key]}
           />
         ))}
       </KpiCardGrid>
@@ -67,10 +70,19 @@ export default function HospitalityKpiTab({ data, loading }) {
         tooltip="Tracks occupancy percentage against RevPAR over time. RevPAR uses tiered weekday, weekend, and holiday room rates."
         wide
       >
-        <DualAxisLineChart
+        <OccupancyRevparChart
           data={data.trendData}
-          formatRight={(v) => formatRpCompact(v).replace('Rp ', '')}
+          occupancyTarget={occupancyTarget}
         />
+      </ChartCard>
+
+      <ChartCard
+        title="ADR Trend"
+        subtitle="Average daily rate over the same period"
+        tooltip="Average room revenue per sold room-night over time. Compare with occupancy to spot rate-vs-demand tradeoffs."
+        wide
+      >
+        <AdrTrendChart data={data.trendData} />
       </ChartCard>
 
       <div className="dash-chart-grid dash-chart-grid--pair">

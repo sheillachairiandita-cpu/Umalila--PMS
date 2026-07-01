@@ -73,7 +73,10 @@ Modal.Header = function ModalHeader({ title, icon: Icon, onClose, subtitle }) {
       </div>
       {onClose && (
         <button
+          type="button"
           onClick={onClose}
+          className="modal-header__close"
+          aria-label="Close dialog"
           style={{
             background: 'none',
             border: 'none',

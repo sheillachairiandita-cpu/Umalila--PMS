@@ -16,6 +16,11 @@ import { createBuildFinancialSummary } from './lib/bookingFinancialSummary.js';
 import { createSummaryCache } from './lib/summaryCache.js';
 import { createUpsertReservationProfitability } from './lib/reservationProfitability.js';
 import { fetchPricingHolidays } from './lib/bookingOperations.js';
+import { todayISO, currentMonthBounds } from './lib/stayUtils.js';
+import {
+  FINANCE_INCOME_WITH_BOOKING_SELECT,
+  sumCountableFinanceIncome,
+} from './lib/financeEligibility.js';
 import {
   findBlockingReservationsForBlock,
   formatBlockConflictError,
@@ -655,11 +660,43 @@ registerFinancialRoutes(app, {
 
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const { data, error } = await supabase.rpc('get_dashboard_kpis', {
-      p_tenant_id: req.tenantId,
-    });
+    const today = todayISO();
+    const { start: monthStart } = currentMonthBounds();
+
+    const [
+      { count: arrivalsToday, error: arrivalsError },
+      { count: departuresToday, error: departuresError },
+      { count: inHouse, error: inHouseError },
+      { data: incomeRows, error: incomeError },
+    ] = await Promise.all([
+      S(req, 'bookings')
+        .select('*', { count: 'exact', head: true })
+        .neq('status', 'cancelled')
+        .eq('check_in_date', today),
+      S(req, 'bookings')
+        .select('*', { count: 'exact', head: true })
+        .neq('status', 'cancelled')
+        .eq('check_out_date', today),
+      S(req, 'bookings')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'checked_in'),
+      S(req, 'finances')
+        .select(FINANCE_INCOME_WITH_BOOKING_SELECT)
+        .eq('type', 'income')
+        .eq('status', 'approved')
+        .gte('transaction_date', monthStart)
+        .lte('transaction_date', today),
+    ]);
+
+    const error = arrivalsError || departuresError || inHouseError || incomeError;
     if (error) throw error;
-    res.json(data);
+
+    res.json({
+      arrivalsToday: arrivalsToday ?? 0,
+      departuresToday: departuresToday ?? 0,
+      inHouse: inHouse ?? 0,
+      monthRevenue: sumCountableFinanceIncome(incomeRows),
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

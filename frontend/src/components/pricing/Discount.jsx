@@ -162,10 +162,10 @@ function buildPayload(form) {
 
 function FormSection({ title, children }) {
   return (
-    <fieldset className="discount-form-section">
-      <legend>{title}</legend>
+    <>
+      <p className="pricing-form-section-label">{title}</p>
       {children}
-    </fieldset>
+    </>
   );
 }
 
@@ -245,10 +245,10 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
         <form onSubmit={handleSubmit} className="pricing-modal__form discount-modal__form">
           <PricingFormError message={error} />
 
-          <FormSection title="Basic Information">
+          <FormSection title="Basic information">
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Promo Code *</label>
+                <label>Promo code *</label>
                 <input
                   type="text"
                   value={form.promo_code}
@@ -270,12 +270,13 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
 
             <div className="pricing-form-row">
               <div className="pricing-form-group" style={{ gridColumn: '1/-1' }}>
-                <label>Discount Name *</label>
+                <label>Discount name *</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="Low Season Markdown"
+                  onBlur={(e) => setForm({ ...form, name: toTitleCaseName(e.target.value) })}
+                  placeholder="Low season markdown"
                   required
                 />
               </div>
@@ -294,8 +295,8 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
             </div>
           </FormSection>
 
-          <FormSection title="Discount Value">
-            <div className="pricing-form-row">
+          <FormSection title="Discount value">
+            <div className="pricing-form-row pricing-form-row--3">
               <div className="pricing-form-group">
                 <label>Type *</label>
                 <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
@@ -318,7 +319,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 />
               </div>
               <div className="pricing-form-group">
-                <label>Maximum Discount Amount</label>
+                <label>Maximum discount amount</label>
                 <input
                   type="number"
                   min="0"
@@ -333,7 +334,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
           <FormSection title="Validity">
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Booking Start Date</label>
+                <label>Booking start date</label>
                 <input
                   type="date"
                   value={form.booking_start_date}
@@ -341,7 +342,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 />
               </div>
               <div className="pricing-form-group">
-                <label>Booking End Date</label>
+                <label>Booking end date</label>
                 <input
                   type="date"
                   value={form.booking_end_date}
@@ -351,7 +352,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
             </div>
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Stay Start Date</label>
+                <label>Stay start date</label>
                 <input
                   type="date"
                   value={form.stay_start_date}
@@ -359,7 +360,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 />
               </div>
               <div className="pricing-form-group">
-                <label>Stay End Date</label>
+                <label>Stay end date</label>
                 <input
                   type="date"
                   value={form.stay_end_date}
@@ -369,7 +370,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
             </div>
           </FormSection>
 
-          <FormSection title="Scope & Application">
+          <FormSection title="Scope & application">
             <div className="pricing-form-row">
               <div className="pricing-form-group">
                 <label>Scope *</label>
@@ -380,7 +381,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 </select>
               </div>
               <div className="pricing-form-group">
-                <label>Application Rule *</label>
+                <label>Application rule *</label>
                 <select
                   value={form.application_rule}
                   onChange={(e) => setForm({ ...form, application_rule: e.target.value })}
@@ -394,7 +395,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
 
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Applicable Properties</label>
+                <label>Applicable properties</label>
                 <select
                   value={form.applicable_properties}
                   onChange={(e) => setForm({ ...form, applicable_properties: e.target.value })}
@@ -405,7 +406,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 </select>
               </div>
               <div className="pricing-form-group">
-                <label>Priority Number</label>
+                <label>Priority number</label>
                 <input
                   type="number"
                   min="0"
@@ -418,7 +419,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
 
             {form.applicable_properties === 'selected' && (
               <div className="pricing-form-group" style={{ gridColumn: '1/-1' }}>
-                <label>Select Properties {form.scope === 'properties' ? '*' : ''}</label>
+                <label>Select properties {form.scope === 'properties' ? '*' : ''}</label>
                 <div className="discount-property-picker">
                   {properties.length === 0 && <p className="pricing-form-hint">No properties available.</p>}
                   {properties.map((property) => (
@@ -439,7 +440,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
           <FormSection title="Conditions">
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Minimum Booking Amount</label>
+                <label>Minimum booking amount</label>
                 <input
                   type="number"
                   min="0"
@@ -449,7 +450,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 />
               </div>
               <div className="pricing-form-group">
-                <label>Minimum Nights</label>
+                <label>Minimum nights</label>
                 <input
                   type="number"
                   min="0"
@@ -461,10 +462,10 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
             </div>
           </FormSection>
 
-          <FormSection title="Usage Limits">
+          <FormSection title="Usage limits">
             <div className="pricing-form-row">
               <div className="pricing-form-group">
-                <label>Total Usage Limit</label>
+                <label>Total usage limit</label>
                 <input
                   type="number"
                   min="0"
@@ -474,7 +475,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
                 />
               </div>
               <div className="pricing-form-group">
-                <label>Per Guest Limit</label>
+                <label>Per guest limit</label>
                 <input
                   type="number"
                   min="0"
@@ -486,7 +487,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
             </div>
           </FormSection>
 
-          <FormSection title="Discount Combination">
+          <FormSection title="Discount combination">
             <div className="pricing-form-group" style={{ gridColumn: '1/-1' }}>
               <label className="pricing-checkbox-label">
                 <input

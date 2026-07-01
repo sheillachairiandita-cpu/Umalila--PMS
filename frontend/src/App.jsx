@@ -102,8 +102,21 @@ function AdminMobileHeader({ onMenuOpen, onProfile }) {
   );
 }
 
+const SIDEBAR_STORAGE_KEY = 'umalila-sidebar-collapsed';
+const TABLET_MIN = 768;
+const LAPTOP_MIN = 1024;
+
+function readSidebarCollapsed() {
+  try {
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch { /* ignore */ }
+  const w = typeof window !== 'undefined' ? window.innerWidth : LAPTOP_MIN;
+  return w >= TABLET_MIN && w < LAPTOP_MIN;
+}
+
 function AdminLayout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(readSidebarCollapsed);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const { isMobile, isTablet } = useBreakpoint();
   const location = useLocation();
@@ -111,6 +124,12 @@ function AdminLayout() {
   const { logout } = useAuth();
 
   const activePage = location.pathname.replace(/^\/admin\/?/, '').split('/')[0] || 'dashboard';
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed));
+    } catch { /* ignore */ }
+  }, [sidebarCollapsed]);
 
   React.useEffect(() => {
     if (!isMobile) setMobileMenuOpen(false);
