@@ -14,6 +14,7 @@ import RequirePermission from './components/auth/RequirePermission';
 import { PERMISSIONS } from './auth/permissions';
 import { useBookings } from './hooks/api/useBookings';
 import { config, HOST_MODES } from './config/index.js';
+import { adminLoginPath, adminPath, parseAdminActivePage } from './auth/adminPaths.js';
 import './App.css';
 
 const Overview = lazy(() => import('./components/overview/Overview'));
@@ -124,7 +125,7 @@ function AdminLayout() {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
-  const activePage = location.pathname.replace(/^\/admin\/?/, '').split('/')[0] || 'dashboard';
+  const activePage = parseAdminActivePage(location.pathname);
 
   React.useEffect(() => {
     try {
@@ -149,7 +150,7 @@ function AdminLayout() {
 
   const handleLogout = async () => {
     await logout();
-    navigate('/admin/login', { replace: true });
+    navigate(adminLoginPath(), { replace: true });
   };
 
   const tabletCompact = isTablet && !sidebarCollapsed;
@@ -168,7 +169,7 @@ function AdminLayout() {
       {isMobile && (
         <AdminMobileHeader
           onMenuOpen={() => setMobileMenuOpen(true)}
-          onProfile={() => navigate('/admin/profile')}
+          onProfile={() => navigate(adminPath('profile'))}
         />
       )}
 
@@ -216,7 +217,7 @@ function AdminApp() {
             <Route path="profile" element={<Profile />} />
             <Route path="change-password" element={<ChangePasswordPage />} />
             <Route path="settings" element={<ProtectedPage page="settings"><SettingsPage /></ProtectedPage>} />
-            <Route path="*" element={<Navigate to="/admin" replace />} />
+            <Route path="*" element={<Navigate to={adminPath()} replace />} />
           </Route>
         </Routes>
       </MutationProvider>
@@ -243,8 +244,9 @@ function App() {
       <Router>
         {hostMode === HOST_MODES.ADMIN && (
           <Routes>
-            <Route path="/admin/*" element={<AdminApp />} />
-            <Route path="*" element={<Navigate to="/admin/login" replace />} />
+            <Route path="/admin/login" element={<Navigate to="/login" replace />} />
+            <Route path="/admin/*" element={<Navigate to={adminPath()} replace />} />
+            <Route path="/*" element={<AdminApp />} />
           </Routes>
         )}
         {hostMode === HOST_MODES.BOOKING && <PublicApp />}

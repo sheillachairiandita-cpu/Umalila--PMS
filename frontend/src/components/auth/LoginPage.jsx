@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthProvider';
 import { getDefaultPageForRole } from '../../auth/permissions';
+import { adminPath } from '../../auth/adminPaths';
 import { Button, Alert, Input, PasswordInput } from '../ui';
 
 function LoginPage() {
@@ -24,7 +25,7 @@ function LoginPage() {
   }
 
   if (user) {
-    return <Navigate to={`/admin/${getDefaultPageForRole(user.role)}`} replace />;
+    return <Navigate to={adminPath(getDefaultPageForRole(user.role))} replace />;
   }
 
   const handleSubmit = async (e) => {
@@ -33,7 +34,7 @@ function LoginPage() {
     setSubmitting(true);
     try {
       const loggedIn = await login(email, password);
-      navigate(`/admin/${getDefaultPageForRole(loggedIn.role)}`, { replace: true });
+      navigate(adminPath(getDefaultPageForRole(loggedIn.role)), { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {

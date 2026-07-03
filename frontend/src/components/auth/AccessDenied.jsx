@@ -4,11 +4,12 @@ import { Button } from '../ui';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthProvider';
 import { getDefaultPageForRole } from '../../auth/permissions';
+import { adminPath } from '../../auth/adminPaths';
 
 function AccessDenied({ message }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const homePath = `/admin/${getDefaultPageForRole(user?.role)}`;
+  const homePath = adminPath(getDefaultPageForRole(user?.role));
 
   return (
     <div className="access-denied-page">

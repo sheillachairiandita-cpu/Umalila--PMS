@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthProvider';
 import { canAccessPage, getPagePermission } from '../../auth/permissions';
+import { adminLoginPath } from '../../auth/adminPaths';
 import AccessDenied from './AccessDenied';
 
 function ProtectedPage({ page, permission, children }) {
@@ -14,7 +15,7 @@ function ProtectedPage({ page, permission, children }) {
   }
 
   if (!user) {
-    return <Navigate to="/admin/login" replace />;
+    return <Navigate to={adminLoginPath()} replace />;
   }
 
   if (requiredPermission && !canAccessPage(user.role, pageSlug)) {

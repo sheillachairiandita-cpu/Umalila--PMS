@@ -1,140 +1,195 @@
 # Deployment
 
-## Architecture
+**Step-by-step production guide:** [PRODUCTION_SETUP.md](./PRODUCTION_SETUP.md)
 
-| Component | Target | Config |
-|-----------|--------|--------|
-| Frontend | Cloudflare Pages (one project, two custom domains) | `frontend/src/config/index.js` |
-| Backend | Node.js host (Render, Railway, VPS, etc.) | `backend/config/index.js` |
-| Database | Supabase (separate dev + prod projects) | Migrations via Supabase CLI |
+## Architecture (Umalila production)
+
+| Layer | Role | Product |
+|-------|------|---------|
+| DNS / CDN | Domain routing, SSL, optional proxy | **Cloudflare** |
+| Frontend | React SPA (two subdomains, one project) | **Vercel** |
+| Backend | Node / Express API | **Railway** |
+| Database | PostgreSQL | **Supabase** |
 
 **Never hardcode URLs.** Use `config.api.baseUrl` (frontend) and env-based CORS (backend).
 
-### Production domains (Umalila)
+### Production domains
 
-| URL | Purpose | App mode |
-|-----|---------|----------|
-| `https://pms.stayatumalila.com` | Staff login + admin dashboard | `admin` |
-| `https://booking.stayatumalila.com` | Guest reservation form (no login) | `booking` |
-| `https://api.stayatumalila.com` | Node API (recommended) | — |
+| URL | Cloudflare DNS → | Purpose |
+|-----|------------------|---------|
+| `pms.stayatumalila.com` | Vercel | Staff login + admin (`admin` mode) |
+| `booking.stayatumalila.com` | Vercel | Guest booking form (`booking` mode) |
+| Railway URL or `api.stayatumalila.com` | Railway | REST API |
 
-One frontend build serves both subdomains. `frontend/src/config/hostMode.js` picks routes from `window.location.hostname`:
+One Vercel build serves both frontend subdomains. `frontend/src/config/hostMode.js` picks routes from `window.location.hostname`:
 
-- **pms.*** → only `/admin/*` (everything else redirects to `/admin/login`)
-- **booking.*** → only public booking routes (`/`, `/success`)
+- **pms.*** → only `/admin/*` (everything else → `/admin/login`)
+- **booking.*** → only `/`, `/success`
 - **localhost** → both (development)
+
+### Traffic flow
+
+```
+                    Cloudflare DNS
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+   pms.stayatumalila   booking.stayatumalila   api.stayatumalila
+          │               │               (optional)
+          └───────┬───────┘                   │
+                  ▼                           ▼
+              Vercel (SPA)              Railway (API)
+                  │                           │
+                  │    VITE_API_BASE_URL      │
+                  └──────────────────────────►│
+                                              ▼
+                                         Supabase
+```
 
 ---
 
-## Frontend — Cloudflare Pages
+## Cloudflare (DNS)
 
-### Build settings
+Manage DNS for `stayatumalila.com` in Cloudflare. Vercel and Railway each give you a CNAME target when you add custom domains.
+
+### Frontend records (→ Vercel)
+
+After adding domains in **Vercel → Project → Settings → Domains**, create in **Cloudflare → DNS**:
+
+| Type | Name | Target | Proxy |
+|------|------|--------|-------|
+| CNAME | `pms` | `cname.vercel-dns.com` (or value Vercel shows) | DNS only (grey cloud) recommended* |
+| CNAME | `booking` | same Vercel target | DNS only recommended* |
+
+\*Vercel recommends **DNS only** (grey cloud) for custom domains, or use Vercel’s nameserver integration. Orange-cloud proxy on Vercel domains can work but may complicate SSL; follow [Vercel + Cloudflare docs](https://vercel.com/docs/domains/working-with-dns#cloudflare) if you proxy.
+
+### API record (→ Railway, optional)
+
+In **Railway → Service → Settings → Networking → Custom Domain**, add `api.stayatumalila.com`, then in Cloudflare:
+
+| Type | Name | Target | Proxy |
+|------|------|--------|-------|
+| CNAME | `api` | Railway-provided hostname | DNS only (grey cloud) typical |
+
+If you skip a custom API domain, use the default `*.up.railway.app` URL in `VITE_API_BASE_URL` (no Cloudflare record needed for API).
+
+### SSL
+
+- Cloudflare SSL/TLS mode: **Full** or **Full (strict)** when origin (Vercel/Railway) has valid HTTPS.
+- Vercel and Railway terminate HTTPS on their side.
+
+---
+
+## Frontend — Vercel
+
+### Project settings
 
 | Setting | Value |
 |---------|-------|
 | Root directory | `frontend` |
-| Build command | `npm ci && npm run build` |
+| Framework | Vite |
+| Build command | `npm run build` |
 | Output directory | `dist` |
-| Node version | 20+ |
+| Install command | `npm ci` |
 
-### Custom domains (same Pages project)
+`frontend/vercel.json` rewrites non-asset paths to `index.html` so React Router works (`/admin/login`, etc.).
 
-Add both:
+### Custom domains
+
+Add in **Vercel → Project → Settings → Domains** (then point Cloudflare DNS as above):
 
 1. `pms.stayatumalila.com`
 2. `booking.stayatumalila.com`
 
-DNS (example):
+Do **not** point frontend domains at Railway — only Vercel serves the React app.
 
-```
-pms      CNAME  your-project.pages.dev
-booking  CNAME  your-project.pages.dev
-```
+### Environment variables (Vercel → Settings → Environment Variables)
 
-`frontend/public/_redirects` enables SPA routing on Cloudflare Pages.
-
-### Environment variables (Cloudflare dashboard)
-
-Set for **Production** (copy from `frontend/.env.production.example`):
+**Production** (copy from `frontend/.env.production.example`):
 
 ```
 VITE_TENANT_SLUG=umalila
-VITE_API_BASE_URL=https://api.stayatumalila.com
+VITE_API_BASE_URL=https://YOUR-RAILWAY-APP.up.railway.app
 ```
 
-Set for **Preview** (optional):
+Use your Railway public URL, or a custom domain like `https://api.stayatumalila.com` if you attached one in Railway.
 
-```
-VITE_TENANT_SLUG=umalila-dev
-VITE_API_BASE_URL=https://api-dev.stayatumalila.com
-```
+Redeploy after changing env vars (Vite bakes them in at build time).
 
-### Public booking API (no staff session)
+### Login / API calls
 
-The guest form on `booking.stayatumalila.com` uses **unauthenticated** backend routes only:
+Auth and API use `apiFetch` → `VITE_API_BASE_URL` + `/api/...`.
+
+| Wrong (404) | Correct |
+|-------------|---------|
+| `pms.stayatumalila.com/api/auth/login` | `YOUR-RAILWAY-URL/api/auth/login` |
+
+### Public booking (no staff login)
+
+Guest form on `booking.stayatumalila.com` uses unauthenticated routes only:
 
 | Method | Endpoint |
 |--------|----------|
 | GET | `/api/properties`, `/api/addons`, `/api/pricing/holidays`, `/api/properties/availability` |
 | POST | `/api/guests`, `/api/bookings` |
 
-All requests include `X-Tenant-Slug: umalila` (from `VITE_TENANT_SLUG`). Staff dashboard routes require a session cookie from login on **pms.***.
-
-### API routing options
-
-**Option A — Separate API subdomain (recommended)**
-
-- Frontend: `https://pms.stayatumalila.com` + `https://booking.stayatumalila.com`
-- Backend: `https://api.stayatumalila.com`
-- Set `VITE_API_BASE_URL=https://api.stayatumalila.com`
-- Set backend `CORS_ORIGIN` to both frontend origins (comma-separated)
-
-**Option B — Same origin via Cloudflare Worker proxy**
-
-- Proxy `/api/*` on each frontend domain to your Node backend
-- Leave `VITE_API_BASE_URL` empty on Pages
+All include `X-Tenant-Slug: umalila`.
 
 ---
 
-## Backend — Node.js hosting
+## Backend — Railway
 
-### Start command
+### Service settings
 
-```bash
-cd backend && npm ci && npm start
-```
+| Setting | Value |
+|---------|-------|
+| Root directory | `backend` (if monorepo) or repo root with start path |
+| Start command | `npm start` |
+| Builder | Nixpacks (default) |
 
-Set `NODE_ENV=production` on the host so `config` loads production rules and env files.
+Railway sets `PORT` automatically — `backend/config/index.js` reads `process.env.PORT`.
 
-### Required production env vars
+### Environment variables (Railway → Variables)
 
 ```
 NODE_ENV=production
-PORT=5000
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
-SESSION_SECRET=...
-BOOKING_TOKEN_SECRET=...
+SESSION_SECRET=...          # long random string
+BOOKING_TOKEN_SECRET=...    # long random string
 DEFAULT_TENANT_SLUG=umalila
 CORS_ORIGIN=https://pms.stayatumalila.com,https://booking.stayatumalila.com
 ```
 
-`CORS_ORIGIN` accepts a comma-separated list when you have multiple frontend domains.
+`CORS_ORIGIN` must list **both** Vercel frontend origins (comma-separated, no trailing slashes).
 
-### DNS for API
+Optional: add your Vercel preview URL for testing:
 
 ```
-api  CNAME  your-backend-host.example.com
+CORS_ORIGIN=https://pms.stayatumalila.com,https://booking.stayatumalila.com,https://your-project.vercel.app
 ```
 
-Or `A` record to your VPS IP.
+### Custom API domain (optional)
+
+In Railway → Service → Settings → Networking → Custom Domain:
+
+- Add `api.stayatumalila.com`
+- DNS: `api` CNAME → Railway-provided target
+
+Then set on Vercel:
+
+```
+VITE_API_BASE_URL=https://api.stayatumalila.com
+```
 
 ### Health check
 
 ```
-GET /status
+GET https://YOUR-RAILWAY-URL/status
 → { "status": "Umalila Engine Running Smoothly" }
 ```
+
+Use this URL in Railway health checks if available.
 
 ---
 
@@ -146,7 +201,19 @@ See [SUPABASE_MIGRATIONS.md](./SUPABASE_MIGRATIONS.md) for migration workflow.
 
 Bootstrap production tenant + first admin: `backend/db/seeds/umalila-tenant.sql`
 
-Never edit production schema manually in the SQL editor after CLI workflow is adopted.
+---
+
+## Quick wiring checklist
+
+| Step | Where | What |
+|------|--------|------|
+| 1 | Supabase | Migrations + `umalila-tenant.sql` |
+| 2 | Railway | Deploy backend, copy public URL, set env vars + `CORS_ORIGIN` |
+| 3 | Vercel | Set `VITE_API_BASE_URL` = Railway URL, deploy |
+| 4 | Vercel | Add `pms` + `booking` custom domains |
+| 5 | Cloudflare | CNAME `pms` + `booking` → Vercel |
+| 6 | Cloudflare | (Optional) CNAME `api` → Railway |
+| 7 | Browser | Test `/status` on API, login on pms |
 
 ---
 
@@ -154,10 +221,21 @@ Never edit production schema manually in the SQL editor after CLI workflow is ad
 
 - [ ] `npm run build` succeeds in `frontend/`
 - [ ] `npm run config:check` succeeds in `backend/`
-- [ ] Migrations applied to production Supabase
-- [ ] `umalila-tenant.sql` seed run (tenant + admin user)
-- [ ] Production env vars set on host (not in git)
-- [ ] `CORS_ORIGIN` lists **both** `pms` and `booking` origins
-- [ ] Cloudflare custom domains attached to Pages project
-- [ ] Smoke test **pms**: login at `/admin/login`, open dashboard
-- [ ] Smoke test **booking**: submit a test reservation (no login)
+- [ ] Migrations + `umalila-tenant.sql` on production Supabase
+- [ ] Railway: env vars set, `/status` returns OK
+- [ ] Vercel: `VITE_API_BASE_URL` = Railway URL, redeployed
+- [ ] Railway: `CORS_ORIGIN` includes both `pms` and `booking` domains
+- [ ] Both domains on Vercel + Cloudflare DNS pointing to Vercel
+- [ ] Smoke test **pms**: login at `/admin/login`
+- [ ] Smoke test **booking**: submit test reservation
+
+---
+
+## Troubleshooting login 404
+
+1. Open DevTools → Network on login.
+2. Request URL must be **`https://<railway-host>/api/auth/login`**, not `pms.stayatumalila.com/api/...`.
+3. If wrong: set `VITE_API_BASE_URL` on Vercel and **redeploy**.
+4. If Railway `/status` fails: fix backend deploy first.
+5. If 401: credentials issue (not 404).
+6. If CORS error: add frontend origin to Railway `CORS_ORIGIN`.

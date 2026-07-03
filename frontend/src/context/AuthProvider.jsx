@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { getDefaultPageForRole } from '../auth/permissions';
+import { adminLoginPath, adminPath } from '../auth/adminPaths';
+import { apiFetch } from '../api/client';
 
 const AuthContext = createContext(null);
 
@@ -10,7 +12,7 @@ export function AuthProvider({ children }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const res = await apiFetch('/auth/me');
       if (!res.ok) {
         setUser(null);
         return null;
@@ -34,10 +36,9 @@ export function AuthProvider({ children }) {
   }, [refreshUser]);
 
   const login = useCallback(async (email, password) => {
-    const res = await fetch('/api/auth/login', {
+    const res = await apiFetch('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json().catch(() => ({}));
@@ -49,7 +50,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    await apiFetch('/auth/logout', { method: 'POST' });
     setUser(null);
   }, []);
 
@@ -85,7 +86,7 @@ export function RequireAuth({ children }) {
   }
 
   if (!user) {
-    return <Navigate to="/admin/login" replace />;
+    return <Navigate to={adminLoginPath()} replace />;
   }
 
   return children;
@@ -99,9 +100,9 @@ export function DefaultAdminRedirect() {
   }
 
   if (!user) {
-    return <Navigate to="/admin/login" replace />;
+    return <Navigate to={adminLoginPath()} replace />;
   }
 
   const page = getDefaultPageForRole(user.role);
-  return <Navigate to={`/admin/${page}`} replace />;
+  return <Navigate to={adminPath(page)} replace />;
 }

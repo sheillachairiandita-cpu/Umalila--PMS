@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../context/AuthProvider';
 import { hasPermission } from '../auth/permissions';
 import { getNavItemsForRole } from '../auth/navConfig';
+import { adminPath } from '../auth/adminPaths';
 
 const Sidebar = ({
   activePage,
@@ -51,7 +52,7 @@ const Sidebar = ({
 
   const handleProfileClick = () => {
     setSettingsOpen(false);
-    navigate('/admin/profile');
+    navigate(adminPath('profile'));
     onMobileClose?.();
   };
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Alert, PasswordInput } from '../ui';
 import { useMutation } from '../../context/MutationProvider';
+import { apiFetch } from '../../api/client';
 
 function ChangePasswordForm() {
   const { runMutation, isMutating } = useMutation();
@@ -30,7 +31,7 @@ function ChangePasswordForm() {
 
     const result = await runMutation({
       mutation: async () => {
-        const res = await fetch('/api/auth/change-password', {
+        const res = await apiFetch('/auth/change-password', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

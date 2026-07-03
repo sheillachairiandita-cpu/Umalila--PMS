@@ -9,36 +9,45 @@ import {
   Sliders,
 } from 'lucide-react';
 import { PERMISSIONS } from './permissions';
+import { adminPath } from './adminPaths';
 
-export const ADMIN_NAV_ITEMS = [
+const ADMIN_NAV_PAGES = [
   {
     group: 'Operations',
     items: [
-      { page: 'dashboard', path: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard, permission: PERMISSIONS.PAGE_DASHBOARD },
-      { page: 'calendar', path: '/admin/calendar', label: 'Calendar', icon: Calendar, permission: PERMISSIONS.PAGE_CALENDAR },
-      { page: 'reservations', path: '/admin/reservations', label: 'Reservations', icon: ClipboardList, permission: PERMISSIONS.PAGE_RESERVATIONS },
-      { page: 'financial', path: '/admin/financial', label: 'Financial', icon: Wallet, permission: PERMISSIONS.PAGE_FINANCIAL },
+      { page: 'dashboard', label: 'Overview', icon: LayoutDashboard, permission: PERMISSIONS.PAGE_DASHBOARD },
+      { page: 'calendar', label: 'Calendar', icon: Calendar, permission: PERMISSIONS.PAGE_CALENDAR },
+      { page: 'reservations', label: 'Reservations', icon: ClipboardList, permission: PERMISSIONS.PAGE_RESERVATIONS },
+      { page: 'financial', label: 'Financial', icon: Wallet, permission: PERMISSIONS.PAGE_FINANCIAL },
     ],
   },
   {
     group: 'Analytics',
     items: [
-      { page: 'insights', path: '/admin/insights', label: 'Dashboard', icon: PieChart, permission: PERMISSIONS.PAGE_INSIGHTS },
+      { page: 'insights', label: 'Dashboard', icon: PieChart, permission: PERMISSIONS.PAGE_INSIGHTS },
     ],
   },
   {
     group: 'System',
     items: [
-      { page: 'pricing', path: '/admin/pricing', label: 'Pricing', icon: Tags, permission: PERMISSIONS.PAGE_PRICING },
-      { page: 'users', path: '/admin/users', label: 'Users', icon: Users, permission: PERMISSIONS.PAGE_USERS },
-      { page: 'settings', path: '/admin/settings', label: 'Settings', icon: Sliders, permission: PERMISSIONS.PAGE_SETTINGS },
+      { page: 'pricing', label: 'Pricing', icon: Tags, permission: PERMISSIONS.PAGE_PRICING },
+      { page: 'users', label: 'Users', icon: Users, permission: PERMISSIONS.PAGE_USERS },
+      { page: 'settings', label: 'Settings', icon: Sliders, permission: PERMISSIONS.PAGE_SETTINGS },
     ],
   },
 ];
 
+/** @deprecated Use getNavItemsForRole — paths are built dynamically for pms vs localhost */
+export const ADMIN_NAV_ITEMS = ADMIN_NAV_PAGES.map((group) => ({
+  ...group,
+  items: group.items.map((item) => ({ ...item, path: adminPath(item.page) })),
+}));
+
 export function getNavItemsForRole(role, hasPermissionFn) {
-  return ADMIN_NAV_ITEMS.map((group) => ({
+  return ADMIN_NAV_PAGES.map((group) => ({
     ...group,
-    items: group.items.filter((item) => hasPermissionFn(role, item.permission)),
+    items: group.items
+      .filter((item) => hasPermissionFn(role, item.permission))
+      .map((item) => ({ ...item, path: adminPath(item.page) })),
   })).filter((group) => group.items.length > 0);
 }
