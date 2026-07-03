@@ -19,8 +19,6 @@ import { formatRp } from '../../utils/formatCurrency';
 import { apiFetch, apiJson } from '../../api/client';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
-const API = '/api';
-
 function addonPrice(addon) {
   return Number(addon?.price_per_night ?? addon?.price) || 0;
 }
@@ -149,12 +147,12 @@ function PublicReservationForm({
       setLoadingProperties(true);
       try {
         const requests = [
-          fetch(`${API}/properties`).then((r) => (r.ok ? r.json() : [])),
-          fetch(`${API}/addons`).then((r) => (r.ok ? r.json() : [])),
-          fetch(`${API}/pricing/holidays`).then((r) => (r.ok ? r.json() : [])),
+          apiFetch('/properties').then((r) => (r.ok ? r.json() : [])),
+          apiFetch('/addons').then((r) => (r.ok ? r.json() : [])),
+          apiFetch('/pricing/holidays').then((r) => (r.ok ? r.json() : [])),
         ];
         if (isEditMode) {
-          requests.push(fetch(`${API}/discounts`).then((r) => (r.ok ? r.json() : [])));
+          requests.push(apiFetch('/discounts').then((r) => (r.ok ? r.json() : [])));
         }
         const [propertyData, addonData, holidayData, discountData] = await Promise.all(requests);
         setProperties(propertyData);
@@ -223,7 +221,7 @@ function PublicReservationForm({
     const checkLiveAvailability = async () => {
       try {
         const response = await apiFetch(
-          `/api/properties/availability?check_in=${debouncedCheckIn}&check_out=${debouncedCheckOut}`,
+          `/properties/availability?check_in=${debouncedCheckIn}&check_out=${debouncedCheckOut}`,
         );
         if (!response.ok) return;
         const data = await response.json();
@@ -364,7 +362,7 @@ function PublicReservationForm({
       setIsSubmitting(true);
       setError(null);
       try {
-        const response = await apiFetch(`${API}/bookings/${booking.id}/cancel${bookingTokenQuery(booking)}`, {
+        const response = await apiFetch(`/bookings/${booking.id}/cancel${bookingTokenQuery(booking)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cancellation_reason: cancellationReason.trim() }),
@@ -402,7 +400,7 @@ function PublicReservationForm({
       setIsSubmitting(true);
       setError(null);
       try {
-        const response = await apiFetch(`${API}/bookings/${booking.id}${bookingTokenQuery(booking)}`, {
+        const response = await apiFetch(`/bookings/${booking.id}${bookingTokenQuery(booking)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -441,7 +439,7 @@ function PublicReservationForm({
     setIsSubmitting(true);
     setError(null);
     try {
-      const guestResponse = await fetch(`${API}/guests`, {
+      const guestResponse = await apiFetch('/guests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -463,7 +461,7 @@ function PublicReservationForm({
         `Adults: ${formData.adults}, Children: ${formData.children}` +
         (formData.notes ? `\n${formData.notes}` : '');
 
-      const bookingResponse = await fetch(`${API}/bookings`, {
+      const bookingResponse = await apiFetch('/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
