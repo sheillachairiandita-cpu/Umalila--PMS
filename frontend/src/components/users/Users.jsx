@@ -5,8 +5,7 @@ import TableActionButton from '../TableActionButton';
 import TablePagination from '../ui/TablePagination';
 import { Button, Modal, Alert, Input, Select, PasswordInput, SectionHeaderRow } from '../ui';
 import { useMutation } from '../../context/MutationProvider';
-
-
+import { apiFetch } from '../../api/client';
 const ROLE_OPTIONS = [
   { value: 'staff', label: 'Staff' },
   { value: 'owner', label: 'Owner' },
@@ -92,7 +91,7 @@ function UserModal({ isOpen, onClose, onSaved, initialData }) {
       mutation: async () => {
         const url = isEdit ? `/api/users/${initialData.id}` : '/api/users';
         const method = isEdit ? 'PATCH' : 'POST';
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -331,7 +330,7 @@ function Users() {
   const fetchUsers = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const res = await fetch('/api/users');
+      const res = await apiFetch('/api/users');
       if (!res.ok) throw new Error('Failed to load users');
       setUsers(await res.json());
       setError(null);
@@ -352,7 +351,7 @@ function Users() {
 
     await runMutation({
       mutation: async () => {
-        const res = await fetch(`/api/users/${user.id}/status`, {
+        const res = await apiFetch(`/api/users/${user.id}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: nextStatus }),

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, ShoppingCart, Plus, Minus, ChefHat, Coffee, UtensilsCrossed, CheckCircle, ClipboardList } from 'lucide-react';
 import { Modal } from '../ui';
 import { useMutation } from '../../context/MutationProvider';
+import { apiFetch } from '../../api/client';
 
 const CATEGORY_META = {
   food:     { label: 'Food',     icon: UtensilsCrossed, color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
@@ -51,7 +52,7 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
   const fetchMenu = async () => {
     setLoadingMenu(true);
     try {
-      const response = await fetch('/api/menu-items');
+      const response = await apiFetch('/api/menu-items');
       if (!response.ok) throw new Error('Failed to fetch menu items');
       const data = await response.json();
       setMenuItems(data || []);
@@ -65,7 +66,7 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
   const fetchOrderHistory = async () => {
     if (!booking?.id) return;
     try {
-      const response = await fetch(`/api/bookings/${booking.id}/food-orders`);
+      const response = await apiFetch(`/api/bookings/${booking.id}/food-orders`);
       if (!response.ok) throw new Error('Failed to fetch order history');
       const data = await response.json();
       setOrdersHistory(data);
@@ -120,7 +121,7 @@ function OrderModal({ isOpen, booking, onClose, onOrderSaved }) {
           notes: c.notes || '',
         }));
 
-        const response = await fetch(`/api/bookings/${booking.id}/food-orders`, {
+        const response = await apiFetch(`/api/bookings/${booking.id}/food-orders`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ items: itemsPayload }),

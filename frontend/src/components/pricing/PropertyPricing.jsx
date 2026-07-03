@@ -302,7 +302,7 @@ function HolidayModal({ isOpen, onClose, onSaved }) {
       overlayMessage: 'Adding holiday period…',
       successMessage: 'Holiday period added successfully.',
       execute: async () => {
-        const res = await fetch('/api/pricing/holidays', {
+        const res = await apiFetch('/api/pricing/holidays', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(form),
@@ -419,7 +419,7 @@ function PropertyPricing() {
       refresh: fetchData,
       onDone: () => setDeleteTarget(null),
       execute: async () => {
-        const res = await fetch(`/api/properties/${deleteTarget.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`/api/properties/${deleteTarget.id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to delete');
       },
     });
@@ -434,7 +434,7 @@ function PropertyPricing() {
       refresh: fetchData,
       onDone: () => setDeleteHolidayTarget(null),
       execute: async () => {
-        const res = await fetch(`/api/pricing/holidays/${deleteHolidayTarget.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`/api/pricing/holidays/${deleteHolidayTarget.id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to delete holiday period');
       },
     });

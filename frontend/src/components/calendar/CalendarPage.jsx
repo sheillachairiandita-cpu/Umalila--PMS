@@ -14,6 +14,7 @@ import {
   formatCreatedAt,
   isBlockingBookingStatus,
 } from '../../utils/blockUtils';
+import { apiFetch } from '../../api/client';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -25,8 +26,6 @@ const BLOCK_REASONS = [
   'Owner Stay',
   'Deep Cleaning',
 ];
-
-const API = '/api';
 
 /** Parse YYYY-MM-DD as local calendar date (avoids UTC timezone drift). */
 function parseLocalDate(dateStr) {
@@ -316,7 +315,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
   const fetchGanttData = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
-      const response = await fetch(`${API}/properties/gantt`);
+      const response = await apiFetch('/api/properties/gantt');
       if (!response.ok) throw new Error('Failed to fetch timeline data.');
       const data = await response.json();
       setPropertiesData(data);
@@ -484,7 +483,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
 
     const result = await runMutation({
       mutation: async () => {
-        const response = await fetch(`${API}/properties/blocks`, {
+        const response = await apiFetch('/api/properties/blocks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -538,7 +537,7 @@ const CalendarPage = ({ onOpenBookingModal }) => {
     const blockId = selectedBlock.id;
     const result = await runMutation({
       mutation: async () => {
-        const response = await fetch(`${API}/properties/blocks/${blockId}`, {
+        const response = await apiFetch(`/api/properties/blocks/${blockId}`, {
           method: 'DELETE',
         });
         if (!response.ok) {

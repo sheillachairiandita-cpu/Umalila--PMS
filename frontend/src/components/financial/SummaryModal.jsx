@@ -5,6 +5,7 @@ import Badge from '../ui/Badge';
 
 import { formatRp } from '../../utils/formatCurrency';
 import { computeIncomeTotals, pickIncomeAmounts } from '../../utils/financialUtils';
+import { apiFetch } from '../../api/client';
 
 function formatMetaValue(value) {
   if (value === null || value === undefined || value === '') return '—';
@@ -211,7 +212,7 @@ function SummaryModal({
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/bookings/${bookingId}/invoice`);
+        const res = await apiFetch(`/api/bookings/${bookingId}/invoice`);
         if (!res.ok) throw new Error('Failed to load financial details');
         const summaryData = await res.json();
         if (cancelled) return;

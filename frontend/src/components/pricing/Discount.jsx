@@ -211,7 +211,7 @@ function DiscountModal({ isOpen, onClose, onSaved, initialData, properties }) {
         const payload = buildPayload(form);
         const url = isEdit ? `/api/discounts/${initialData.id}` : '/api/discounts';
         const method = isEdit ? 'PATCH' : 'POST';
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -578,7 +578,7 @@ function Discount() {
       refresh: fetchDiscounts,
       onDone: () => setArchiveTarget(null),
       execute: async () => {
-        const res = await fetch(`/api/discounts/${archiveTarget.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`/api/discounts/${archiveTarget.id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to archive discount');
       },
     });

@@ -14,6 +14,7 @@ import OrderModal from './OrderModal';
 import SummaryModal from '../financial/SummaryModal';
 import { isInHouseToday } from '../../utils/bookingUtils';
 import { useMutation } from '../../context/MutationProvider';
+import { apiFetch } from '../../api/client';
 
 const FILTER_OPTIONS = [
   { key: 'today',      label: 'Today'       },
@@ -22,8 +23,6 @@ const FILTER_OPTIONS = [
 ];
 
 const ALL_FILTER_PAGE_SIZE = 10;
-
-const BASE_URL = '/api';
 
 const PHASE_CARD_CONFIG = [
   { key: 'arrival',   label: PHASE_CONFIG.arrival.label,   icon: LogIn },
@@ -259,7 +258,7 @@ function useBookingActions(onRefresh) {
     setCheckingInId(bookingId);
     await runMutation({
       mutation: async () => {
-        const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-in`, {
+        const res = await apiFetch(`/api/bookings/${bookingId}/check-in`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -280,7 +279,7 @@ function useBookingActions(onRefresh) {
     setCheckingOutId(bookingId);
     await runMutation({
       mutation: async () => {
-        const res = await fetch(`${BASE_URL}/bookings/${bookingId}/check-out`, {
+        const res = await apiFetch(`/api/bookings/${bookingId}/check-out`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
         });

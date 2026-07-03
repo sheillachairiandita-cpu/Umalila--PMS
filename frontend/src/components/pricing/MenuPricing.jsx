@@ -74,7 +74,7 @@ function MenuModal({ isOpen, onClose, onSaved, initialData }) {
         };
         const url = isEdit ? `/api/menu-items/${initialData.id}` : '/api/menu-items';
         const method = isEdit ? 'PATCH' : 'POST';
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -203,7 +203,7 @@ function MenuPricing() {
       refresh: fetchItems,
       onDone: () => setDeleteTarget(null),
       execute: async () => {
-        const res = await fetch(`/api/menu-items/${deleteTarget.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`/api/menu-items/${deleteTarget.id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to delete');
       },
     });

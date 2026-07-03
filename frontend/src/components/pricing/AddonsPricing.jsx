@@ -68,7 +68,7 @@ function AddonModal({ isOpen, onClose, onSaved, initialData }) {
         };
         const url = isEdit ? `/api/addons/${initialData.id}` : '/api/addons';
         const method = isEdit ? 'PATCH' : 'POST';
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -209,7 +209,7 @@ function AddonsPricing() {
       refresh: fetchAddons,
       onDone: () => setDeleteTarget(null),
       execute: async () => {
-        const res = await fetch(`/api/addons/${deleteTarget.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`/api/addons/${deleteTarget.id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Failed to delete');
       },
     });

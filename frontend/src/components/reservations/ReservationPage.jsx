@@ -29,6 +29,7 @@ import SummaryModal from '../financial/SummaryModal';
 import { useMutation } from '../../context/MutationProvider';
 import { sortReservationsByRecency } from '../../utils/bookingUtils';
 import { useReservationsData } from '../../hooks/api/useBookings';
+import { apiFetch } from '../../api/client';
 
 // =====================================================
 // 📊 SECTION 1: DASHBOARD STATS CARDS
@@ -519,7 +520,7 @@ function ReservationPage() {
 
     const result = await runMutation({
       mutation: async () => {
-        const response = await fetch(`/api/bookings/${declineTarget.id}/cancel`, {
+        const response = await apiFetch(`/api/bookings/${declineTarget.id}/cancel`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ cancellation_reason: reason }),
@@ -552,7 +553,7 @@ function ReservationPage() {
   const handleApproveRequest = async (requestId) => {
     await runMutation({
       mutation: async () => {
-        const response = await fetch(`/api/bookings/${requestId}/status`, {
+        const response = await apiFetch(`/api/bookings/${requestId}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'confirmed' }),

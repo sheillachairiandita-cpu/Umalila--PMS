@@ -4,10 +4,12 @@ import { Modal, Button, Input, Alert, FileUpload } from '../ui';
 import SummaryModal from '../financial/SummaryModal';
 import { useMutation } from '../../context/MutationProvider';
 
+import { apiFetch } from '../../api/client';
+
 async function uploadReceipt(bookingId, proof, paymentType) {
   if (!proof?.dataUrl) return null;
 
-  const response = await fetch(`/api/bookings/${bookingId}/upload-receipt`, {
+  const response = await apiFetch(`/api/bookings/${bookingId}/upload-receipt`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -100,7 +102,7 @@ function ReservationPaymentModal({
       mutation: async () => {
         const publicReceiptUrl = await uploadReceipt(bookingId, proof, type);
 
-        const res = await fetch(`/api/bookings/${bookingId}/payments`, {
+        const res = await apiFetch(`/api/bookings/${bookingId}/payments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

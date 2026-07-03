@@ -3,6 +3,8 @@
  * Compute → stream → forget: no client-side HTML assembly, no Supabase Storage writes.
  */
 
+import { apiFetch } from '../api/client.js';
+
 function parseFilenameFromDisposition(header, fallback) {
   if (!header) return fallback;
   const match = header.match(/filename="([^"]+)"/i) || header.match(/filename=([^;]+)/i);
@@ -10,7 +12,7 @@ function parseFilenameFromDisposition(header, fallback) {
 }
 
 export async function downloadReservationInvoice(bookingId, displayId) {
-  const response = await fetch(`/api/bookings/${bookingId}/invoice/pdf`);
+  const response = await apiFetch(`/api/bookings/${bookingId}/invoice/pdf`);
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || 'Failed to download booking confirmation PDF');
