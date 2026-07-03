@@ -59,6 +59,19 @@ function resolveTenantSlug() {
     || 'umalila';
 }
 
+/** Comma-separated list in CORS_ORIGIN, e.g. https://pms.example.com,https://booking.example.com */
+function resolveCorsOrigin() {
+  if (!isProduction) return true;
+
+  const raw = trim(process.env.CORS_ORIGIN);
+  if (!raw) return false;
+
+  const origins = raw.split(',').map((o) => o.trim()).filter(Boolean);
+  if (origins.length === 0) return false;
+  if (origins.length === 1) return origins[0];
+  return origins;
+}
+
 const sessionSecret = resolveSessionSecret();
 const bookingTokenSecret = resolveBookingTokenSecret(sessionSecret);
 
@@ -101,9 +114,7 @@ export const config = Object.freeze({
   },
 
   cors: {
-    origin: isProduction
-      ? (trim(process.env.CORS_ORIGIN) || false)
-      : true,
+    origin: resolveCorsOrigin(),
   },
 });
 

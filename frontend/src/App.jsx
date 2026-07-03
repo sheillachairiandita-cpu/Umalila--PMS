@@ -13,6 +13,7 @@ import { AuthProvider, RequireAuth, DefaultAdminRedirect, useAuth } from './cont
 import RequirePermission from './components/auth/RequirePermission';
 import { PERMISSIONS } from './auth/permissions';
 import { useBookings } from './hooks/api/useBookings';
+import { config, HOST_MODES } from './config/index.js';
 import './App.css';
 
 const Overview = lazy(() => import('./components/overview/Overview'));
@@ -223,17 +224,39 @@ function AdminApp() {
   );
 }
 
+function PublicApp() {
+  return (
+    <Routes>
+      <Route path="/" element={<PublicReservationForm />} />
+      <Route path="/book" element={<Navigate to="/" replace />} />
+      <Route path="/success" element={<PublicSuccessMessage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
 function App() {
+  const hostMode = config.app.hostMode;
+
   return (
     <NotificationProvider>
       <Router>
-        <Routes>
-          <Route path="/" element={<PublicReservationForm />} />
-          <Route path="/book" element={<Navigate to="/" replace />} />
-          <Route path="/success" element={<PublicSuccessMessage />} />
-          <Route path="/admin/*" element={<AdminApp />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        {hostMode === HOST_MODES.ADMIN && (
+          <Routes>
+            <Route path="/admin/*" element={<AdminApp />} />
+            <Route path="*" element={<Navigate to="/admin/login" replace />} />
+          </Routes>
+        )}
+        {hostMode === HOST_MODES.BOOKING && <PublicApp />}
+        {hostMode === HOST_MODES.ALL && (
+          <Routes>
+            <Route path="/" element={<PublicReservationForm />} />
+            <Route path="/book" element={<Navigate to="/" replace />} />
+            <Route path="/success" element={<PublicSuccessMessage />} />
+            <Route path="/admin/*" element={<AdminApp />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        )}
       </Router>
     </NotificationProvider>
   );

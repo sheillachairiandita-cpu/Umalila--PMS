@@ -4,6 +4,8 @@
  * Never put Supabase service-role keys here.
  */
 
+import { HOST_MODES, resolveHostMode } from './hostMode.js';
+
 function trim(value) {
   return typeof value === 'string' ? value.trim() : value;
 }
@@ -31,6 +33,7 @@ function resolveApiBaseUrl() {
  *   isDevelopment: boolean;
  *   api: { baseUrl: string };
  *   tenant: { slug: string; slugHeader: string };
+ *   app: { hostMode: string };
  * }>} */
 export const config = Object.freeze({
   env: mode,
@@ -46,6 +49,12 @@ export const config = Object.freeze({
     slugHeader: 'X-Tenant-Slug',
     legacySlugHeader: 'X-Property-Slug',
   },
+
+  app: {
+    hostMode: resolveHostMode(),
+  },
 });
+
+export { HOST_MODES };
 
 export default config;
