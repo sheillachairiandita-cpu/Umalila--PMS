@@ -65,7 +65,7 @@ app.get('/api/bookings', async (req, res) => {
 
     const { data: orderTotals, error: orderErr } = await S(req, 'orders')
       .select('booking_id, total_amount')
-      .not('status', 'eq', 'billed');
+      .in('status', ORDER_STATUSES);
 
     if (orderErr) throw orderErr;
 
@@ -824,6 +824,11 @@ app.patch('/api/orders/:orderId/status', async (req, res) => {
 
     if (data?.booking_id) {
       invalidateSummary(data.booking_id, req.tenantId);
+      try {
+        await upsertReservationProfitability(data.booking_id, req.tenantId);
+      } catch (profitErr) {
+        console.error('Profitability snapshot failed:', profitErr.message);
+      }
     }
 
     res.json(data);

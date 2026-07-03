@@ -340,6 +340,57 @@ function prorateTieredAccommodation(booking, rangeStart, rangeEnd, holidays = []
   return prorateAmount(fullTotal, booking.check_in_date, booking.check_out_date, rangeStart, rangeEnd);
 }
 
+/** F&B total for a booking from live income summary or order rollup (not profitability snapshots). */
+function bookingOrderTotal(booking, incomeMap) {
+  const summary = incomeMap[booking.id];
+  if (summary) return Number(summary.totalMenuItems) || 0;
+  return Number(booking.order_total) || 0;
+}
+
+function addLiveOrderRevenueToTrendBuckets({
+  bookings,
+  incomeMap,
+  rangeStart,
+  rangeEnd,
+  propertyFilter,
+  trendBuckets,
+}) {
+  (bookings || []).forEach((b) => {
+    if (b.status === 'cancelled') return;
+    if (!matchesProperty(b.property_names, propertyFilter)) return;
+    if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
+
+    const orderTotal = bookingOrderTotal(b, incomeMap);
+    if (orderTotal <= 0) return;
+
+    const stayN = Math.max(stayNights(b.check_in_date, b.check_out_date), 1);
+    const nightlyOrder = orderTotal / stayN;
+    let cur = dateOnly(b.check_in_date);
+    const stayEnd = dateOnly(b.check_out_date);
+
+    while (cur < stayEnd) {
+      if (cur >= dateOnly(rangeStart) && cur <= dateOnly(rangeEnd)) {
+        const bucket = findTimeBucket(trendBuckets, cur);
+        if (bucket) bucket.revenue += nightlyOrder;
+      }
+      cur = addDays(cur, 1);
+    }
+  });
+}
+
+function distributeRevenueByShare(amount, entries, shareKey = 'revenue') {
+  if (!amount || !entries.length) return;
+  const base = entries.reduce((sum, entry) => sum + (Number(entry[shareKey]) || 0), 0);
+  if (base <= 0) return;
+
+  entries.forEach((entry) => {
+    const share = (Number(entry[shareKey]) || 0) / base;
+    const allocated = amount * share;
+    entry.revenue += allocated;
+    entry.grossProfit += allocated;
+  });
+}
+
 export function processFinancialData({
   bookings,
   incomeRows,
@@ -428,10 +479,11 @@ export function processFinancialData({
       return s + amt;
     }, 0);
 
+  const liveOrderRevenue = orderRevenue;
+
   let totalCogs = 0;
   let proratedRoomFromProfit = 0;
   let proratedAddonFromProfit = 0;
-  let proratedFbFromProfit = 0;
 
   const propertyAgg = {};
 
@@ -446,14 +498,14 @@ export function processFinancialData({
     if (!inRange || !totalNights) return;
 
     const factor = inRange / totalNights;
-    const rev = (Number(row.revenue) || 0) * factor;
+    const roomPart = (Number(row.roomRevenue) || 0) * factor;
+    const addonPart = (Number(row.addonRevenue) || 0) * factor;
     const cogs = (Number(row.cogs) || 0) * factor;
-    const gp = rev - cogs;
+    const gp = roomPart + addonPart - cogs;
 
     totalCogs += cogs;
-    proratedRoomFromProfit += (Number(row.roomRevenue) || 0) * factor;
-    proratedAddonFromProfit += (Number(row.addonRevenue) || 0) * factor;
-    proratedFbFromProfit += (Number(row.fbRevenue) || 0) * factor;
+    proratedRoomFromProfit += roomPart;
+    proratedAddonFromProfit += addonPart;
 
     if (!propertyAgg[row.propertyId]) {
       propertyAgg[row.propertyId] = {
@@ -464,17 +516,18 @@ export function processFinancialData({
         grossProfit: 0,
       };
     }
-    propertyAgg[row.propertyId].revenue += rev;
+    propertyAgg[row.propertyId].revenue += roomPart + addonPart;
     propertyAgg[row.propertyId].cogs += cogs;
     propertyAgg[row.propertyId].grossProfit += gp;
   });
 
   const useProfitability = (profitability || []).length > 0;
   if (useProfitability) {
-    grossRevenue = proratedRoomFromProfit + proratedAddonFromProfit + proratedFbFromProfit;
     roomRevenue = proratedRoomFromProfit;
     addonRevenue = proratedAddonFromProfit;
-    orderRevenue = proratedFbFromProfit;
+    orderRevenue = liveOrderRevenue;
+    grossRevenue = roomRevenue + addonRevenue + orderRevenue;
+    distributeRevenueByShare(liveOrderRevenue, Object.values(propertyAgg));
   }
 
   const grossProfit = grossRevenue - totalCogs;
@@ -510,7 +563,7 @@ export function processFinancialData({
 
       const totalNights = stayNights(row.checkIn, row.checkOut);
       if (!totalNights) return;
-      const nightlyRev = (Number(row.revenue) || 0) / totalNights;
+      const nightlyRev = ((Number(row.roomRevenue) || 0) + (Number(row.addonRevenue) || 0)) / totalNights;
       const nightlyCogs = (Number(row.cogs) || 0) / totalNights;
 
       let cur = dateOnly(row.checkIn);
@@ -525,6 +578,15 @@ export function processFinancialData({
         }
         cur = addDays(cur, 1);
       }
+    });
+
+    addLiveOrderRevenueToTrendBuckets({
+      bookings,
+      incomeMap,
+      rangeStart,
+      rangeEnd,
+      propertyFilter,
+      trendBuckets,
     });
   } else {
     (bookings || []).forEach((b) => {
