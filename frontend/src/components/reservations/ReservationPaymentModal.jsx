@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { DollarSign } from 'lucide-react';
 import { Modal, Button, Input, Alert, FileUpload } from '../ui';
 import SummaryModal from '../financial/SummaryModal';
@@ -52,6 +52,13 @@ function ReservationPaymentModal({
   const [finalAmount, setFinalAmount] = useState('');
   const [finalProof, setFinalProof] = useState(null);
   const [finalSubmitting, setFinalSubmitting] = useState(false);
+  const defaultsAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      defaultsAppliedRef.current = false;
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -65,14 +72,14 @@ function ReservationPaymentModal({
   }, [isOpen]);
 
   useEffect(() => {
-    if (summary) {
-      if (summary.paymentStatus === 'pending') {
-        setPartialAmount(String(summary.total * 0.5));
-        setFinalAmount('');
-      } else {
-        setPartialAmount('');
-        setFinalAmount(String(summary.balanceDue));
-      }
+    if (!summary || defaultsAppliedRef.current) return;
+    defaultsAppliedRef.current = true;
+    if (summary.paymentStatus === 'pending') {
+      setPartialAmount(String(Math.round(summary.total * 0.5)));
+      setFinalAmount('');
+    } else {
+      setPartialAmount('');
+      setFinalAmount(String(summary.balanceDue ?? ''));
     }
   }, [summary]);
 
@@ -184,7 +191,9 @@ function ReservationPaymentModal({
                   type="number"
                   label="Amount to Record"
                   value={partialAmount}
-                  onChange={setPartialAmount}
+                  onChange={(e) => setPartialAmount(e.target.value)}
+                  min="0"
+                  step="1"
                   disabled={!isPending || partialSubmitting}
                 />
                 <FileUpload
@@ -210,7 +219,9 @@ function ReservationPaymentModal({
                   type="number"
                   label="Settlement Amount"
                   value={finalAmount}
-                  onChange={setFinalAmount}
+                  onChange={(e) => setFinalAmount(e.target.value)}
+                  min="0"
+                  step="1"
                   disabled={isComplete || isPending || finalSubmitting}
                 />
                 <FileUpload
