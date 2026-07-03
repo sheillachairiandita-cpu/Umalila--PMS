@@ -9,14 +9,17 @@ function PublicSuccessMessage() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: '100dvh',
       backgroundColor: '#f8fafc',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       padding: '24px',
+      paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
       fontFamily: 'sans-serif',
       position: 'relative',
+      boxSizing: 'border-box',
+      overflowY: 'auto',
     }}>
       <PublicLanguageSwitcher style={{ position: 'fixed' }} />
       <div style={{

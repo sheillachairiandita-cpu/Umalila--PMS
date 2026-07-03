@@ -186,7 +186,7 @@ export const getModalStyles = () => {
       padding: SPACING.xxl,
       maxWidth: 500,
       width: '90%',
-      maxHeight: '90vh',
+      maxHeight: '90dvh',
       overflowY: 'auto',
     },
   };

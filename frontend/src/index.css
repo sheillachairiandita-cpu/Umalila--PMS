@@ -73,7 +73,7 @@ body {
   margin: 0 auto;
   text-align: left;
   border: none;
-  min-height: 100svh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;

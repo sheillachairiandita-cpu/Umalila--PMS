@@ -247,7 +247,7 @@ export const MODAL_BASE = {
     boxShadow: SHADOWS.modal,
     maxWidth: 500,
     width: '90%',
-    maxHeight: '90vh',
+    maxHeight: '90dvh',
     overflowY: 'auto',
     padding: SPACING.xxl,
   },

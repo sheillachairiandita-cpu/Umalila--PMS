@@ -35,7 +35,7 @@ html, body {
   height: 100%;
   text-align: left;
   border: none;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 p   { margin: 0; }
@@ -129,6 +129,10 @@ h4  { margin: 0; }
   /* — Transitions — */
   --ease: 0.2s ease;
   --ease-fast: 0.15s ease;
+
+  /* — Safe areas (gesture nav, notches) — */
+  --safe-area-top:    env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body {
@@ -142,7 +146,7 @@ body {
    -------------------------------------------------------------------------- */
 .app-layout {
   display: flex;
-  height: 100vh;
+  height: 100dvh;
   width: 100%;
   background-color: var(--bg);
   overflow: hidden;
@@ -151,10 +155,12 @@ body {
 .main-content {
   flex: 1 1 0%;
   min-width: 0;
-  height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   background-color: var(--bg);
+  padding-bottom: var(--safe-area-bottom);
 }
 
 /* --------------------------------------------------------------------------
@@ -167,7 +173,7 @@ body {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  height: 100vh;
+  height: 100dvh;
   transition: width var(--ease);
   overflow: hidden;
 }
@@ -244,12 +250,14 @@ body {
 
 .sidebar-nav {
   padding: 0.55rem 0.4rem;
+  padding-bottom: calc(0.55rem + var(--safe-area-bottom));
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
   overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .nav-group-title {
@@ -464,7 +472,7 @@ body {
 
 .reservation-page {
   background: var(--bg);
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .calendar-page {
@@ -490,12 +498,16 @@ body {
 
 /* — Auth: login & access denied — */
 .login-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  padding-bottom: calc(24px + var(--safe-area-bottom));
   background: var(--bg);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
 .login-card {
@@ -1570,9 +1582,10 @@ body {
 
 .modal-content {
   width: 100%;
-  max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--safe-area-bottom);
 }
 
 .modal-card {
@@ -1584,7 +1597,7 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
+  max-height: 90dvh;
 }
 
 .modal-header {
@@ -1631,10 +1644,12 @@ body {
 
 .modal-form {
   padding: 32px;
+  padding-bottom: calc(32px + var(--safe-area-bottom));
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 28px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .form-section { display: flex; flex-direction: column; gap: 16px; }
@@ -2126,7 +2141,7 @@ body {
    -------------------------------------------------------------------------- */
 .public-reservation-page {
   display: flex;
-  min-height: 100svh;
+  min-height: 100dvh;
   width: 100%;
   overflow: hidden;
 }
@@ -2167,7 +2182,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 100svh;
+  min-height: 100dvh;
   padding: 48px 36px;
 }
 
@@ -2197,11 +2212,13 @@ body {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background-color: var(--bg);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 40px 32px;
+  padding-bottom: calc(40px + var(--safe-area-bottom));
 }
 
 .public-form-card { width: 100%; max-width: 600px; }
@@ -2282,7 +2299,10 @@ body {
   .public-feature-list  { display: none; }
   .public-welcome-meta  { margin-top: 20px; }
 
-  .public-form-panel { padding: 24px 16px; }
+  .public-form-panel {
+    padding: 24px 16px;
+    padding-bottom: calc(24px + var(--safe-area-bottom));
+  }
 
   .dashboard-container,
   .calendar-page { padding: 16px; }
@@ -2871,7 +2891,7 @@ body {
   position: fixed;
   top: 0;
   right: 0;
-  height: 100%;
+  height: 100dvh;
   width: min(420px, 100vw);
   background: var(--bg-white);
   box-shadow: var(--shadow-xl);
@@ -2913,9 +2933,11 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: 22px;
+  padding-bottom: calc(22px + var(--safe-area-bottom));
   display: flex;
   flex-direction: column;
   gap: 16px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .slide-over-panel__footer {
@@ -3434,8 +3456,10 @@ body {
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
   width: 100%;
   max-width: 560px;
-  max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: var(--safe-area-bottom);
   display: flex;
   flex-direction: column;
 }
@@ -3787,7 +3811,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
 }
 
@@ -4974,7 +4998,6 @@ html, body, #root {
     left: 0;
     z-index: 999;
     width: var(--sidebar-drawer-w);
-    height: 100vh;
     height: 100dvh;
     transform: translateX(-100%);
     transition: transform 0.25s ease;
@@ -4986,7 +5009,6 @@ html, body, #root {
   }
 
   .app-layout--mobile .main-content {
-    height: calc(100vh - var(--mobile-header-h));
     height: calc(100dvh - var(--mobile-header-h));
     flex: 1;
     min-height: 0;
@@ -5012,8 +5034,9 @@ html, body, #root {
   .modal-content {
     width: 95% !important;
     max-width: 95% !important;
-    max-height: 90vh;
+    max-height: 90dvh;
     padding: 16px !important;
+    padding-bottom: calc(16px + var(--safe-area-bottom)) !important;
   }
 
   .modal-header {
@@ -5101,7 +5124,7 @@ html, body, #root {
   .pricing-modal--wide {
     width: 95%;
     max-width: 95%;
-    max-height: 90vh;
+    max-height: 90dvh;
   }
 }
 
@@ -5292,10 +5315,11 @@ html, body, #root {
 /* — Order modal — */
 .order-modal-overlay .modal-content {
   padding: 0 !important;
+  padding-bottom: var(--safe-area-bottom) !important;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  max-height: min(85vh, 900px);
+  max-height: min(85dvh, 900px);
 }
 
 .order-modal {
@@ -5303,7 +5327,7 @@ html, body, #root {
   flex-direction: column;
   min-height: 0;
   flex: 1;
-  max-height: min(85vh, 900px);
+  max-height: min(85dvh, 900px);
   background: var(--bg-white);
 }
 
@@ -5733,7 +5757,7 @@ html, body, #root {
 @media (max-width: 767px) {
   .order-modal-overlay .modal-content,
   .order-modal {
-    max-height: 92vh;
+    max-height: 92dvh;
   }
 
   .order-modal__filters {
