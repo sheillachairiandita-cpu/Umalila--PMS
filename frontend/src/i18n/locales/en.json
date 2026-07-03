@@ -1,11 +1,10 @@
 {
   "publicReservation": {
-    "bookYourHighlandStay": "Book Your Highland Stay",
-    "welcomeDesc": "Perched at 1,400 m in the Minangkabau highlands, Umalila offers private villas with panoramic lake views, farm-to-table dining, and unhurried highland living.",
-    "featureMountainVillas": "Mountain-view private villas",
-    "featureEnglishGarden": "English garden",
-    "featureBreakfast": "Daily breakfast included",
-    "welcomeMeta": "1°30′S · 100°28′E · 1,400 m elevation",
+    "brandLocation": "ALAHAN PANJANG",
+    "bookYourHighlandStay": "RESERVE YOUR ESCAPE",
+    "welcomeDesc": "Private villas in the highlands of Solok Regency, featuring English-style architecture, panoramic views of Gunung Talang, and a blooming hydrangea garden.",
+    "features": ["Breakfast", "Amenities", "Water Heater"],
+    "welcomeMeta": "1°30′S · 100°28′E · 1,450 m elevation",
     "editReservation": "Edit Reservation",
     "bookNewReservation": "Book New Reservation",
     "newReservation": "New Reservation",

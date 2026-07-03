@@ -13,6 +13,7 @@ import {
   computeStayRateBreakdown,
   formatPropertyRateForDates,
 } from '../../utils/propertyRateUtils';
+import umalilaLogo from '../../assets/Umalila-w.svg';
 import '../../App.css';
 
 import { formatRp } from '../../utils/formatCurrency';
@@ -29,7 +30,7 @@ const EMPTY_FORM = {
   phoneNumber: '',
   checkInDate: '',
   checkOutDate: '',
-  adults: '0',
+  adults: '2',
   children: '0',
   totalGuests: '2',
   totalPrice: 0,
@@ -514,6 +515,9 @@ function PublicReservationForm({
       ? t('publicReservation.confirmSaveReservation')
       : t('publicReservation.submitReservationRequest');
 
+  const welcomeFeatures = t('publicReservation.features', { returnObjects: true });
+  const showWelcomeFeatures = Array.isArray(welcomeFeatures) && welcomeFeatures.length > 0;
+
   const formBody = (
     <form onSubmit={handleSubmit} className="modal-form">
       {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
@@ -644,7 +648,7 @@ function PublicReservationForm({
             {!isEditMode ? (
               <div className="form-row">
                 <div className="form-group">
-                  <label>{t('publicReservation.numberOfAdults')}</label>
+                  <RequiredLabel>{t('publicReservation.numberOfAdults')}</RequiredLabel>
                   <select
                     value={formData.adults}
                     onChange={(e) => setFormData({ ...formData, adults: e.target.value })}
@@ -658,7 +662,7 @@ function PublicReservationForm({
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>{t('publicReservation.numberOfChildren')}</label>
+                  <RequiredLabel>{t('publicReservation.numberOfChildren')}</RequiredLabel>
                   <select
                     value={formData.children}
                     onChange={(e) => setFormData({ ...formData, children: e.target.value })}
@@ -1000,8 +1004,7 @@ function PublicReservationForm({
       <aside className="public-welcome-panel">
         <div className="public-welcome-inner">
           <div className="public-brand">
-            <span className="public-brand-name">Umalila</span>
-            <span className="public-brand-sub">Alahan Panjang</span>
+            <img src={umalilaLogo} alt="Umalila" className="public-brand-logo" />
           </div>
           <div className="public-welcome-copy">
             <h1 className="public-welcome-title">{t('publicReservation.bookYourHighlandStay')}</h1>
@@ -1009,18 +1012,16 @@ function PublicReservationForm({
               {t('publicReservation.welcomeDesc')}
             </p>
           </div>
-          <ul className="public-feature-list">
-            {[
-              t('publicReservation.featureMountainVillas'),
-              t('publicReservation.featureEnglishGarden'),
-              t('publicReservation.featureBreakfast'),
-            ].map((f) => (
-              <li key={f} className="public-feature-item">
-                <span className="public-feature-dot" />
-                {f}
-              </li>
-            ))}
-          </ul>
+          {showWelcomeFeatures && (
+            <ul className="public-feature-list">
+              {welcomeFeatures.map((feature) => (
+                <li key={feature} className="public-feature-item">
+                  <span className="public-feature-dot" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="public-welcome-meta">{t('publicReservation.welcomeMeta')}</div>
         </div>
       </aside>

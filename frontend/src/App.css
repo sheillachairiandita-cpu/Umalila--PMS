@@ -2151,7 +2151,10 @@ body {
   width: 380px;
   min-width: 300px;
   flex-shrink: 0;
-  background-color: var(--navy);
+  height: 100dvh;
+  max-height: 100dvh;
+  background-color: #312f86;
+  font-family: 'Poppins', var(--font-sans);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -2182,30 +2185,65 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 100dvh;
-  padding: 48px 36px;
+  min-height: 0;
+  padding: 32px 28px 28px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-.public-brand        { display: flex; flex-direction: column; margin-bottom: 48px; }
-.public-brand-name   { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; color: #fff; }
-.public-brand-sub    { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,.45); margin-top: 3px; }
+.public-brand {
+  display: block;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
 
-.public-welcome-copy  { flex: 1; }
+.public-brand-logo {
+  display: block;
+  width: 130px;
+  height: auto;
+}
+
+.public-welcome-copy  { flex-shrink: 0; }
 .public-welcome-title {
-  font-size: clamp(1.6rem, 2.8vw, 2.2rem);
-  font-weight: 500;
+  font-size: 18px;
+  font-weight: 600;
   color: #fff;
-  margin: 0 0 16px;
-  letter-spacing: -0.025em;
-  line-height: 1.18;
+  margin: 0 0 12px;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-transform: uppercase;
 }
-.public-welcome-desc  { font-size: 0.875rem; line-height: 1.65; color: rgba(255,255,255,.55); margin: 0 0 36px; }
+.public-welcome-desc  {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+  margin: 0 0 16px;
+  font-weight: 400;
+}
 
-.public-feature-list  { list-style: none; padding: 0; margin: 0 0 auto; display: flex; flex-direction: column; gap: 11px; }
-.public-feature-item  { display: flex; align-items: center; gap: 12px; font-size: 0.82rem; color: rgba(255,255,255,.6); }
-.public-feature-dot   { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.4); flex-shrink: 0; }
+.public-feature-list  {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.public-feature-item  { display: flex; align-items: center; gap: 10px; font-size: 12px; color: rgba(255,255,255,.78); font-weight: 400; }
+.public-feature-dot   { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.5); flex-shrink: 0; }
 
-.public-welcome-meta  { margin-top: 48px; font-size: 0.68rem; color: rgba(255,255,255,.25); letter-spacing: 0.06em; font-family: monospace; }
+.public-welcome-meta  {
+  margin-top: auto;
+  padding-top: 16px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.03em;
+  font-family: 'Poppins', var(--font-sans);
+  font-weight: 400;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
 
 /* Right form panel */
 .public-form-panel {
@@ -2284,20 +2322,23 @@ body {
 
   .public-welcome-panel {
     width: 100%;
-    min-height: auto;
+    height: auto;
+    max-height: none;
   }
 
   .public-welcome-inner {
-    padding: 32px 24px;
+    padding: 28px 24px 24px;
     min-height: auto;
+    height: auto;
+    overflow: visible;
   }
 
-  .public-brand      { margin-bottom: 20px; }
-  .public-welcome-copy { flex: none; }
-  .public-welcome-title { font-size: 1.5rem; }
-  .public-welcome-desc  { margin-bottom: 16px; }
-  .public-feature-list  { display: none; }
-  .public-welcome-meta  { margin-top: 20px; }
+  .public-brand      { margin-bottom: 16px; }
+  .public-brand-logo { width: 110px; }
+  .public-welcome-title { font-size: 16px; }
+  .public-welcome-desc  { margin-bottom: 12px; font-size: 12px; }
+  .public-feature-item  { font-size: 11.5px; }
+  .public-welcome-meta  { margin-top: 20px; padding-top: 0; font-size: 10.5px; }
 
   .public-form-panel {
     padding: 24px 16px;
@@ -5777,9 +5818,8 @@ html, body, #root {
 
 /* — Content images: never overflow — */
 .expense-proof-viewer__image,
-.public-brand img {
+.public-brand-logo {
   max-width: 100%;
-  height: auto;
 }
 
 /* — Prevent horizontal page overflow — */
