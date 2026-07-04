@@ -515,9 +515,6 @@ function PublicReservationForm({
       ? t('publicReservation.confirmSaveReservation')
       : t('publicReservation.submitReservationRequest');
 
-  const welcomeFeatures = t('publicReservation.features', { returnObjects: true });
-  const showWelcomeFeatures = Array.isArray(welcomeFeatures) && welcomeFeatures.length > 0;
-
   const formBody = (
     <form onSubmit={handleSubmit} className="modal-form">
       {error && <Alert type="error" message={error} onClose={() => setError(null)} />}
@@ -1012,16 +1009,6 @@ function PublicReservationForm({
               {t('publicReservation.welcomeDesc')}
             </p>
           </div>
-          {showWelcomeFeatures && (
-            <ul className="public-feature-list">
-              {welcomeFeatures.map((feature) => (
-                <li key={feature} className="public-feature-item">
-                  <span className="public-feature-dot" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-          )}
           <div className="public-welcome-meta">{t('publicReservation.welcomeMeta')}</div>
         </div>
       </aside>

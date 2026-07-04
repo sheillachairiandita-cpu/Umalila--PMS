@@ -53,5 +53,6 @@ export function mapProfitabilityRow(row) {
     checkIn: row.bookings?.check_in_date,
     checkOut: row.bookings?.check_out_date,
     bookingStatus: row.bookings?.status,
+    paymentStatus: row.bookings?.payment_status,
   };
 }

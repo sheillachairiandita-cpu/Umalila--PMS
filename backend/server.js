@@ -672,10 +672,12 @@ app.get('/api/dashboard', async (req, res) => {
       S(req, 'bookings')
         .select('*', { count: 'exact', head: true })
         .neq('status', 'cancelled')
+        .neq('payment_status', 'cancelled')
         .eq('check_in_date', today),
       S(req, 'bookings')
         .select('*', { count: 'exact', head: true })
         .neq('status', 'cancelled')
+        .neq('payment_status', 'cancelled')
         .eq('check_out_date', today),
       S(req, 'bookings')
         .select('*', { count: 'exact', head: true })

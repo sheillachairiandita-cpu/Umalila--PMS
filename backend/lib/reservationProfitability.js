@@ -7,13 +7,13 @@ import { stayNights } from './stayUtils.js';
 export function createUpsertReservationProfitability(scopeQ, buildFinancialSummary) {
   return async function upsertReservationProfitability(bookingId, tenantId) {
     const { data: booking, error: bookingError } = await scopeQ(tenantId, 'bookings')
-      .select('id, status, check_in_date, check_out_date')
+      .select('id, status, payment_status, check_in_date, check_out_date')
       .eq('id', bookingId)
       .single();
 
     if (bookingError) throw bookingError;
 
-    if (booking.status === 'cancelled') {
+    if (booking.status === 'cancelled' || booking.payment_status === 'cancelled') {
       await scopeQ(tenantId, 'reservation_profitability').delete().eq('booking_id', bookingId);
       return [];
     }

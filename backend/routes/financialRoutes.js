@@ -69,6 +69,7 @@ export function registerFinancialRoutes(app, ctx) {
       const { data: upcomingBookings, error: upcomingError } = await S(req, 'bookings')
         .select('id, amount_paid, payment_status, status, check_in_date')
         .eq('status', 'confirmed')
+        .neq('payment_status', 'cancelled')
         .in('payment_status', ['partial', 'partially_paid'])
         .gt('check_in_date', today);
 
@@ -77,6 +78,7 @@ export function registerFinancialRoutes(app, ctx) {
       const { data: pendingDepositBookings, error: depositError } = await S(req, 'bookings')
         .select('id, total_price, payment_status, status, check_in_date')
         .eq('status', 'confirmed')
+        .neq('payment_status', 'cancelled')
         .eq('payment_status', 'pending')
         .gte('check_in_date', today)
         .lte('check_in_date', depositWindowEnd);
@@ -385,9 +387,10 @@ export function registerFinancialRoutes(app, ctx) {
           nights,
           calculated_at,
           properties (id, name),
-          bookings!inner (check_in_date, check_out_date, status)
+          bookings!inner (check_in_date, check_out_date, status, payment_status)
         `)
         .neq('bookings.status', 'cancelled')
+        .neq('bookings.payment_status', 'cancelled')
         .order('calculated_at', { ascending: false });
 
       if (error) throw error;
@@ -401,7 +404,8 @@ export function registerFinancialRoutes(app, ctx) {
     try {
       const { data: bookings, error } = await S(req, 'bookings')
         .select('id')
-        .not('status', 'eq', 'cancelled');
+        .not('status', 'eq', 'cancelled')
+        .not('payment_status', 'eq', 'cancelled');
 
       if (error) throw error;
 

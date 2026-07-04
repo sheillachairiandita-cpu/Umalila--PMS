@@ -1,7 +1,7 @@
 import {
   computePropertiesStayTotal,
 } from '../../utils/propertyRateUtils';
-import { sumCountableFinanceIncome } from '../../utils/financeEligibility';
+import { sumCountableFinanceIncome, isFinanceExcludedBooking } from '../../utils/financeEligibility';
 
 export function formatRpCompact(v) {
   const n = Number(v) || 0;
@@ -356,7 +356,7 @@ function addLiveOrderRevenueToTrendBuckets({
   trendBuckets,
 }) {
   (bookings || []).forEach((b) => {
-    if (b.status === 'cancelled') return;
+    if (isFinanceExcludedBooking(b)) return;
     if (!matchesProperty(b.property_names, propertyFilter)) return;
     if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
 
@@ -418,7 +418,7 @@ export function processFinancialData({
   let totalDiscounts = 0;
 
   (bookings || []).forEach((b) => {
-    if (b.status === 'cancelled') return;
+    if (isFinanceExcludedBooking(b)) return;
     if (!matchesProperty(b.property_names, propertyFilter)) return;
     if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
 
@@ -462,6 +462,7 @@ export function processFinancialData({
 
   const pendingDeposit = (incomeRows || [])
     .filter((r) => ['confirmed', 'checked_in'].includes(r.bookingStatus))
+    .filter((r) => !isFinanceExcludedBooking({ status: r.bookingStatus, paymentStatus: r.paymentStatus }))
     .filter((r) => matchesProperty(bookingById[r.bookingId]?.property_names, propertyFilter))
     .reduce((s, r) => s + (Number(r.balanceDue) || 0), 0);
 
@@ -488,7 +489,7 @@ export function processFinancialData({
   const propertyAgg = {};
 
   (profitability || []).forEach((row) => {
-    if (row.bookingStatus === 'cancelled') return;
+    if (isFinanceExcludedBooking({ status: row.bookingStatus, paymentStatus: row.paymentStatus })) return;
     if (propertyFilter !== 'all' && row.propertyName !== propertyFilter) return;
     if (!row.checkIn || !row.checkOut) return;
     if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
@@ -557,7 +558,7 @@ export function processFinancialData({
 
   if (useProfitability) {
     (profitability || []).forEach((row) => {
-      if (row.bookingStatus === 'cancelled') return;
+      if (isFinanceExcludedBooking({ status: row.bookingStatus, paymentStatus: row.paymentStatus })) return;
       if (propertyFilter !== 'all' && row.propertyName !== propertyFilter) return;
       if (!stayOverlapsRange(row.checkIn, row.checkOut, rangeStart, rangeEnd)) return;
 
@@ -590,7 +591,7 @@ export function processFinancialData({
     });
   } else {
     (bookings || []).forEach((b) => {
-      if (b.status === 'cancelled') return;
+      if (isFinanceExcludedBooking(b)) return;
       if (!matchesProperty(b.property_names, propertyFilter)) return;
       if (!stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd)) return;
 
@@ -706,7 +707,7 @@ export function processHospitalityData({
   (bookings || []).forEach((b) => { bookingById[b.id] = b; });
 
   const filtered = (bookings || []).filter((b) => {
-    if (b.status === 'cancelled') return false;
+    if (isFinanceExcludedBooking(b)) return false;
     if (!matchesProperty(b.property_names, propertyFilter)) return false;
     return stayOverlapsRange(b.check_in_date, b.check_out_date, rangeStart, rangeEnd);
   });

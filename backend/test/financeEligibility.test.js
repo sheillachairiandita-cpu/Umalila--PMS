@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isCountableFinanceIncome,
+  isFinanceExcludedBooking,
   sumCountableFinanceIncome,
   filterApprovedTransactions,
 } from '../lib/financeEligibility.js';
@@ -27,6 +28,19 @@ describe('financeEligibility', () => {
     );
   });
 
+  it('excludes income linked to cancelled payments', () => {
+    assert.equal(
+      isCountableFinanceIncome({
+        type: 'income',
+        status: 'approved',
+        booking_id: 'b1',
+        bookings: { status: 'confirmed', payment_status: 'cancelled' },
+        amount: 500_000,
+      }),
+      false,
+    );
+  });
+
   it('includes income linked to active bookings', () => {
     assert.equal(
       isCountableFinanceIncome({
@@ -44,9 +58,16 @@ describe('financeEligibility', () => {
     const total = sumCountableFinanceIncome([
       { type: 'income', status: 'approved', amount: 100, booking_id: null },
       { type: 'income', status: 'approved', amount: 200, booking_id: 'x', bookings: { status: 'cancelled' } },
-      { type: 'income', status: 'approved', amount: 300, booking_id: 'y', bookings: { status: 'checked_in' } },
+      { type: 'income', status: 'approved', amount: 150, booking_id: 'z', bookings: { status: 'confirmed', payment_status: 'cancelled' } },
+      { type: 'income', status: 'approved', amount: 300, booking_id: 'y', bookings: { status: 'checked_in', payment_status: 'complete' } },
     ]);
     assert.equal(total, 400);
+  });
+
+  it('detects finance-excluded bookings by status or payment', () => {
+    assert.equal(isFinanceExcludedBooking({ status: 'cancelled', paymentStatus: 'pending' }), true);
+    assert.equal(isFinanceExcludedBooking({ status: 'confirmed', paymentStatus: 'cancelled' }), true);
+    assert.equal(isFinanceExcludedBooking({ status: 'confirmed', paymentStatus: 'complete' }), false);
   });
 
   it('keeps expenses when filtering transactions', () => {
