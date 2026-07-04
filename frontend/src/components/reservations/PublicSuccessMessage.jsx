@@ -1,99 +1,62 @@
 import React from 'react';
 import { CheckCircle, Calendar, PhoneCall } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import '../../i18n/publicI18n';
 import PublicLanguageSwitcher from '../../i18n/PublicLanguageSwitcher';
+import { Button } from '../ui';
+import '../../App.css';
 
 function PublicSuccessMessage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   return (
-    <div style={{
-      minHeight: '100dvh',
-      backgroundColor: '#f8fafc',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '24px',
-      paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
-      fontFamily: 'sans-serif',
-      position: 'relative',
-      boxSizing: 'border-box',
-      overflowY: 'auto',
-    }}>
-      <PublicLanguageSwitcher style={{ position: 'fixed' }} />
-      <div style={{
-        maxWidth: '500px',
-        width: '100%',
-        backgroundColor: '#ffffff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px',
-        padding: '40px 32px',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
-        textAlign: 'center',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
-          <CheckCircle size={56} color="#10b981" strokeWidth={1.5} />
-        </div>
+    <div className="public-reservation-page public-success-page">
+      <main className="public-form-panel">
+        <div className="modal-card public-form-card public-success-card" style={{ position: 'relative' }}>
+          <PublicLanguageSwitcher />
 
-        <h2 style={{
-          fontSize: '1.6rem',
-          color: '#0f172a',
-          margin: '0 0 12px 0',
-          fontWeight: '600',
-          letterSpacing: '-0.02em',
-        }}>
-          {t('success.title')}
-        </h2>
-
-        <p style={{
-          fontSize: '0.95rem',
-          color: '#64748b',
-          lineHeight: '1.6',
-          margin: '0 0 32px 0',
-        }}>
-          {t('success.message')}
-        </p>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px', textAlign: 'left' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '14px', borderRadius: '8px' }}>
-            <Calendar size={18} color="#1e3a8a" style={{ marginTop: '2px' }} />
-            <div>
-              <h4 style={{ margin: '0 0 2px 0', fontSize: '0.85rem', color: '#0f172a' }}>{t('success.bookingVerification')}</h4>
-              <p style={{ margin: '0', fontSize: '0.8rem', color: '#64748b' }}>{t('success.bookingVerificationDesc')}</p>
+          <div className="modal-header public-success-header">
+            <div className="public-success-icon" aria-hidden="true">
+              <CheckCircle size={52} strokeWidth={1.5} />
             </div>
+            <h2>{t('success.title')}</h2>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '14px', borderRadius: '8px' }}>
-            <PhoneCall size={18} color="#1e3a8a" style={{ marginTop: '2px' }} />
-            <div>
-              <h4 style={{ margin: '0 0 2px 0', fontSize: '0.85rem', color: '#0f172a' }}>{t('success.invoicePayment')}</h4>
-              <p style={{ margin: '0', fontSize: '0.8rem', color: '#64748b' }}>{t('success.invoicePaymentDesc')}</p>
+          <div className="modal-form public-success-body">
+            <p className="public-success-message">{t('success.message')}</p>
+
+            <div className="public-success-steps">
+              <div className="form-section public-success-step">
+                <h4>
+                  <Calendar size={14} />
+                  {t('success.bookingVerification')}
+                </h4>
+                <p className="public-success-step-desc">{t('success.bookingVerificationDesc')}</p>
+              </div>
+
+              <div className="form-section public-success-step">
+                <h4>
+                  <PhoneCall size={14} />
+                  {t('success.invoicePayment')}
+                </h4>
+                <p className="public-success-step-desc">{t('success.invoicePaymentDesc')}</p>
+              </div>
             </div>
+
+            <Button
+              type="button"
+              variant="primary"
+              fullWidth
+              size="md"
+              onClick={() => navigate('/')}
+            >
+              {t('success.returnToBooking')}
+            </Button>
           </div>
         </div>
-
-        <a
-          href="/"
-          style={{
-            display: 'inline-block',
-            width: '100%',
-            backgroundColor: '#0f172a',
-            color: '#ffffff',
-            textDecoration: 'none',
-            padding: '12px',
-            borderRadius: '8px',
-            fontSize: '0.9rem',
-            fontWeight: '600',
-            transition: 'background-color 0.2s',
-            boxSizing: 'border-box',
-          }}
-          onMouseOver={(e) => { e.currentTarget.style.backgroundColor = '#1e293b'; }}
-          onMouseOut={(e) => { e.currentTarget.style.backgroundColor = '#0f172a'; }}
-        >
-          {t('success.returnToBooking')}
-        </a>
-      </div>
+      </main>
     </div>
   );
 }

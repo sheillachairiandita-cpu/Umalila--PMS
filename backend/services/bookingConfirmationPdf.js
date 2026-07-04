@@ -6,7 +6,17 @@ import { PNG } from 'pngjs';
 import PDFDocument from 'pdfkit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOGO_PNG_PATH = path.resolve(__dirname, '../../frontend/public/Umalila-w.png');
+const LOGO_PNG_CANDIDATES = [
+  path.resolve(__dirname, '../assets/Umalila-w.png'),
+  path.resolve(__dirname, '../../frontend/public/Umalila-w.png'),
+];
+
+function resolveLogoPngPath() {
+  for (const candidate of LOGO_PNG_CANDIDATES) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return LOGO_PNG_CANDIDATES[0];
+}
 const FONT_DIR      = path.resolve(__dirname, '../lib/fonts');
 const FONT_REGULAR  = path.join(FONT_DIR, 'Poppins-Regular.ttf');
 const FONT_SEMIBOLD = path.join(FONT_DIR, 'Poppins-SemiBold.ttf');
@@ -56,7 +66,7 @@ function isLogoPixel(r, g, b) {
 }
 
 /**
- * Load frontend/public/Umalila-w.png, key out the black backdrop, and crop to
+ * Load backend/assets/Umalila-w.png (or frontend/public fallback), key out the black
  * the visible white wordmark so it sits transparently on the purple header.
  */
 function processLogoPng(filePath) {
@@ -117,12 +127,13 @@ function processLogoPng(filePath) {
 function getLogoAsset() {
   if (logoCache) return logoCache;
 
-  if (!fs.existsSync(LOGO_PNG_PATH)) {
-    throw new Error(`Logo PNG not found at ${LOGO_PNG_PATH}`);
+  const logoPath = resolveLogoPngPath();
+  if (!fs.existsSync(logoPath)) {
+    throw new Error(`Logo PNG not found. Checked: ${LOGO_PNG_CANDIDATES.join(', ')}`);
   }
 
   try {
-    logoCache = processLogoPng(LOGO_PNG_PATH);
+    logoCache = processLogoPng(logoPath);
   } catch (error) {
     throw new Error(`Failed to process logo PNG: ${error.message}`);
   }
@@ -601,19 +612,19 @@ function drawInvoicePage(doc, summary) {
   setFill(doc, C.text).font(F.semibold).fontSize(11)
     .text(PROPERTY.name, col1X, blockTop, { width: colW });
   let leftY = doc.y + 4;
-  setFill(doc, C.text).font(F.regular).fontSize(9)
+  setFill(doc, C.text).font(F.regular).fontSize(10)
     .text(PROPERTY.address, col1X, leftY, { width: colW });
   leftY = doc.y + 4;
-  const contactColonX = colonXForLabels(doc, ['Contact'], col1X, 9);
-  drawColonField(doc, 'Contact', PROPERTY.phone, col1X, leftY, contactColonX, { size: 9 });
+  const contactColonX = colonXForLabels(doc, ['Contact'], col1X, 10);
+  drawColonField(doc, 'Contact', PROPERTY.phone, col1X, leftY, contactColonX, { size: 10 });
 
   setFill(doc, C.text).font(F.semibold).fontSize(11)
     .text('Bill To', col2X, blockTop, { width: colW });
-  const billColonX = colonXForLabels(doc, ['Customer', 'Contact'], col2X, 9);
+  const billColonX = colonXForLabels(doc, ['Customer', 'Contact'], col2X, 10);
   let rightY = doc.y + 6;
-  drawColonField(doc, 'Customer', guestName, col2X, rightY, billColonX, { size: 9 });
+  drawColonField(doc, 'Customer', guestName, col2X, rightY, billColonX, { size: 10 });
   rightY += 14;
-  drawColonField(doc, 'Contact', phone, col2X, rightY, billColonX, { size: 9 });
+  drawColonField(doc, 'Contact', phone, col2X, rightY, billColonX, { size: 10 });
 
   y = Math.max(leftY, rightY) + 26;
 

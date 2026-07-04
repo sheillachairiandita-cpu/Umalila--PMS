@@ -2261,6 +2261,79 @@ body {
 
 .public-form-card { width: 100%; max-width: 600px; }
 
+/* Public booking success (single-panel, reuses form card styles) */
+.public-success-page {
+  min-height: 100dvh;
+  background-color: var(--bg);
+}
+
+.public-success-page .public-form-panel {
+  flex: 1;
+  width: 100%;
+  min-height: 100dvh;
+  align-items: center;
+}
+
+.public-success-card {
+  max-height: none;
+}
+
+.public-success-header {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  border-bottom: none;
+  padding-bottom: 8px;
+}
+
+.public-success-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--navy);
+}
+
+.public-success-body {
+  gap: 24px;
+}
+
+.public-success-message {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.public-success-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.public-success-step {
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.public-success-step h4 {
+  margin: 0;
+}
+
+.public-success-step-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 /* --------------------------------------------------------------------------
    17. UTILITY CLASSES
    -------------------------------------------------------------------------- */
@@ -2298,6 +2371,15 @@ body {
    -------------------------------------------------------------------------- */
 @media (max-width: 1024px) {
   :root { font-size: 13px; }
+
+  .public-success-page .public-form-panel {
+    padding: 32px 24px;
+    padding-bottom: calc(32px + var(--safe-area-bottom));
+  }
+
+  .public-success-card {
+    max-width: 520px;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -2343,6 +2425,31 @@ body {
   .public-form-panel {
     padding: 24px 16px;
     padding-bottom: calc(24px + var(--safe-area-bottom));
+  }
+
+  .public-success-header {
+    padding: 16px 18px 0;
+  }
+
+  .public-success-header h2 {
+    font-size: 1.15rem;
+  }
+
+  .public-success-icon svg {
+    width: 44px;
+    height: 44px;
+  }
+
+  .public-success-message {
+    font-size: 0.9rem;
+  }
+
+  .public-success-step {
+    padding: 12px 14px;
+  }
+
+  .public-success-step-desc {
+    font-size: 0.8rem;
   }
 
   .dashboard-container,
