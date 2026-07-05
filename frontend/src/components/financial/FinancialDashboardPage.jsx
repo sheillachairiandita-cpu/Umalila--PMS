@@ -249,8 +249,10 @@ function FinancialDashboardPage() {
 
       {cogsModal !== null && (
         <CogsProfileModal
+          isOpen
           profile={cogsModal}
           properties={cogsData?.properties || []}
+          existingPropertyIds={(cogsData?.profiles || []).map((p) => p.propertyId)}
           onClose={() => setCogsModal(null)}
           onSave={saveCogsProfile}
         />
